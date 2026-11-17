@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -210,12 +211,20 @@ fn collect_tree_entries(
         entries.push((name, path, is_dir, metadata.len()));
     }
 
-    // Sort: directories first, then alphabetical
-    entries.sort_by(|a, b| match (a.2, b.2) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
-    });
+    // Sort: directories first, then alphabetical (parallel acceleration via Rayon for large folders)
+    if entries.len() > 64 {
+        entries.par_sort_by(|a, b| match (a.2, b.2) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+        });
+    } else {
+        entries.sort_by(|a, b| match (a.2, b.2) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+        });
+    }
 
     for (name, path, is_dir, byte_size) in entries {
         let is_expanded = is_dir && expanded_folders.contains(&path);

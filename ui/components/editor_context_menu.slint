@@ -1,0 +1,335 @@
+export component EditorContextMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+
+    callback undo();
+    callback redo();
+    callback cut();
+    callback copy();
+    callback paste();
+    callback select_all();
+    callback toggle_comment();
+    callback duplicate_line();
+    callback run_assemble();
+    callback run_emulator();
+
+    width: 250px;
+    height: ctx_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 14px;
+    drop-shadow-color: #000000bb;
+    z: 120;
+
+    ctx_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        // Undo
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_undo.has-hover ? #313244 : #00000000;
+            ctx_undo := TouchArea {
+                clicked => { root.undo(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/undo.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Отменить" : "Undo";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+Z"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Redo
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_redo.has-hover ? #313244 : #00000000;
+            ctx_redo := TouchArea {
+                clicked => { root.redo(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/redo.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Повторить" : "Redo";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+Y"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Cut
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_cut.has-hover ? #313244 : #00000000;
+            ctx_cut := TouchArea {
+                clicked => { root.cut(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/cut.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Вырезать" : "Cut";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+X"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Copy
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_copy.has-hover ? #313244 : #00000000;
+            ctx_copy := TouchArea {
+                clicked => { root.copy(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/copy.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Копировать" : "Copy";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+C"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Paste
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_paste.has-hover ? #313244 : #00000000;
+            ctx_paste := TouchArea {
+                clicked => { root.paste(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/paste.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Вставить" : "Paste";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+V"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Select All
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_selall.has-hover ? #313244 : #00000000;
+            ctx_selall := TouchArea {
+                clicked => { root.select_all(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/editor.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Выделить всё" : "Select All";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+A"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Toggle Comment
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_comm.has-hover ? #313244 : #00000000;
+            ctx_comm := TouchArea {
+                clicked => { root.toggle_comment(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/comment.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Закомментировать (;)" : "Toggle Comment (;)";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+/"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Duplicate Line
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_dup.has-hover ? #313244 : #00000000;
+            ctx_dup := TouchArea {
+                clicked => { root.duplicate_line(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/copy.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Дублировать строку" : "Duplicate Line";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "Ctrl+D"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Assemble with asmx20
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_asm.has-hover ? #313244 : #00000000;
+            ctx_asm := TouchArea {
+                clicked => { root.run_assemble(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/build.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Собрать в .COM" : "Build .COM";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "asmx20"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+            }
+        }
+
+        // Run in CP/M Emulator (F5)
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: ctx_run.has-hover ? #313244 : #00000000;
+            ctx_run := TouchArea {
+                clicked => { root.run_emulator(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/run.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Запустить в CP/M" : "Run in CP/M";
+                        font-size: 13px;
+                        color: #a6e3a1;
+                        vertical-alignment: center;
+                    }
+                }
+                Text { text: "F5"; font-size: 11px; color: #a6e3a1; vertical-alignment: center; }
+            }
+        }
+    }
+}

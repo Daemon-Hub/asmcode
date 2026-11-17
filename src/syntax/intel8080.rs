@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use slint::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -397,7 +398,12 @@ pub fn parse_line(line: &str, line_number: i32) -> HighlightLine {
             while j < len && (CHAR_MAP[bytes[j] as usize] & CC_SPACE) != 0 {
                 j += 1;
             }
-            if j + 3 <= len && line[j..].to_ascii_uppercase().starts_with("EQU") {
+            let is_equ = j + 3 <= len
+                && (bytes[j] | 0x20 == b'e')
+                && (bytes[j + 1] | 0x20 == b'q')
+                && (bytes[j + 2] | 0x20 == b'u')
+                && (j + 3 == len || (CHAR_MAP[bytes[j + 3] as usize] & CC_SPACE) != 0);
+            if is_equ {
                 (TokenType::Label, COLOR_LABEL)
             } else {
                 (TokenType::Text, COLOR_TEXT)
@@ -419,14 +425,20 @@ pub fn parse_line(line: &str, line_number: i32) -> HighlightLine {
 }
 
 pub fn highlight_document(document: &str) -> Vec<HighlightLine> {
-    let line_count = document.lines().count();
-    let mut lines = Vec::with_capacity(line_count.min(1000));
-    // For large documents over 800 lines, limit highlighting to first 800 lines to avoid UI thread freeze
-    let limit = 800;
-    for (idx, line) in document.lines().take(limit).enumerate() {
-        lines.push(parse_line(line, (idx + 1) as i32));
+    let raw_lines: Vec<&str> = document.lines().collect();
+    if raw_lines.len() > 32 {
+        raw_lines
+            .into_par_iter()
+            .enumerate()
+            .map(|(idx, line)| parse_line(line, (idx + 1) as i32))
+            .collect()
+    } else {
+        raw_lines
+            .into_iter()
+            .enumerate()
+            .map(|(idx, line)| parse_line(line, (idx + 1) as i32))
+            .collect()
     }
-    lines
 }
 
 #[cfg(test)]

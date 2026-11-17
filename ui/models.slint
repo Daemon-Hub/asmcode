@@ -1,0 +1,56 @@
+export struct FileItem {
+    name: string,
+    path: string,
+    is_dir: bool,
+    is_asm: bool,
+    is_expanded: bool,
+    depth: int,
+    icon_name: string,
+    size_str: string,
+}
+
+export struct TokenItem {
+    text: string,
+    color: color,
+}
+
+export struct HighlightLineItem {
+    line_number: int,
+    tokens: [TokenItem],
+}
+
+export struct LabelItem {
+    name: string,
+    line_number: int,
+}
+
+export struct SuggestionItem {
+    name: string,
+    category: string,
+    syntax: string,
+    summary: string,
+    flags: string,
+    cycles: string,
+    insert_text: string,
+    icon_kind: string,
+    example: string,
+}
+
+export struct DocItem {
+    name: string,
+    syntax: string,
+    summary: string,
+    operands: string,
+    flags: string,
+    cycles: string,
+    bytes: int,
+    category: string,
+}
+
+export struct TerminalLineItem {
+    line_number: int,
+    prefix: string,
+    prefix_color: color,
+    text: string,
+    text_color: color,
+}

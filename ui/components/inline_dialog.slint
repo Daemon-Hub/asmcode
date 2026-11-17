@@ -1,0 +1,98 @@
+import { IconButton } from "icon_button.slint";
+
+export component InlineDialog inherits Rectangle {
+    in property <image> icon_source;
+    in property <string> initial_text: "";
+    in property <color> border_accent: #89b4fa;
+    in property <color> ok_bg: #a6e3a1;
+    in property <color> ok_text_color: #11111b;
+
+    callback accepted(string);
+    callback cancelled();
+
+    height: 38px;
+    background: #11111b;
+    border-radius: 5px;
+    border-width: 1px;
+    border-color: root.border_accent;
+    clip: true;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 6px;
+        spacing: 6px;
+        alignment: stretch;
+
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon_source;
+                width: 16px;
+                height: 16px;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #181825;
+            border-radius: 3px;
+            border-width: 1px;
+            border-color: #313244;
+
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                alignment: stretch;
+
+                input := TextInput {
+                    text: root.initial_text;
+                    font-family: "CaskaydiaCove NF SemiBold";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    single-line: true;
+                    vertical-alignment: center;
+                    accepted => {
+                        root.accepted(self.text);
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 38px;
+                height: 26px;
+                border-radius: 3px;
+                background: ok_touch.has-hover ? #a6e3a1 : root.ok_bg;
+                Text {
+                    text: "OK";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: root.ok_text_color;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                ok_touch := TouchArea {
+                    clicked => {
+                        root.accepted(input.text);
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon_source: @image-url("../icons/close.svg");
+                icon_width: 12px;
+                icon_height: 12px;
+                btn_width: 26px;
+                btn_height: 26px;
+                bg_hover: #f38ba833;
+                bg_normal: #00000000;
+                clicked => { root.cancelled(); }
+            }
+        }
+    }
+}

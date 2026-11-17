@@ -4,6 +4,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Clone, Debug)]
 pub struct Diagnostic {
     pub line: usize,
@@ -61,7 +66,10 @@ impl CompilerRunner {
 
         let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
 
-        let output = match Command::new(&asmx_bin)
+        let mut cmd = Command::new(&asmx_bin);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let output = match cmd
             .current_dir(parent_dir)
             .args([
                 "-C",
@@ -158,7 +166,10 @@ impl CompilerRunner {
 
         let parent_dir = com_path.parent().unwrap_or_else(|| Path::new("."));
 
-        match Command::new(&cpmemu_bin)
+        let mut cmd = Command::new(&cpmemu_bin);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        match cmd
             .current_dir(parent_dir)
             .args(["--8080", &com_path.to_string_lossy()])
             .output()

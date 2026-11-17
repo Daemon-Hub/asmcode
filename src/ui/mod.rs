@@ -1,9 +1,15 @@
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 use crate::autocomplete::{AutocompleteEngine, Suggestion};
 use crate::compiler::CompilerRunner;
@@ -46,6 +52,11 @@ impl IdeController {
     }
 }
 
+fn sync_logs(ui: &AppWindow, ctrl: &IdeController) {
+    ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+    update_terminal_lines(ui, &ctrl.logs);
+}
+
 fn persist_current_session(app: &AppWindow, ctrl: &IdeController) {
     let session = AppSession {
         last_open_folder: Some(ctrl.file_manager.current_dir.to_string_lossy().to_string()),
@@ -64,7 +75,7 @@ fn persist_current_session(app: &AppWindow, ctrl: &IdeController) {
     };
     session::save_session(&session);
 }
-pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, session: AppSession) {
+pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, session: AppSession) {
     // 0. Restore session settings
     app.set_editor_font_size(session.editor_font_size);
     app.set_editor_font_italic(session.editor_font_italic);
@@ -76,15 +87,15 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
 
     // Initial terminal lines
     {
-        let ctrl = controller_rc.borrow();
+        let ctrl = controller_rc.lock().unwrap();
         update_terminal_lines(app, &ctrl.logs);
     }
     app.set_editor_font_italic(session.editor_font_italic);
     app.set_current_language(SharedString::from(&session.current_language));
     app.set_labels_expanded(session.labels_expanded);
     app.set_terminal_expanded(session.terminal_expanded);
-    // 1. Populate Docs List (default Russian)
-    populate_docs_ui(app, "ru");
+    // 1. Populate Docs List
+    populate_docs_ui(app, &session.current_language);
 
     // 2. Load File List
     refresh_files_ui(app, &controller_rc);
@@ -102,7 +113,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             None
         }
         .or_else(|| {
-            let ctrl = controller_rc.borrow();
+            let ctrl = controller_rc.lock().unwrap();
             if ctrl.file_manager.current_dir.join("8080.asm").exists() {
                 Some(ctrl.file_manager.current_dir.join("8080.asm"))
             } else if ctrl.file_manager.current_dir.join("main.asm").exists() {
@@ -113,7 +124,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         });
 
         if let Some(target_file) = target_opt {
-            let mut ctrl = controller_rc.borrow_mut();
+            let mut ctrl = controller_rc.lock().unwrap();
             if let Ok(content) = ctrl.file_manager.read_file_content(&target_file) {
                 let fname = target_file
                     .file_name()
@@ -140,11 +151,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     // 5. Connect UI Callbacks:
 
     // Close Active File
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_close_active_file(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.file_manager.active_file_path = None;
         ui.set_active_file_name(SharedString::default());
         ui.set_active_file_path(SharedString::default());
@@ -159,7 +170,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     let last_folder_click: Rc<RefCell<Option<(PathBuf, Instant)>>> = Rc::new(RefCell::new(None));
 
     // File Clicked in Sidebar (Single-click opens file; Click/Double-click toggles tree folder expansion)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     let folder_click_clone = Rc::clone(&last_folder_click);
     app.on_file_clicked(move |path_str, is_dir| {
@@ -167,13 +178,13 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         let path = PathBuf::from(path_str.as_str());
 
         if is_dir {
-            let mut ctrl = ctrl_clone.borrow_mut();
+            let mut ctrl = ctrl_clone.lock().unwrap();
             ctrl.file_manager.toggle_folder(&path);
             drop(ctrl);
             refresh_files_ui(&ui, &ctrl_clone);
         } else {
             *folder_click_clone.borrow_mut() = None;
-            let mut ctrl = ctrl_clone.borrow_mut();
+            let mut ctrl = ctrl_clone.lock().unwrap();
             match ctrl.file_manager.read_file_content(&path) {
                 Ok(content) => {
                     let file_name = path
@@ -187,7 +198,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
                     ctrl.undo_manager.reset(content.clone(), 0);
 
                     ctrl.append_log(&format!("[FILE] Opened '{}'", path.display()));
-                    ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                    sync_logs(&ui, &ctrl);
 
                     let ext = path
                         .extension()
@@ -198,31 +209,33 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
                     ui.set_is_active_asm(is_asm);
 
                     let auto = ctrl.autocomplete.clone();
+                    persist_current_session(&ui, &ctrl);
                     drop(ctrl);
                     update_highlight_and_labels(&ui, &auto, &content, is_asm);
                 }
                 Err(err) => {
                     ctrl.append_log(&format!("[ERROR] Could not read file: {}", err));
-                    ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                    sync_logs(&ui, &ctrl);
                 }
             }
         }
     });
 
     // Navigate Parent
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_navigate_parent(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         if ctrl.file_manager.navigate_parent() {
+            persist_current_session(&ui, &ctrl);
             drop(ctrl);
             refresh_files_ui(&ui, &ctrl_clone);
         }
     });
 
     // Refresh Files
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_refresh_files(move || {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -230,11 +243,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Create New File
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_create_file(move |name| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         match ctrl.file_manager.create_new_file(name.as_str()) {
             Ok((new_path, initial_content)) => {
                 let file_name = new_path
@@ -249,7 +262,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
                 ui.set_is_active_asm(true);
 
                 ctrl.append_log(&format!("[FILE] Created '{}'", new_path.display()));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
 
                 let auto = ctrl.autocomplete.clone();
                 drop(ctrl);
@@ -258,46 +271,46 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Could not create file: {}", err));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
         }
     });
 
     // Create New Folder
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_create_new_folder(move |name| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         match ctrl.file_manager.create_new_folder(name.as_str()) {
             Ok(new_folder) => {
                 ctrl.append_log(&format!(
                     "[EXPLORER] Created directory '{}'",
                     new_folder.display()
                 ));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
                 persist_current_session(&ui, &ctrl);
                 drop(ctrl);
                 refresh_files_ui(&ui, &ctrl_clone);
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Could not create folder: {}", err));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
         }
     });
 
     // Rename File or Folder
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_rename_file(move |old_path_str, new_name| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         let old_path = PathBuf::from(old_path_str.as_str());
         match ctrl.file_manager.rename_path(&old_path, new_name.as_str()) {
             Ok(new_path) => {
                 ctrl.append_log(&format!("[EXPLORER] Renamed to '{}'", new_path.display()));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
                 if let Some(ref active) = ctrl.file_manager.active_file_path {
                     let fname = active
                         .file_name()
@@ -315,22 +328,22 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Could not rename: {}", err));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
         }
     });
 
     // Delete File or Folder
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_delete_file_requested(move |path_str| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         let path = PathBuf::from(path_str.as_str());
         match ctrl.file_manager.delete_path(&path) {
             Ok(()) => {
                 ctrl.append_log(&format!("[EXPLORER] Deleted '{}'", path.display()));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
                 if ctrl.file_manager.active_file_path.is_none() {
                     ui.set_code_text(SharedString::default());
                     ui.set_active_file_name(SharedString::default());
@@ -345,18 +358,21 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Could not delete: {}", err));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
         }
     });
 
     // Copy Path to Clipboard
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_copy_path_requested(move |path_str| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
-        let _ = Command::new("powershell")
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        let mut cmd = Command::new("powershell");
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd
             .arg("-NoProfile")
             .arg("-Command")
             .arg(format!(
@@ -368,15 +384,15 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             "[EXPLORER] Copied path to clipboard: {}",
             path_str
         ));
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+        sync_logs(&ui, &ctrl);
     });
 
     // Reveal in Windows File Explorer
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_reveal_in_explorer_requested(move |path_str| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         let _ = Command::new("explorer")
             .arg(format!("/select,{}", path_str))
             .spawn();
@@ -384,11 +400,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             "[EXPLORER] Revealed in File Explorer: {}",
             path_str
         ));
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+        sync_logs(&ui, &ctrl);
     });
 
     // Save File
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_save_file(move || {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -397,7 +413,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             return;
         }
 
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         let text = ui.get_code_text().to_string();
 
         let save_path = if let Some(path) = &ctrl.file_manager.active_file_path {
@@ -418,91 +434,103 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
                 ));
                 ui.set_status_message(SharedString::from("Saved"));
                 ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Save failed: {}", err));
                 ui.set_status_message(SharedString::from("Save failed"));
                 ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
             }
         }
     });
 
-    // Open File Dialog (Windows Native Dialog)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    // Open File Dialog (Windows Native Modern File Picker - Asynchronous via rfd, No Console Window)
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_open_file_dialog(move || {
-        let Some(ui) = app_weak.upgrade() else { return };
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Filter = 'Intel 8080 Assembly (*.asm;*.inc)|*.asm;*.inc|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.FileName }",
-            ])
-            .output()
-        {
-            let selected_path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !selected_path_str.is_empty() {
-                let path = PathBuf::from(&selected_path_str);
-                let mut ctrl = ctrl_clone.borrow_mut();
-                if let Ok(content) = ctrl.file_manager.read_file_content(&path) {
-                    let file_name = path
-                        .file_name()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "file.asm".to_string());
-                    ui.set_active_file_name(SharedString::from(&file_name));
-                    ui.set_active_file_path(SharedString::from(path.to_string_lossy().to_string()));
-                    ui.set_code_text(SharedString::from(&content));
-                    ui.set_is_dirty(false);
-                    ctrl.undo_manager.reset(content.clone(), 0);
+        let app_weak_inner = app_weak.clone();
+        let ctrl_clone_inner = Arc::clone(&ctrl_clone);
+        std::thread::spawn(move || {
+            let start_dir = {
+                let ctrl = ctrl_clone_inner.lock().unwrap();
+                ctrl.file_manager.current_dir.clone()
+            };
+            if let Some(path) = rfd::FileDialog::new()
+                .set_title("Open Intel 8080 File")
+                .set_directory(&start_dir)
+                .add_filter("Assembly Files (*.asm, *.inc, *.mac)", &["asm", "inc", "mac", "s"])
+                .add_filter("All Files (*.*)", &["*"])
+                .pick_file()
+            {
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = app_weak_inner.upgrade() else { return };
+                    let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                    if let Ok(content) = ctrl.file_manager.read_file_content(&path) {
+                        let file_name = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "file.asm".to_string());
+                        ui.set_active_file_name(SharedString::from(&file_name));
+                        ui.set_active_file_path(SharedString::from(path.to_string_lossy().to_string()));
+                        ui.set_code_text(SharedString::from(&content));
+                        ui.set_is_dirty(false);
+                        ctrl.undo_manager.reset(content.clone(), 0);
 
-                    ctrl.append_log(&format!("[FILE] Opened from disk: '{}'", path.display()));
-                    ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                        ctrl.append_log(&format!("[FILE] Opened from disk: '{}'", path.display()));
+                        sync_logs(&ui, &ctrl);
 
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or("")
-                        .to_ascii_lowercase();
-                    let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
-                    ui.set_is_active_asm(is_asm);
+                        let ext = path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_ascii_lowercase();
+                        let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
+                        ui.set_is_active_asm(is_asm);
 
-                    let auto = ctrl.autocomplete.clone();
-                    drop(ctrl);
-                    update_highlight_and_labels(&ui, &auto, &content, is_asm);
-                }
+                        let auto = ctrl.autocomplete.clone();
+                        persist_current_session(&ui, &ctrl);
+                        drop(ctrl);
+                        update_highlight_and_labels(&ui, &auto, &content, is_asm);
+                    }
+                });
             }
-        }
+        });
     });
 
-    // Open Folder Dialog (Windows Native Folder Picker)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    // Open Folder Dialog (Windows Native Modern Folder Picker - Asynchronous via rfd, No Console Window)
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_open_folder_dialog(move || {
-        let Some(ui) = app_weak.upgrade() else { return };
-        if let Ok(output) = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }",
-            ])
-            .output()
-        {
-            let selected_folder = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !selected_folder.is_empty() {
-                let mut ctrl = ctrl_clone.borrow_mut();
-                ctrl.file_manager.current_dir = PathBuf::from(&selected_folder);
-                ctrl.append_log(&format!("[WORKSPACE] Switched directory to: '{}'", selected_folder));
-                ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
-                drop(ctrl);
-                refresh_files_ui(&ui, &ctrl_clone);
+        let app_weak_inner = app_weak.clone();
+        let ctrl_clone_inner = Arc::clone(&ctrl_clone);
+        std::thread::spawn(move || {
+            let start_dir = {
+                let ctrl = ctrl_clone_inner.lock().unwrap();
+                ctrl.file_manager.current_dir.clone()
+            };
+            if let Some(folder_path) = rfd::FileDialog::new()
+                .set_title("Open Workspace Folder")
+                .set_directory(&start_dir)
+                .pick_folder()
+            {
+                let folder_str = folder_path.to_string_lossy().to_string();
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = app_weak_inner.upgrade() else { return };
+                    let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                    ctrl.file_manager.current_dir = folder_path;
+                    ctrl.append_log(&format!("[WORKSPACE] Switched directory to: '{}'", folder_str));
+                    sync_logs(&ui, &ctrl);
+                    persist_current_session(&ui, &ctrl);
+                    drop(ctrl);
+                    refresh_files_ui(&ui, &ctrl_clone_inner);
+                });
             }
-        }
+        });
     });
 
     // Insert Tab (Inserts 4 spaces without losing focus)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_insert_tab(move |byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -520,7 +548,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -528,7 +556,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Insert Newline (Preserving leading indentation / Auto-indent)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_insert_newline(move |byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -555,7 +583,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -563,7 +591,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Apply Completion at Cursor Offset (replaces the typed prefix seamlessly)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_apply_completion_at(move |snippet, byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -603,7 +631,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
 
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -612,41 +640,59 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
 
     // Delete Word Left (Ctrl + Backspace)
     // Strictly bounded to the start of the current line; never deletes characters on previous lines
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_delete_word_left(move |byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
         let code = ui.get_code_text().to_string();
-        let offset = (byte_offset as usize).min(code.len());
-        let pre = &code[..offset];
-        let line_start = pre.rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let bytes = code.as_bytes();
+        let offset = (byte_offset as usize).min(bytes.len());
+
+        let pre_bytes = &bytes[..offset];
+        let line_start = pre_bytes
+            .iter()
+            .rposition(|&b| b == b'\n')
+            .map(|p| p + 1)
+            .unwrap_or(0);
 
         if offset <= line_start {
             return offset as i32;
         }
 
-        let line_pre = &code[line_start..offset];
-        let after_ws = line_pre.trim_end_matches([' ', '\t']);
-        let delete_from = if after_ws.is_empty() {
-            line_start
+        let line_bytes = &bytes[line_start..offset];
+
+        // Skip trailing whitespace on current line before cursor
+        let mut end = line_bytes.len();
+        while end > 0
+            && (line_bytes[end - 1] == b' '
+                || line_bytes[end - 1] == b'\t'
+                || line_bytes[end - 1] == b'\r')
+        {
+            end -= 1;
+        }
+
+        let delete_rel = if end == 0 {
+            0
         } else {
-            let word_start = after_ws
-                .rfind(|c: char| !c.is_alphanumeric() && c != '_')
-                .map(|p| p + 1)
-                .unwrap_or(0);
-            if word_start == after_ws.len() {
-                after_ws
-                    .rfind(|c: char| c.is_alphanumeric() || c == '_' || c == ' ' || c == '\t')
-                    .map(|p| p + 1)
-                    .unwrap_or(0)
-            } else {
-                word_start
+            let mut word_start = end;
+            let is_ident = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+            let first_is_ident = is_ident(line_bytes[end - 1]);
+            while word_start > 0 {
+                let b = line_bytes[word_start - 1];
+                if b == b' ' || b == b'\t' || b == b'\r' {
+                    break;
+                }
+                if is_ident(b) != first_is_ident {
+                    break;
+                }
+                word_start -= 1;
             }
+            word_start
         };
 
-        let final_from = (line_start + delete_from).max(line_start);
+        let final_from = line_start + delete_rel;
         let mut new_code = String::with_capacity(code.len());
         new_code.push_str(&code[..final_from]);
         new_code.push_str(&code[offset..]);
@@ -654,7 +700,9 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.borrow();
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        ctrl.undo_manager
+            .record_edit(&new_code, final_from as i32, false);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -662,11 +710,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Undo (Ctrl + Z)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_editor_undo(move |_cursor| {
         let Some(ui) = app_weak.upgrade() else { return 0 };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         if let Some(snap) = ctrl.undo_manager.undo() {
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
@@ -679,11 +727,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Redo (Ctrl + Y or Ctrl + Shift + Z)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_editor_redo(move |_cursor| {
         let Some(ui) = app_weak.upgrade() else { return 0 };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         if let Some(snap) = ctrl.undo_manager.redo() {
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
@@ -696,7 +744,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Toggle Comment Range (Ctrl + /) - Single line or Multi-line selection
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_toggle_comment_range(move |cursor_offset, anchor_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -709,7 +757,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.undo_manager.record_edit(&new_code, new_pos, true);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
@@ -718,7 +766,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Legacy single offset fallback
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_toggle_comment(move |byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -731,7 +779,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.undo_manager.record_edit(&new_code, new_pos, true);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
@@ -740,7 +788,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Duplicate Line (Ctrl + D)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_duplicate_line(move |byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
@@ -768,7 +816,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.undo_manager.record_edit(&new_code, new_pos, true);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
@@ -776,29 +824,51 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         new_pos
     });
 
-    // Code Edited (Typing in Editor)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    // Code Edited (Typing in Editor with Live Autocomplete Trigger)
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
-    app.on_code_edited(move |new_code| {
+    app.on_code_edited(move |new_code, cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
         ui.set_is_dirty(true);
 
         {
-            let mut ctrl = ctrl_clone.borrow_mut();
-            ctrl.undo_manager.record_edit(new_code.as_str(), 0, false);
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            ctrl.undo_manager.record_edit(new_code.as_str(), cursor_offset as i32, false);
         }
 
-        let autocomplete = {
-            let ctrl = ctrl_clone.borrow();
-            ctrl.autocomplete.clone()
-        };
-
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &autocomplete, new_code.as_str(), is_asm);
+        {
+            let ctrl = ctrl_clone.lock().unwrap();
+            update_highlight_and_labels(&ui, &ctrl.autocomplete, new_code.as_str(), is_asm);
+        }
+
+        let lang = ui.get_current_language().to_string();
+        let prefix = extract_prefix_at_offset(new_code.as_str(), cursor_offset as usize);
+        if is_asm && !prefix.is_empty() {
+            refresh_suggestions_ui(&ui, &ctrl_clone, prefix, &lang);
+            let has_suggestions = ui.get_suggestion_list().row_count() > 0;
+            if has_suggestions {
+                ui.set_popup_anchor_x(ui.get_cursor_x());
+                ui.set_popup_anchor_y(ui.get_cursor_y());
+                let cy = ui.get_cursor_y();
+                let line_h = ui.get_editor_line_height();
+                let line_idx = if line_h > 0.0 {
+                    (cy / line_h).round() as i32
+                } else {
+                    0
+                };
+                ui.set_popup_trigger_line(line_idx);
+                ui.set_show_autocomplete_popup(true);
+            } else {
+                ui.set_show_autocomplete_popup(false);
+            }
+        } else {
+            ui.set_show_autocomplete_popup(false);
+        }
     });
 
     // Trigger Autocomplete (Ctrl + Space)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_trigger_autocomplete(move |cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -822,7 +892,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Apply In-place Completion (from list click)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_apply_completion(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -839,17 +909,17 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
 
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &updated_code, is_asm);
     });
 
     // Navigate Suggestions (Up/Down Arrow in Popup)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_navigate_suggestion(move |delta| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         if ctrl.active_suggestions.is_empty() {
             return;
         }
@@ -879,7 +949,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Toggle Language (RU / EN)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_toggle_language(move || {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -896,7 +966,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Filter Changed in Autocomplete Drawer
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_filter_changed(move |query| {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -905,11 +975,11 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Select Suggestion
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_select_suggestion(move |idx| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         if let Some(sugg) = ctrl.active_suggestions.get(idx as usize) {
             ui.set_selected_sugg_name(SharedString::from(&sugg.name));
             ui.set_selected_sugg_category(SharedString::from(&sugg.category));
@@ -924,7 +994,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Insert Suggestion Template
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_insert_suggestion(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -939,23 +1009,23 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
         ui.set_code_text(SharedString::from(&current_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.borrow();
+        let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &current_code, is_asm);
     });
 
     // Assemble Only (asmx20)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_run_assemble_only(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
 
         // 1. Check if file is open
         let active_name = ui.get_active_file_name().to_string();
         if active_name.is_empty() {
             ctrl.append_log("[WARN] No active file is currently open to assemble.");
-            ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+            sync_logs(&ui, &ctrl);
             return;
         }
 
@@ -971,40 +1041,50 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
 
         if let Err(e) = ctrl.file_manager.write_file_content(&target_path, &text) {
             ctrl.append_log(&format!("[ERROR] Save before assemble failed: {}", e));
-            ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+            sync_logs(&ui, &ctrl);
             return;
         }
         ui.set_is_dirty(false);
+        ui.set_status_message(SharedString::from("Building (.COM)..."));
+        ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
 
-        // 2. Assemble with asmx20
-        let report = CompilerRunner::assemble_file(&target_path);
-        for log in &report.output_logs {
-            ctrl.append_log(log);
-        }
+        // 2. Assemble with asmx20 on background thread (Never freezes UI)
+        let app_weak_inner = app_weak.clone();
+        let ctrl_clone_inner = Arc::clone(&ctrl_clone);
+        std::thread::spawn(move || {
+            let report = CompilerRunner::assemble_file(&target_path);
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = app_weak_inner.upgrade() else { return };
+                let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                for log in &report.output_logs {
+                    ctrl.append_log(log);
+                }
 
-        if report.success {
-            ui.set_status_message(SharedString::from("Build OK (.COM generated)"));
-            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-        } else {
-            ui.set_status_message(SharedString::from("Assembly Failed"));
-            ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-        }
+                if report.success {
+                    ui.set_status_message(SharedString::from("Build OK (.COM generated)"));
+                    ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                } else {
+                    ui.set_status_message(SharedString::from("Assembly Failed"));
+                    ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
+                }
 
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
+            });
+        });
     });
 
-    // Run in Emulator (asmx20 + cpmemu)
-    let ctrl_clone = Rc::clone(&controller_rc);
+    // Run in Emulator (asmx20 + cpmemu - Asynchronous, Never Freezes UI)
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_run_emulator(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
 
         // 1. Check if file is open
         let active_name = ui.get_active_file_name().to_string();
         if active_name.is_empty() {
             ctrl.append_log("[WARN] No active file is currently open to assemble.");
-            ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+            sync_logs(&ui, &ctrl);
             return;
         }
 
@@ -1020,43 +1100,57 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
 
         if let Err(e) = ctrl.file_manager.write_file_content(&target_path, &text) {
             ctrl.append_log(&format!("[ERROR] Save before run failed: {}", e));
-            ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+            sync_logs(&ui, &ctrl);
             return;
         }
         ui.set_is_dirty(false);
+        ui.set_status_message(SharedString::from("Assembling & Launching (cpmemu)..."));
+        ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
 
-        // 2. Assemble
-        let report = CompilerRunner::assemble_file(&target_path);
-        for log in &report.output_logs {
-            ctrl.append_log(log);
-        }
+        // 2. Assemble and Run on background thread (Never freezes UI)
+        let app_weak_inner = app_weak.clone();
+        let ctrl_clone_inner = Arc::clone(&ctrl_clone);
+        std::thread::spawn(move || {
+            let report = CompilerRunner::assemble_file(&target_path);
+            let emu_logs = if report.success {
+                if let Some(ref com) = report.com_path {
+                    Some(CompilerRunner::run_in_emulator(com))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
 
-        if !report.success {
-            ui.set_status_message(SharedString::from("Build failed, run aborted"));
-            ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-            ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
-            return;
-        }
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = app_weak_inner.upgrade() else { return };
+                let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                for log in &report.output_logs {
+                    ctrl.append_log(log);
+                }
 
-        // 3. Run in cpmemu
-        if let Some(com) = report.com_path {
-            let emu_logs = CompilerRunner::run_in_emulator(&com);
-            for log in emu_logs {
-                ctrl.append_log(&log);
-            }
-            ui.set_status_message(SharedString::from("Execution Complete (cpmemu)"));
-            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-        }
+                if !report.success {
+                    ui.set_status_message(SharedString::from("Build failed, run aborted"));
+                    ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
+                } else if let Some(logs) = emu_logs {
+                    for log in logs {
+                        ctrl.append_log(&log);
+                    }
+                    ui.set_status_message(SharedString::from("Execution Complete (cpmemu)"));
+                    ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                }
 
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+                sync_logs(&ui, &ctrl);
+            });
+        });
     });
 
     // Run Syntax Check
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_run_syntax_check(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         let code = ui.get_code_text().to_string();
         let report = CompilerRunner::validate_syntax(&code);
 
@@ -1072,18 +1166,18 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
             ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
         }
 
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+        sync_logs(&ui, &ctrl);
     });
 
     // Clear Output Console
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_clear_output(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.logs.clear();
         ctrl.logs.push("[CONSOLE] Output logs cleared.".to_string());
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+        sync_logs(&ui, &ctrl);
     });
 
     // Toggle Docs Mode
@@ -1099,20 +1193,20 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Rc<RefCell<IdeController>>, sess
     });
 
     // Label Clicked in Outline
-    let ctrl_clone = Rc::clone(&controller_rc);
+    let ctrl_clone = Arc::clone(&controller_rc);
     let app_weak = app.as_weak();
     app.on_label_clicked(move |line_number| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.borrow_mut();
+        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.append_log(&format!("[OUTLINE] Jump target at line {}", line_number));
         ui.set_status_message(SharedString::from(format!("Label at line {}", line_number)));
         ui.set_status_color(Color::from_rgb_u8(249, 226, 175));
-        ui.set_output_log_text(SharedString::from(ctrl.get_combined_logs()));
+        sync_logs(&ui, &ctrl);
     });
 }
 
-fn refresh_files_ui(app: &AppWindow, controller_rc: &Rc<RefCell<IdeController>>) {
-    let controller = controller_rc.borrow();
+fn refresh_files_ui(app: &AppWindow, controller_rc: &Arc<Mutex<IdeController>>) {
+    let controller = controller_rc.lock().unwrap();
     app.set_current_dir_path(SharedString::from(
         controller
             .file_manager
@@ -1244,11 +1338,11 @@ fn apply_completion_to_code(code: &str, line_idx: usize, insert_text: &str) -> S
 
 fn refresh_suggestions_ui(
     app: &AppWindow,
-    controller_rc: &Rc<RefCell<IdeController>>,
+    controller_rc: &Arc<Mutex<IdeController>>,
     query: &str,
     lang: &str,
 ) {
-    let mut controller = controller_rc.borrow_mut();
+    let mut controller = controller_rc.lock().unwrap();
     let current_code = app.get_code_text().to_string();
     let suggestions = controller
         .autocomplete

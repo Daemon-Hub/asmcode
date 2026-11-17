@@ -1,0 +1,232 @@
+import { SuggestionItem } from "../models.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component AutocompletePopup inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <[SuggestionItem]> suggestion_list: [];
+    in property <string> selected_sugg_name: "MOV";
+    in property <string> selected_sugg_category: "Пересылка данных";
+    in property <string> selected_sugg_syntax: "MOV r1, r2";
+    in property <string> selected_sugg_summary: "Копирование байта из регистра/памяти в другой регистр/память.";
+    in property <string> selected_sugg_flags: "None";
+    in property <string> selected_sugg_cycles: "5 (r,r) / 7 (r,M or M,r)";
+    in property <string> selected_sugg_icon_kind: "transfer";
+    in property <string> selected_sugg_example: "mov a, b        ; Копировать B в A";
+
+    callback select_suggestion(int);
+    callback apply_completion(string);
+
+    width: (root.selected_sugg_icon_kind == "label") ? 320px : 630px;
+    height: (root.selected_sugg_icon_kind == "label")
+        ? min(220px, max(42px, root.suggestion_list.length * 32px + 12px))
+        : 230px;
+    background: #181825;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #89b4fa;
+    drop-shadow-blur: 14px;
+    drop-shadow-color: #000000aa;
+    z: 80;
+
+    HorizontalLayout {
+        padding: 6px;
+        spacing: 8px;
+
+        // Left: Suggestions List
+        Rectangle {
+            width: (root.selected_sugg_icon_kind == "label") ? 308px : 260px;
+            background: #11111b;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #313244;
+
+            ScrollView {
+                VerticalLayout {
+                    padding: 4px;
+                    spacing: 2px;
+                    alignment: start;
+
+                    for sugg[idx] in root.suggestion_list: Rectangle {
+                        height: 30px;
+                        border-radius: 3px;
+                        background: (root.selected_sugg_name == sugg.name) ? #313244 : #00000000;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            VerticalLayout {
+                                alignment: center;
+                                if sugg.icon_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 14px; height: 14px; }
+                                if sugg.icon_kind == "label": Image { source: @image-url("../icons/label.svg"); width: 14px; height: 14px; }
+                            }
+
+                            Text {
+                                text: sugg.name;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: (sugg.icon_kind == "label") ? #e5c07b : #61afef;
+                                vertical-alignment: center;
+                            }
+
+                            Rectangle { }
+
+                            Text {
+                                text: sugg.category;
+                                font-size: 11px;
+                                color: #a6adc8;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                root.select_suggestion(idx);
+                                root.apply_completion(sugg.insert_text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Right: Companion Documentation & Example Flyout (Only for opcodes)
+        if root.selected_sugg_icon_kind != "label": Rectangle {
+            background: #11111b;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #313244;
+
+            VerticalLayout {
+                padding: 8px;
+                spacing: 5px;
+
+                // Title row + Category + Cycles
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            if root.selected_sugg_icon_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "label": Image { source: @image-url("../icons/label.svg"); width: 16px; height: 16px; }
+                        }
+
+                        Text {
+                            text: root.selected_sugg_name;
+                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: #61afef;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            height: 20px;
+                            border-radius: 3px;
+                            background: #1e1e2e;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                Text {
+                                    text: root.selected_sugg_category;
+                                    font-size: 10px;
+                                    color: #f9e2af;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 20px;
+                        border-radius: 3px;
+                        background: #313244;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: root.selected_sugg_cycles + (root.current_language == "ru" ? " тактов" : " cyc");
+                                font-size: 10px;
+                                color: #a6e3a1;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // Syntax & Flags
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text {
+                        text: (root.current_language == "ru" ? "Формат: " : "Syntax: ") + root.selected_sugg_syntax;
+                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-size: 12px;
+                        color: #a6e3a1;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { }
+                    Text {
+                        text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + root.selected_sugg_flags;
+                        font-size: 11px;
+                        color: #f9e2af;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Summary
+                Text {
+                    text: root.selected_sugg_summary;
+                    font-size: 12px;
+                    color: #cdd6f4;
+                    wrap: word-wrap;
+                }
+
+                // Example Usage Header
+                Text {
+                    text: root.current_language == "ru" ? "Пример использования:" : "Usage Example:";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: #89b4fa;
+                }
+
+                // Example Code Box
+                Rectangle {
+                    height: 38px;
+                    background: #181825;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: #45475a;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        alignment: start;
+                        Text {
+                            text: root.selected_sugg_example;
+                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-size: 12px;
+                            color: #98c379;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

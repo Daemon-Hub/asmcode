@@ -1,0 +1,323 @@
+import { FileItem, LabelItem } from "../models.slint";
+import { IconButton } from "icon_button.slint";
+import { InlineDialog } from "inline_dialog.slint";
+import { ListView } from "std-widgets.slint";
+
+export component Sidebar inherits Rectangle {
+    in property <length> sidebar_width: 320px;
+    in property <string> current_language: "ru";
+    in property <string> current_dir_path: "D:\\Rust\\asmcode";
+    in property <string> active_file_path: "";
+    in property <[FileItem]> file_list: [];
+    in property <[LabelItem]> label_list: [];
+    in-out property <bool> labels_expanded: true;
+
+    in-out property <bool> show_new_file_dialog: false;
+    in-out property <bool> show_new_folder_dialog: false;
+    in-out property <bool> show_rename_dialog: false;
+    in property <string> rename_target_name: "";
+    in property <string> selected_explorer_path: "";
+
+    callback navigate_parent();
+    callback refresh_files();
+    callback create_file(string);
+    callback create_new_folder(string);
+    callback rename_file(string, string);
+    callback file_clicked(string, bool);
+    callback file_right_clicked(string, string, length, length);
+    callback explorer_bg_right_clicked(length, length);
+    callback label_clicked(int);
+
+    width: root.sidebar_width;
+    background: #181825;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 10px;
+
+        // Header
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.current_language == "ru" ? "ПРОВОДНИК" : "EXPLORER";
+                font-size: 13px;
+                font-weight: 700;
+                color: #a6adc8;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                IconButton {
+                    icon_source: @image-url("../icons/arrow_up.svg");
+                    icon_width: 16px;
+                    icon_height: 16px;
+                    btn_width: 32px;
+                    btn_height: 28px;
+                    bg_normal: #313244;
+                    bg_hover: #45475a;
+                    clicked => { root.navigate_parent(); }
+                }
+
+                IconButton {
+                    icon_source: @image-url("../icons/plus.svg");
+                    icon_width: 14px;
+                    icon_height: 14px;
+                    btn_width: 32px;
+                    btn_height: 28px;
+                    bg_normal: #313244;
+                    bg_hover: #45475a;
+                    clicked => { root.show_new_file_dialog = !root.show_new_file_dialog; }
+                }
+
+                IconButton {
+                    icon_source: @image-url("../icons/refresh.svg");
+                    icon_width: 14px;
+                    icon_height: 14px;
+                    btn_width: 32px;
+                    btn_height: 28px;
+                    bg_normal: #313244;
+                    bg_hover: #45475a;
+                    clicked => { root.refresh_files(); }
+                }
+            }
+        }
+
+        // Inline Bar: Create New Folder Dialog
+        if root.show_new_folder_dialog: InlineDialog {
+            icon_source: @image-url("../icons/folder.svg");
+            initial_text: "subfolder";
+            border_accent: #89b4fa;
+            accepted(name) => {
+                root.create_new_folder(name);
+                root.show_new_folder_dialog = false;
+            }
+            cancelled => { root.show_new_folder_dialog = false; }
+        }
+
+        // Inline Bar: Rename File/Folder Dialog
+        if root.show_rename_dialog: InlineDialog {
+            icon_source: @image-url("../icons/editor.svg");
+            initial_text: root.rename_target_name;
+            border_accent: #f9e2af;
+            ok_bg: #f9e2af;
+            accepted(name) => {
+                root.rename_file(root.selected_explorer_path, name);
+                root.show_rename_dialog = false;
+            }
+            cancelled => { root.show_rename_dialog = false; }
+        }
+
+        // Inline Bar: Create New File Dialog
+        if root.show_new_file_dialog: InlineDialog {
+            icon_source: @image-url("../icons/assembly.svg");
+            initial_text: "newfile.asm";
+            border_accent: #89b4fa;
+            accepted(name) => {
+                root.create_file(name);
+                root.show_new_file_dialog = false;
+            }
+            cancelled => { root.show_new_file_dialog = false; }
+        }
+
+        // Path Indicator
+        Text {
+            text: root.current_dir_path;
+            font-size: 12px;
+            color: #6c7086;
+            overflow: elide;
+        }
+
+        // Hierarchical File Tree View
+        Rectangle {
+            vertical-stretch: 1;
+            background: #11111b;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #313244;
+            clip: true;
+
+            bg_touch := TouchArea {
+                pointer-event(e) => {
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
+                        root.explorer_bg_right_clicked(self.mouse-x, self.mouse-y + 100px);
+                    }
+                }
+            }
+
+            ListView {
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+
+                for item in root.file_list: Rectangle {
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.active_file_path == item.path) ? #313244 : (file_row_touch.has-hover ? #1e1e2e : #00000000);
+
+                    HorizontalLayout {
+                        padding-left: 4px + item.depth * 14px;
+                        padding-right: 8px;
+                        spacing: 6px;
+                        alignment: start;
+
+                        // Chevron arrow for directories
+                        VerticalLayout {
+                            alignment: center;
+                            width: 14px;
+                            if item.is_dir: Image {
+                                source: item.is_expanded ? @image-url("../icons/chevron_down.svg") : @image-url("../icons/chevron_right.svg");
+                                width: 12px;
+                                height: 12px;
+                            }
+                        }
+
+                        // Folder or File Icon
+                        VerticalLayout {
+                            alignment: center;
+                            if item.is_dir && item.icon_name == "src": Image { source: item.is_expanded ? @image-url("../icons/folder-src-open.svg") : @image-url("../icons/folder-src.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "ui": Image { source: item.is_expanded ? @image-url("../icons/folder-ui-open.svg") : @image-url("../icons/folder-ui.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "target": Image { source: item.is_expanded ? @image-url("../icons/folder-target-open.svg") : @image-url("../icons/folder-target.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "docs": Image { source: item.is_expanded ? @image-url("../icons/folder-docs-open.svg") : @image-url("../icons/folder-docs.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "test": Image { source: item.is_expanded ? @image-url("../icons/folder-test-open.svg") : @image-url("../icons/folder-test.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "scripts": Image { source: item.is_expanded ? @image-url("../icons/folder-scripts-open.svg") : @image-url("../icons/folder-scripts.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "tools": Image { source: item.is_expanded ? @image-url("../icons/folder-tools-open.svg") : @image-url("../icons/folder-tools.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "config": Image { source: item.is_expanded ? @image-url("../icons/folder-config-open.svg") : @image-url("../icons/folder-config.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "debug": Image { source: item.is_expanded ? @image-url("../icons/folder-debug-open.svg") : @image-url("../icons/folder-debug.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "components": Image { source: item.is_expanded ? @image-url("../icons/folder-components-open.svg") : @image-url("../icons/folder-components.svg"); width: 18px; height: 18px; }
+                            if item.is_dir && item.icon_name == "default": Image { source: item.is_expanded ? @image-url("../icons/folder-open.svg") : @image-url("../icons/folder.svg"); width: 18px; height: 18px; }
+
+                            if !item.is_dir && item.icon_name == "asm": Image { source: @image-url("../icons/assembly.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "rust": Image { source: @image-url("../icons/rust.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "toml": Image { source: @image-url("../icons/toml.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "markdown": Image { source: @image-url("../icons/markdown.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "json": Image { source: @image-url("../icons/json.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "lock": Image { source: @image-url("../icons/lock.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "exe": Image { source: @image-url("../icons/exe.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "powershell": Image { source: @image-url("../icons/powershell.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "image": Image { source: @image-url("../icons/image.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "c": Image { source: @image-url("../icons/c.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "cpp": Image { source: @image-url("../icons/cpp.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "csharp": Image { source: @image-url("../icons/csharp.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "xml": Image { source: @image-url("../icons/xml.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "yaml": Image { source: @image-url("../icons/yaml.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "zip": Image { source: @image-url("../icons/zip.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "pdf": Image { source: @image-url("../icons/pdf.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "log": Image { source: @image-url("../icons/log.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "key": Image { source: @image-url("../icons/key.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "hex": Image { source: @image-url("../icons/hex.svg"); width: 18px; height: 18px; }
+                            if !item.is_dir && item.icon_name == "document": Image { source: @image-url("../icons/document.svg"); width: 18px; height: 18px; }
+                        }
+
+                        Text {
+                            text: item.name;
+                            font-size: 13px;
+                            color: item.is_asm ? #89b4fa : (item.is_dir ? #f9e2af : #cdd6f4);
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Rectangle { }
+
+                        Text {
+                            text: item.size_str;
+                            font-size: 11px;
+                            color: #6c7086;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    file_row_touch := TouchArea {
+                        clicked => {
+                            root.file_clicked(item.path, item.is_dir);
+                        }
+                        pointer-event(e) => {
+                            if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
+                                root.file_right_clicked(item.path, item.name, self.mouse-x + 10px, self.mouse-y + 110px);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collapsible Labels Outline Section
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.current_language == "ru" ? "МЕТКИ ПРОГРАММЫ" : "LABELS OUTLINE";
+                font-size: 13px;
+                font-weight: 700;
+                color: #a6adc8;
+                vertical-alignment: center;
+            }
+
+            IconButton {
+                icon_source: root.labels_expanded ? @image-url("../icons/chevron_down.svg") : @image-url("../icons/chevron_right.svg");
+                icon_width: 14px;
+                icon_height: 14px;
+                btn_width: 24px;
+                btn_height: 24px;
+                clicked => { root.labels_expanded = !root.labels_expanded; }
+            }
+        }
+
+        if root.labels_expanded: Rectangle {
+            height: 180px;
+            vertical-stretch: 0;
+            background: #11111b;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: #313244;
+            clip: true;
+
+            ListView {
+                for lbl in root.label_list: Rectangle {
+                    height: 28px;
+                    border-radius: 3px;
+                    background: #00000000;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("../icons/label.svg");
+                                width: 14px;
+                                height: 14px;
+                            }
+                        }
+
+                        Text {
+                            text: lbl.name;
+                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: #e5c07b;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Rectangle { }
+
+                        Text {
+                            text: (root.current_language == "ru" ? "Стр:" : "L:") + lbl.line_number;
+                            font-size: 12px;
+                            color: #6c7086;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    TouchArea {
+                        clicked => { root.label_clicked(lbl.line_number); }
+                    }
+                }
+            }
+        }
+    }
+}

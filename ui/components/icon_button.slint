@@ -1,0 +1,37 @@
+export component IconButton inherits Rectangle {
+    in property <image> icon_source;
+    in property <length> icon_width: 14px;
+    in property <length> icon_height: 14px;
+    in property <color> icon_colorize: #00000000;
+    in property <color> bg_hover: #313244;
+    in property <color> bg_normal: #00000000;
+    in property <color> bg_pressed: #45475a;
+    in property <length> btn_width: 28px;
+    in property <length> btn_height: 28px;
+    in property <length> btn_radius: 3px;
+
+    callback clicked();
+
+    width: root.btn_width;
+    height: root.btn_height;
+    border-radius: root.btn_radius;
+    background: touch.pressed ? root.bg_pressed : (touch.has-hover ? root.bg_hover : root.bg_normal);
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            alignment: center;
+            Image {
+                source: root.icon_source;
+                width: root.icon_width;
+                height: root.icon_height;
+                colorize: root.icon_colorize;
+            }
+        }
+    }
+}

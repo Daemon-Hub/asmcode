@@ -1,0 +1,52 @@
+export component ActionButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon_source;
+    in property <length> icon_width: 15px;
+    in property <length> icon_height: 15px;
+    in property <color> text_color: #cdd6f4;
+    in property <color> border_color_normal: #45475a;
+    in property <color> border_color_hover: #585b70;
+    in property <color> bg_normal: #1e1e2e;
+    in property <color> bg_hover: #313244;
+    in property <color> bg_pressed: #45475a;
+    in property <int> text_font_weight: 600;
+    in property <length> btn_height: 34px;
+    in property <length> padding_horizontal: 10px;
+
+    callback clicked();
+
+    height: root.btn_height;
+    border-radius: 4px;
+    background: touch.pressed ? root.bg_pressed : (touch.has-hover ? root.bg_hover : root.bg_normal);
+    border-width: 1px;
+    border-color: touch.has-hover ? root.border_color_hover : root.border_color_normal;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        padding-left: root.padding_horizontal;
+        padding-right: root.padding_horizontal;
+        spacing: 6px;
+        alignment: center;
+
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon_source;
+                width: root.icon_width;
+                height: root.icon_height;
+            }
+        }
+
+        Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: root.text_font_weight;
+            color: root.text_color;
+            vertical-alignment: center;
+        }
+    }
+}

@@ -1,0 +1,256 @@
+import { IconButton } from "icon_button.slint";
+import { ActionButton } from "action_button.slint";
+
+export component Header inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <string> active_file_name: "";
+    in property <bool> is_dirty: false;
+    in property <bool> is_active_asm: true;
+    in property <int> editor_mode: 0;
+
+    in property <bool> show_file_menu: false;
+    in property <bool> show_run_menu: false;
+    in property <bool> show_view_menu: false;
+    in property <bool> show_help_menu: false;
+
+    callback toggle_file_menu();
+    callback toggle_run_menu();
+    callback toggle_view_menu();
+    callback toggle_help_menu();
+    callback close_active_file();
+    callback toggle_docs_mode();
+    callback save_file();
+    callback run_syntax_check();
+    callback run_assemble_only();
+    callback run_emulator();
+
+    height: 58px;
+    background: #11111b;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: space-between;
+
+        // Left: Thematic 8080 Brand Logo, Menus, and Active Document Tab
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                // Brand Title
+                HorizontalLayout {
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../icons/app_8080.svg");
+                            width: 22px;
+                            height: 22px;
+                        }
+                    }
+
+                    Text {
+                        text: "ASMCode";
+                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-size: 19px;
+                        font-weight: 700;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // File Menu Button
+                Rectangle {
+                    width: 66px;
+                    height: 34px;
+                    border-radius: 4px;
+                    background: root.show_file_menu ? #313244 : #00000000;
+                    Text {
+                        text: root.current_language == "ru" ? "Файл" : "File";
+                        font-size: 15px;
+                        color: #cdd6f4;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.toggle_file_menu(); }
+                    }
+                }
+
+                // Run Menu Button
+                Rectangle {
+                    width: 66px;
+                    height: 34px;
+                    border-radius: 4px;
+                    background: root.show_run_menu ? #313244 : #00000000;
+                    Text {
+                        text: root.current_language == "ru" ? "Запуск" : "Run";
+                        font-size: 15px;
+                        color: #cdd6f4;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.toggle_run_menu(); }
+                    }
+                }
+
+                // View Menu Button
+                Rectangle {
+                    width: 66px;
+                    height: 34px;
+                    border-radius: 4px;
+                    background: root.show_view_menu ? #313244 : #00000000;
+                    Text {
+                        text: root.current_language == "ru" ? "Вид" : "View";
+                        font-size: 15px;
+                        color: #cdd6f4;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.toggle_view_menu(); }
+                    }
+                }
+
+                // Help Menu Button
+                Rectangle {
+                    width: 76px;
+                    height: 34px;
+                    border-radius: 4px;
+                    background: root.show_help_menu ? #313244 : #00000000;
+                    Text {
+                        text: root.current_language == "ru" ? "Справка" : "Help";
+                        font-size: 15px;
+                        color: #cdd6f4;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => { root.toggle_help_menu(); }
+                    }
+                }
+
+                // Active File Tab
+                if root.active_file_name != "": HorizontalLayout {
+                    padding-left: 10px;
+                    alignment: center;
+
+                    Rectangle {
+                        height: 34px;
+                        border-radius: 5px;
+                        background: #1e1e2e;
+                        border-width: 1px;
+                        border-color: #313244;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: root.is_active_asm ? @image-url("../icons/assembly.svg") : @image-url("../icons/document.svg");
+                                    width: 16px;
+                                    height: 16px;
+                                }
+                            }
+
+                            Text {
+                                text: root.is_dirty ? root.active_file_name + " *" : root.active_file_name;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: root.is_dirty ? #f9e2af : #cdd6f4;
+                                vertical-alignment: center;
+                            }
+
+                            IconButton {
+                                icon_source: @image-url("../icons/close.svg");
+                                icon_width: 12px;
+                                icon_height: 12px;
+                                btn_width: 20px;
+                                btn_height: 20px;
+                                bg_hover: #f38ba833;
+                                bg_normal: #00000000;
+                                clicked => { root.close_active_file(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Right: Action Buttons with Vector Icons
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                // Toggle Editor vs Docs
+                ActionButton {
+                    text: root.current_language == "ru"
+                        ? (root.editor_mode == 2 ? "Редактор" : "Справка 8080")
+                        : (root.editor_mode == 2 ? "Editor" : "8080 Docs");
+                    icon_source: root.editor_mode == 2 ? @image-url("../icons/editor.svg") : @image-url("../icons/book.svg");
+                    text_color: root.editor_mode == 2 ? #89b4fa : #cdd6f4;
+                    bg_normal: root.editor_mode == 2 ? #1e2238 : #1e1e2e;
+                    bg_hover: root.editor_mode == 2 ? #2e344e : #313244;
+                    border_color_normal: root.editor_mode == 2 ? #89b4fa : #45475a;
+                    border_color_hover: #89b4fa;
+                    clicked => { root.toggle_docs_mode(); }
+                }
+
+                // Save Button
+                ActionButton {
+                    text: root.current_language == "ru" ? "Сохранить" : "Save";
+                    icon_source: @image-url("../icons/save.svg");
+                    clicked => { root.save_file(); }
+                }
+
+                // Syntax Check
+                ActionButton {
+                    text: root.current_language == "ru" ? "Проверить" : "Check";
+                    icon_source: @image-url("../icons/check.svg");
+                    text_color: #a6e3a1;
+                    border_color_hover: #a6e3a1;
+                    clicked => { root.run_syntax_check(); }
+                }
+
+                // Assemble Only
+                ActionButton {
+                    text: root.current_language == "ru" ? "Собрать .COM" : "Build .COM";
+                    icon_source: @image-url("../icons/build.svg");
+                    text_color: #89b4fa;
+                    border_color_hover: #89b4fa;
+                    clicked => { root.run_assemble_only(); }
+                }
+
+                // Run in CP/M Emulator
+                ActionButton {
+                    text: root.current_language == "ru" ? "Запуск (cpmemu)" : "Run (cpmemu)";
+                    icon_source: @image-url("../icons/run.svg");
+                    text_color: #a6e3a1;
+                    text_font_weight: 700;
+                    bg_normal: #1e3325;
+                    bg_hover: #2e4a36;
+                    bg_pressed: #3e664b;
+                    border_color_normal: #585b70;
+                    border_color_hover: #a6e3a1;
+                    padding_horizontal: 14px;
+                    clicked => { root.run_emulator(); }
+                }
+            }
+        }
+    }
+}

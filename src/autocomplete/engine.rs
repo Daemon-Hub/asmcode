@@ -1,5 +1,6 @@
 use super::extractor::{extract_user_labels, SymbolKind, UserSymbol};
 use super::intel8080_docs::{InstructionDoc, INTEL_8080_DOCS};
+use rayon::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct Suggestion {
@@ -42,46 +43,69 @@ impl AutocompleteEngine {
         let is_ru = lang == "ru";
         let query_upper = query.to_ascii_uppercase();
 
-        let mut doc_results = Vec::new();
-        for doc in self.docs {
-            if query.is_empty() || doc.name.to_ascii_uppercase().starts_with(&query_upper) {
-                doc_results.push(Suggestion {
-                    name: doc.name.to_string(),
-                    category: doc.get_category(lang).to_string(),
-                    syntax: doc.syntax.to_string(),
-                    summary: doc.get_summary(lang).to_string(),
-                    flags: doc.flags.to_string(),
-                    cycles: doc.cycles.to_string(),
-                    insert_text: doc.name.to_lowercase(),
-                    icon_kind: doc.get_icon_kind().to_string(),
-                    example: doc.get_example().to_string(),
-                });
-            }
-        }
+        let doc_results: Vec<Suggestion> = if self.docs.len() > 16 {
+            self.docs
+                .par_iter()
+                .filter_map(|doc| {
+                    if query.is_empty() || doc.name.to_ascii_uppercase().starts_with(&query_upper) {
+                        Some(Suggestion {
+                            name: doc.name.to_string(),
+                            category: doc.get_category(lang).to_string(),
+                            syntax: doc.syntax.to_string(),
+                            summary: doc.get_summary(lang).to_string(),
+                            flags: doc.flags.to_string(),
+                            cycles: doc.cycles.to_string(),
+                            insert_text: doc.name.to_lowercase(),
+                            icon_kind: doc.get_icon_kind().to_string(),
+                            example: doc.get_example().to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            self.docs
+                .iter()
+                .filter_map(|doc| {
+                    if query.is_empty() || doc.name.to_ascii_uppercase().starts_with(&query_upper) {
+                        Some(Suggestion {
+                            name: doc.name.to_string(),
+                            category: doc.get_category(lang).to_string(),
+                            syntax: doc.syntax.to_string(),
+                            summary: doc.get_summary(lang).to_string(),
+                            flags: doc.flags.to_string(),
+                            cycles: doc.cycles.to_string(),
+                            insert_text: doc.name.to_lowercase(),
+                            icon_kind: doc.get_icon_kind().to_string(),
+                            example: doc.get_example().to_string(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
 
         let mut user_results = Vec::new();
         let user_symbols = extract_user_labels(full_source);
         for symbol in &user_symbols {
             if query.is_empty() || symbol.name.to_ascii_uppercase().starts_with(&query_upper) {
-                let (category, syntax, summary, example, icon_kind) = match symbol.kind {
+                let (category, summary, example) = match symbol.kind {
                     SymbolKind::Constant => {
                         let cat = if is_ru {
                             "Константа (EQU)".to_string()
                         } else {
                             "Constant (EQU)".to_string()
                         };
-                        let syn = format!(
-                            "{} EQU {} (строка {})",
-                            symbol.name, symbol.detail, symbol.line_number
-                        );
                         let sum = if is_ru {
                             format!(
-                                "Символьная константа EQU (значение {}, строка {})",
+                                "Символьная константа EQU ({}, строка {})",
                                 symbol.detail, symbol.line_number
                             )
                         } else {
                             format!(
-                                "Symbolic EQU constant (value {}, line {})",
+                                "Symbolic EQU constant ({}, line {})",
                                 symbol.detail, symbol.line_number
                             )
                         };
@@ -89,7 +113,7 @@ impl AutocompleteEngine {
                             "mvi a, {}    ; Загрузка константы {}",
                             symbol.name, symbol.name
                         );
-                        (cat, syn, sum, ex, "directive".to_string())
+                        (cat, sum, ex)
                     }
                     SymbolKind::Data => {
                         let cat = if is_ru {
@@ -97,10 +121,6 @@ impl AutocompleteEngine {
                         } else {
                             "Data / Buffer".to_string()
                         };
-                        let syn = format!(
-                            "{}: {} (строка {})",
-                            symbol.name, symbol.detail, symbol.line_number
-                        );
                         let sum = if is_ru {
                             format!(
                                 "Определение данных в памяти ({}, строка {})",
@@ -114,7 +134,7 @@ impl AutocompleteEngine {
                         };
                         let ex =
                             format!("lxi d, {}    ; Адрес буфера {}", symbol.name, symbol.name);
-                        (cat, syn, sum, ex, "document".to_string())
+                        (cat, sum, ex)
                     }
                     SymbolKind::Code => {
                         let cat = if is_ru {
@@ -122,7 +142,6 @@ impl AutocompleteEngine {
                         } else {
                             "Code Label".to_string()
                         };
-                        let syn = format!("{}: (строка {})", symbol.name, symbol.line_number);
                         let sum = if is_ru {
                             format!(
                                 "Метка перехода / подпрограммы (строка {})",
@@ -135,14 +154,14 @@ impl AutocompleteEngine {
                             "jmp {}        ; Переход на метку {}",
                             symbol.name, symbol.name
                         );
-                        (cat, syn, sum, ex, "label".to_string())
+                        (cat, sum, ex)
                     }
                 };
 
                 user_results.push(Suggestion {
                     name: symbol.name.clone(),
                     category,
-                    syntax,
+                    syntax: symbol.name.clone(),
                     summary,
                     flags: if is_ru {
                         "Нет".to_string()
@@ -151,7 +170,7 @@ impl AutocompleteEngine {
                     },
                     cycles: "-".to_string(),
                     insert_text: symbol.name.clone(),
-                    icon_kind,
+                    icon_kind: "label".to_string(),
                     example,
                 });
             }

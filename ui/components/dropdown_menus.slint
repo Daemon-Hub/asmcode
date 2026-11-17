@@ -1,0 +1,491 @@
+export component FileDropdownMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+
+    callback new_file();
+    callback open_file();
+    callback open_folder();
+    callback save_file();
+    callback refresh_files();
+
+    width: 270px;
+    height: file_menu_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000088;
+    z: 100;
+
+    file_menu_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: item_1.has-hover ? #313244 : #00000000;
+            item_1 := TouchArea { clicked => { root.new_file(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/plus.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Новый файл..." : "New File...";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: item_2.has-hover ? #313244 : #00000000;
+            item_2 := TouchArea { clicked => { root.open_file(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/folder-open.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Открыть файл... (Ctrl+O)" : "Open File... (Ctrl+O)";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: item_3.has-hover ? #313244 : #00000000;
+            item_3 := TouchArea { clicked => { root.open_folder(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/folder.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Открыть папку..." : "Open Folder...";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: item_4.has-hover ? #313244 : #00000000;
+            item_4 := TouchArea { clicked => { root.save_file(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/save.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Сохранить (Ctrl+S)" : "Save (Ctrl+S)";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: item_5.has-hover ? #313244 : #00000000;
+            item_5 := TouchArea { clicked => { root.refresh_files(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/refresh.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Обновить проводник" : "Refresh Explorer";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component RunDropdownMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+
+    callback run_emulator();
+    callback run_assemble_only();
+    callback run_syntax_check();
+
+    width: 310px;
+    height: run_menu_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000088;
+    z: 100;
+
+    run_menu_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: r_item_1.has-hover ? #313244 : #00000000;
+            r_item_1 := TouchArea { clicked => { root.run_emulator(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/run.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Запуск в эмуляторе CP/M (F5)" : "Run in CP/M Emulator (F5)";
+                    font-size: 13px;
+                    color: #a6e3a1;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: r_item_2.has-hover ? #313244 : #00000000;
+            r_item_2 := TouchArea { clicked => { root.run_assemble_only(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/build.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Собрать с asmx20 в .COM" : "Assemble with asmx20 to .COM";
+                    font-size: 13px;
+                    color: #89b4fa;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: r_item_3.has-hover ? #313244 : #00000000;
+            r_item_3 := TouchArea { clicked => { root.run_syntax_check(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/check.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Проверить синтаксис 8080" : "Validate 8080 Syntax";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component ViewDropdownMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <length> editor_font_size: 18px;
+    in property <bool> editor_font_italic: true;
+
+    callback zoom_in();
+    callback zoom_out();
+    callback zoom_reset();
+    callback toggle_italic();
+    callback toggle_language();
+
+    width: 330px;
+    height: view_menu_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000088;
+    z: 100;
+
+    view_menu_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: v_item_1.has-hover ? #313244 : #00000000;
+            v_item_1 := TouchArea { clicked => { root.zoom_in(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/zoom_in.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Приблизить (Ctrl + / Колесо ↑)" : "Zoom In (Ctrl + / Wheel ↑)";
+                    font-size: 13px;
+                    color: #89b4fa;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: v_item_2.has-hover ? #313244 : #00000000;
+            v_item_2 := TouchArea { clicked => { root.zoom_out(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/zoom_out.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Отдалить (Ctrl - / Колесо ↓)" : "Zoom Out (Ctrl - / Wheel ↓)";
+                    font-size: 13px;
+                    color: #89b4fa;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: v_item_3.has-hover ? #313244 : #00000000;
+            v_item_3 := TouchArea { clicked => { root.zoom_reset(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/refresh.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Сброс масштаба 100% (Ctrl 0)" : "Reset Zoom (Ctrl 0)";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Font size row
+        Rectangle {
+            height: 34px;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/editor.svg"); width: 16px; height: 16px; }
+                    }
+                    Text {
+                        text: (root.current_language == "ru" ? "Размер шрифта: " : "Font size: ") + (root.editor_font_size / 1px) + "px";
+                        font-size: 13px;
+                        color: #a6adc8;
+                        vertical-alignment: center;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 28px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: #313244;
+                        Text { text: "-"; font-size: 16px; color: #cdd6f4; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.zoom_out(); } }
+                    }
+                    Rectangle {
+                        width: 28px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: #313244;
+                        Text { text: "+"; font-size: 16px; color: #cdd6f4; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.zoom_in(); } }
+                    }
+                }
+            }
+        }
+
+        // Style italic row
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: v_item_4.has-hover ? #313244 : #00000000;
+            v_item_4 := TouchArea { clicked => { root.toggle_italic(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/editor.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? (root.editor_font_italic ? "Стиль: Курсив (Italic)" : "Стиль: Обычный")
+                        : (root.editor_font_italic ? "Style: SemiBold Italic" : "Style: SemiBold Regular");
+                    font-size: 13px;
+                    color: #f9e2af;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Language toggle
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: v_item_5.has-hover ? #313244 : #00000000;
+            v_item_5 := TouchArea { clicked => { root.toggle_language(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/globe.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Язык: Русский (нажмите для EN)"
+                        : "Language: English (click for RU)";
+                    font-size: 13px;
+                    color: #a6e3a1;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+export component HelpDropdownMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+
+    callback open_docs();
+
+    width: 320px;
+    height: help_menu_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000088;
+    z: 100;
+
+    help_menu_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 34px;
+            border-radius: 4px;
+            background: h_item_1.has-hover ? #313244 : #00000000;
+            h_item_1 := TouchArea { clicked => { root.open_docs(); } }
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/book.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Справочник команд 8080"
+                        : "8080 Instructions Encyclopedia";
+                    font-size: 13px;
+                    color: #89b4fa;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle {
+            height: 34px;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/info.svg"); width: 16px; height: 16px; }
+                }
+                Text {
+                    text: (root.current_language == "ru" ? "Компилятор: " : "Compiler: ") + "C:\\bin\\asmx20.exe";
+                    font-size: 13px;
+                    color: #a6adc8;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,461 @@
+import { HighlightLineItem, SuggestionItem } from "../models.slint";
+import { RightDrawer } from "../components/right_drawer.slint";
+import { AutocompletePopup } from "../components/autocomplete_popup.slint";
+import { EditorContextMenu } from "../components/editor_context_menu.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component EditorPage inherits HorizontalLayout {
+    in property <string> current_language: "ru";
+    in property <length> editor_font_size: 18px;
+    in property <bool> editor_font_italic: true;
+    in property <length> editor_line_height: 22px;
+    in-out property <bool> cursor_visible: true;
+    in-out property <length> cursor_x: 8px;
+    in-out property <length> cursor_y: 0px;
+
+    in-out property <string> code_text <=> code_input.text;
+    in property <bool> is_active_asm: true;
+    in property <[HighlightLineItem]> highlight_lines: [];
+
+    in property <[SuggestionItem]> suggestion_list: [];
+    in-out property <string> selected_sugg_name: "MOV";
+    in-out property <string> selected_sugg_category: "Пересылка данных";
+    in-out property <string> selected_sugg_syntax: "MOV r1, r2";
+    in-out property <string> selected_sugg_summary: "Копирование байта из регистра/памяти в другой регистр/память.";
+    in-out property <string> selected_sugg_flags: "None";
+    in-out property <string> selected_sugg_cycles: "5 (r,r) / 7 (r,M or M,r)";
+    in-out property <string> selected_sugg_insert_text: "mov";
+    in-out property <string> selected_sugg_icon_kind: "transfer";
+    in-out property <string> selected_sugg_example: "mov a, b        ; Копировать B в A";
+
+    in-out property <bool> show_autocomplete_popup: false;
+    in-out property <length> popup_anchor_x: 10px;
+    in-out property <length> popup_anchor_y: 0px;
+    in-out property <int> popup_trigger_line: -1;
+
+    in-out property <bool> show_context_menu: false;
+    in-out property <length> context_menu_x: 100px;
+    in-out property <length> context_menu_y: 100px;
+
+    in-out property <bool> right_drawer_expanded: true;
+    in-out property <string> search_filter <=> drawer.search_filter;
+
+    callback code_edited(string, int);
+    callback editor_undo(int) -> int;
+    callback editor_redo(int) -> int;
+    callback delete_word_left(int) -> int;
+    callback toggle_comment_range(int, int) -> int;
+    callback duplicate_line(int) -> int;
+    callback insert_tab(int) -> int;
+    callback insert_newline(int) -> int;
+    callback apply_completion_at(string, int) -> int;
+    callback apply_completion(string);
+    callback select_suggestion(int);
+    callback trigger_autocomplete(int);
+    callback navigate_suggestion(int);
+    callback save_file();
+    callback open_file_dialog();
+    callback run_emulator();
+    callback run_assemble_only();
+    callback zoom_in();
+    callback zoom_out();
+    callback zoom_reset();
+    callback filter_changed(string);
+    callback insert_suggestion(string);
+
+    spacing: 0px;
+
+    // Unified Code Viewport
+    Rectangle {
+        background: #1e1e2e;
+
+        HorizontalLayout {
+            spacing: 0px;
+
+            // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
+            Rectangle {
+                width: 62px;
+                background: #181825;
+                clip: true;
+
+                VerticalLayout {
+                    y: editor_scroll.content-y;
+                    alignment: start;
+                    spacing: 0px;
+
+                    for line in root.highlight_lines: Rectangle {
+                        height: root.editor_line_height;
+                        Text {
+                            text: line.line_number;
+                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-size: root.editor_font_size;
+                            font-weight: 600;
+                            color: #585b70;
+                            horizontal-alignment: right;
+                            vertical-alignment: center;
+                            width: 50px;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { width: 1px; background: #313244; }
+
+            // Main Editor Scrollable Area
+            Rectangle {
+                background: #1e1e2e;
+                clip: true;
+
+                editor_scroll := ScrollView {
+                    content-width: max(self.visible-width, 1600px);
+                    content-height: max(self.visible-height, max(code_input.preferred-height, code_rows.preferred-height));
+
+                    // Syntax-Highlighted Code Lines Layer
+                    code_rows := VerticalLayout {
+                        x: 0px;
+                        y: 0px;
+                        alignment: start;
+                        spacing: 0px;
+
+                        for line in root.highlight_lines: HorizontalLayout {
+                            alignment: start;
+                            spacing: 0px;
+                            height: root.editor_line_height;
+                            padding-left: 8px;
+
+                            if line.tokens.length == 0: Text {
+                                text: " ";
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: root.editor_font_size;
+                                font-weight: 600;
+                                font-italic: root.editor_font_italic;
+                                vertical-alignment: center;
+                            }
+
+                            for tok in line.tokens: Text {
+                                text: tok.text;
+                                color: tok.color;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: root.editor_font_size;
+                                font-weight: 600;
+                                font-italic: root.editor_font_italic;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Editor Right-Click Detector
+                    editor_touch := TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.content-width;
+                        height: parent.content-height;
+                        pointer-event(e) => {
+                            if (e.button == PointerEventButton.right && (e.kind == PointerEventKind.down || e.kind == PointerEventKind.up)) {
+                                root.context_menu_x = self.mouse-x;
+                                root.context_menu_y = self.mouse-y;
+                                root.show_context_menu = true;
+                            }
+                        }
+                    }
+
+                    // Transparent TextInput
+                    code_input := TextInput {
+                        x: 8px;
+                        y: 0px;
+                        width: parent.content-width - 8px;
+                        height: max(parent.content-height, code_rows.preferred-height);
+                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-size: root.editor_font_size;
+                        font-weight: 600;
+                        font-italic: root.editor_font_italic;
+                        color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : #cdd6f4;
+                        wrap: no-wrap;
+                        single-line: false;
+                        selection-background-color: #2b4f81;
+                        selection-foreground-color: #ffffff;
+
+                        cursor-position-changed(cpos) => {
+                            root.cursor_x = cpos.x + 8px;
+                            root.cursor_y = cpos.y;
+                            root.cursor_visible = true;
+
+                            if (root.show_autocomplete_popup && root.popup_trigger_line >= 0 && root.editor_line_height > 0) {
+                                let cur_line = (cpos.y / root.editor_line_height);
+                                let diff = cur_line - root.popup_trigger_line;
+                                if (diff < -0.5 || diff > 0.5) {
+                                    root.show_autocomplete_popup = false;
+                                }
+                            }
+                        }
+
+                        edited => {
+                            root.cursor_visible = true;
+                            root.code_edited(self.text, self.cursor-position-byte-offset);
+                        }
+
+                        key-pressed(e) => {
+                            root.cursor_visible = true;
+
+                            // Escape: dismiss popups
+                            if (e.text == Key.Escape) {
+                                if root.show_context_menu {
+                                    root.show_context_menu = false;
+                                    return EventResult.accept;
+                                }
+                                if root.show_autocomplete_popup {
+                                    root.show_autocomplete_popup = false;
+                                    return EventResult.accept;
+                                }
+                            }
+
+                            // Autocomplete arrow navigation
+                            if (root.show_autocomplete_popup && root.suggestion_list.length > 0) {
+                                if (e.text == Key.UpArrow) {
+                                    root.navigate_suggestion(-1);
+                                    return EventResult.accept;
+                                }
+                                if (e.text == Key.DownArrow) {
+                                    root.navigate_suggestion(1);
+                                    return EventResult.accept;
+                                }
+                            }
+
+                            // Ctrl + Space: trigger autocomplete
+                            if (e.modifiers.control && (e.text == " " || e.text == Key.Space || e.text == "\u{0000}")) {
+                                root.trigger_autocomplete(code_input.cursor-position-byte-offset);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + Z: Undo
+                            if (e.modifiers.control && !e.modifiers.shift && (e.text == "z" || e.text == "Z" || e.text == "я" || e.text == "Я" || e.text == "\u{001a}")) {
+                                let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + Y or Ctrl + Shift + Z: Redo
+                            if ((e.modifiers.control && (e.text == "y" || e.text == "Y" || e.text == "н" || e.text == "Н" || e.text == "\u{0019}")) || (e.modifiers.control && e.modifiers.shift && (e.text == "z" || e.text == "Z" || e.text == "я" || e.text == "Я"))) {
+                                let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + Backspace: delete word left
+                            if (e.modifiers.control && (e.text == Key.Backspace || e.text == "\u{007f}" || e.text == "\u{0008}")) {
+                                let new_pos = root.delete_word_left(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + /: Toggle line comment with ';'
+                            if (e.modifiers.control && (e.text == "/" || e.text == "?" || e.text == "." || e.text == ",")) {
+                                let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + D: Duplicate current line
+                            if (e.modifiers.control && (e.text == "d" || e.text == "D" || e.text == "в" || e.text == "В" || e.text == "\u{0004}")) {
+                                let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + A: Select All
+                            if (e.modifiers.control && (e.text == "a" || e.text == "A" || e.text == "ф" || e.text == "Ф" || e.text == "\u{0001}")) {
+                                code_input.select-all();
+                                return EventResult.accept;
+                            }
+
+                            // Tab key
+                            if (e.text == Key.Tab) {
+                                if root.show_autocomplete_popup && root.suggestion_list.length > 0 {
+                                    let new_pos = root.apply_completion_at(root.selected_sugg_insert_text, code_input.cursor-position-byte-offset);
+                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                    root.show_autocomplete_popup = false;
+                                } else {
+                                    let new_pos = root.insert_tab(code_input.cursor-position-byte-offset);
+                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                }
+                                return EventResult.accept;
+                            }
+
+                            // Enter key
+                            if (e.text == Key.Return) {
+                                if root.show_autocomplete_popup && root.suggestion_list.length > 0 {
+                                    let new_pos = root.apply_completion_at(root.selected_sugg_insert_text, code_input.cursor-position-byte-offset);
+                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                    root.show_autocomplete_popup = false;
+                                    return EventResult.accept;
+                                }
+                                let new_pos = root.insert_newline(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + S
+                            if (e.modifiers.control && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы" || e.text == "\u{0013}")) {
+                                root.save_file();
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + O
+                            if (e.modifiers.control && (e.text == "o" || e.text == "O" || e.text == "щ" || e.text == "Щ" || e.text == "\u{000f}")) {
+                                root.open_file_dialog();
+                                return EventResult.accept;
+                            }
+
+                            // F5: Run in emulator
+                            if (e.text == Key.F5) {
+                                root.run_emulator();
+                                return EventResult.accept;
+                            }
+
+                            // Zoom controls
+                            if (e.modifiers.control && (e.text == "+" || e.text == "=")) {
+                                root.zoom_in();
+                                return EventResult.accept;
+                            }
+                            if (e.modifiers.control && (e.text == "-" || e.text == "_")) {
+                                root.zoom_out();
+                                return EventResult.accept;
+                            }
+                            if (e.modifiers.control && e.text == "0") {
+                                root.zoom_reset();
+                                return EventResult.accept;
+                            }
+
+                            return EventResult.reject;
+                        }
+                    }
+
+                    // Slanted Blinking Cursor
+                    if code_input.has-focus && root.cursor_visible: Path {
+                        x: root.cursor_x + (root.editor_font_italic ? 3px : 2px);
+                        y: root.cursor_y + 1px;
+                        width: 8px;
+                        height: root.editor_line_height - 2px;
+                        viewbox-x: 0;
+                        viewbox-y: 0;
+                        viewbox-width: 8;
+                        viewbox-height: max(1, (root.editor_line_height - 2px) / 1px);
+                        stroke: #89b4fa;
+                        stroke-width: 2.2px;
+                        stroke-line-cap: square;
+                        MoveTo {
+                            x: root.editor_font_italic ? 4 : 1;
+                            y: 0;
+                        }
+                        LineTo {
+                            x: root.editor_font_italic ? 0 : 1;
+                            y: max(1, (root.editor_line_height - 2px) / 1px);
+                        }
+                    }
+
+                    // In-Editor Floating Autocomplete Popup
+                    if root.show_autocomplete_popup && root.suggestion_list.length > 0: AutocompletePopup {
+                        x: min(max(10px, root.popup_anchor_x + 10px), max(10px, parent.width - 640px));
+                        y: min(max(10px, root.popup_anchor_y + root.editor_line_height + 4px), max(10px, parent.height - 240px));
+                        current_language: root.current_language;
+                        suggestion_list: root.suggestion_list;
+                        selected_sugg_name: root.selected_sugg_name;
+                        selected_sugg_category: root.selected_sugg_category;
+                        selected_sugg_syntax: root.selected_sugg_syntax;
+                        selected_sugg_summary: root.selected_sugg_summary;
+                        selected_sugg_flags: root.selected_sugg_flags;
+                        selected_sugg_cycles: root.selected_sugg_cycles;
+                        selected_sugg_icon_kind: root.selected_sugg_icon_kind;
+                        selected_sugg_example: root.selected_sugg_example;
+                        select_suggestion(idx) => { root.select_suggestion(idx); }
+                        apply_completion(text) => {
+                            root.apply_completion(text);
+                            root.show_autocomplete_popup = false;
+                        }
+                    }
+
+                    // Backdrop to dismiss editor context menu
+                    if root.show_context_menu: TouchArea {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.width;
+                        height: parent.height;
+                        z: 110;
+                        clicked => { root.show_context_menu = false; }
+                    }
+
+                    // In-Editor Context Menu
+                    if root.show_context_menu: EditorContextMenu {
+                        x: min(max(10px, root.context_menu_x), parent.width - 260px);
+                        y: min(max(10px, root.context_menu_y), parent.height - 380px);
+                        current_language: root.current_language;
+                        undo => {
+                            root.show_context_menu = false;
+                            let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
+                            code_input.set-selection-offsets(new_pos, new_pos);
+                        }
+                        redo => {
+                            root.show_context_menu = false;
+                            let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
+                            code_input.set-selection-offsets(new_pos, new_pos);
+                        }
+                        cut => {
+                            root.show_context_menu = false;
+                            code_input.cut();
+                        }
+                        copy => {
+                            root.show_context_menu = false;
+                            code_input.copy();
+                        }
+                        paste => {
+                            root.show_context_menu = false;
+                            code_input.paste();
+                        }
+                        select_all => {
+                            root.show_context_menu = false;
+                            code_input.select-all();
+                        }
+                        toggle_comment => {
+                            root.show_context_menu = false;
+                            let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                            code_input.set-selection-offsets(new_pos, new_pos);
+                        }
+                        duplicate_line => {
+                            root.show_context_menu = false;
+                            let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
+                            code_input.set-selection-offsets(new_pos, new_pos);
+                        }
+                        run_assemble => {
+                            root.show_context_menu = false;
+                            root.run_assemble_only();
+                        }
+                        run_emulator => {
+                            root.show_context_menu = false;
+                            root.run_emulator();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle { width: 1px; background: #313244; }
+
+    // Autocomplete / Intellisense Drawer
+    drawer := RightDrawer {
+        current_language: root.current_language;
+        right_drawer_expanded <=> root.right_drawer_expanded;
+        suggestion_list: root.suggestion_list;
+        selected_sugg_name: root.selected_sugg_name;
+        selected_sugg_category: root.selected_sugg_category;
+        selected_sugg_syntax: root.selected_sugg_syntax;
+        selected_sugg_summary: root.selected_sugg_summary;
+        selected_sugg_flags: root.selected_sugg_flags;
+        selected_sugg_cycles: root.selected_sugg_cycles;
+        selected_sugg_icon_kind: root.selected_sugg_icon_kind;
+        selected_sugg_example: root.selected_sugg_example;
+        filter_changed(q) => { root.filter_changed(q); }
+        select_suggestion(idx) => { root.select_suggestion(idx); }
+        insert_suggestion(syntax) => { root.insert_suggestion(syntax); }
+    }
+}

@@ -1,0 +1,230 @@
+export component ExplorerContextMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <string> selected_explorer_path: "";
+    in property <string> selected_explorer_name: "";
+
+    callback create_new_file();
+    callback create_new_folder();
+    callback rename_requested();
+    callback delete_requested(string);
+    callback copy_path_requested(string);
+    callback reveal_in_explorer_requested(string);
+    callback refresh_requested();
+
+    width: 240px;
+    height: exp_menu_layout.preferred-height;
+    background: #1e1e2e;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #45475a;
+    drop-shadow-blur: 12px;
+    drop-shadow-color: #000000bb;
+    z: 110;
+
+    exp_menu_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        // New File
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_newfile.has-hover ? #313244 : #00000000;
+            exp_m_newfile := TouchArea {
+                clicked => { root.create_new_file(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/plus.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Новый файл..." : "New File...";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // New Folder
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_newfolder.has-hover ? #313244 : #00000000;
+            exp_m_newfolder := TouchArea {
+                clicked => { root.create_new_folder(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/folder.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Новая папка..." : "New Folder...";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Rename
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_rename.has-hover ? #313244 : #00000000;
+            exp_m_rename := TouchArea {
+                clicked => {
+                    if root.selected_explorer_name != "" {
+                        root.rename_requested();
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/editor.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Переименовать..." : "Rename...";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Delete
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_del.has-hover ? #313244 : #00000000;
+            exp_m_del := TouchArea {
+                clicked => {
+                    if root.selected_explorer_path != "" {
+                        root.delete_requested(root.selected_explorer_path);
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/delete.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Удалить" : "Delete";
+                    font-size: 13px;
+                    color: #f38ba8;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Copy Path
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_copy.has-hover ? #313244 : #00000000;
+            exp_m_copy := TouchArea {
+                clicked => {
+                    if root.selected_explorer_path != "" {
+                        root.copy_path_requested(root.selected_explorer_path);
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/copy.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Копировать путь" : "Copy Path";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Reveal in Windows Explorer
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_rev.has-hover ? #313244 : #00000000;
+            exp_m_rev := TouchArea {
+                clicked => {
+                    if root.selected_explorer_path != "" {
+                        root.reveal_in_explorer_requested(root.selected_explorer_path);
+                    }
+                }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/folder-windows-open.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Показать в проводнике Windows" : "Reveal in Explorer";
+                    font-size: 13px;
+                    color: #cdd6f4;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Refresh
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_ref.has-hover ? #313244 : #00000000;
+            exp_m_ref := TouchArea {
+                clicked => { root.refresh_requested(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 8px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image { source: @image-url("../icons/refresh.svg"); width: 14px; height: 14px; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Обновить проводник" : "Refresh";
+                    font-size: 13px;
+                    color: #89b4fa;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

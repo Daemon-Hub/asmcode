@@ -9,10 +9,9 @@ mod syntax;
 mod ui;
 
 use slint::ComponentHandle;
-use std::cell::RefCell;
 use std::env;
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use ui::{setup_ui, AppWindow, IdeController};
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -23,7 +22,7 @@ fn main() -> Result<(), slint::PlatformError> {
         env::current_dir().unwrap_or_else(|_| PathBuf::from("D:\\Rust\\asmcode"))
     };
 
-    let controller = Rc::new(RefCell::new(IdeController::new(current_dir)));
+    let controller = Arc::new(Mutex::new(IdeController::new(current_dir)));
 
     let app = AppWindow::new()?;
     setup_ui(&app, controller, saved_session);
