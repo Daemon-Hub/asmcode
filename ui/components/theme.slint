@@ -1,17 +1,36 @@
 export global Theme {
-    out property <color> bg_dark: #11111b;
-    out property <color> bg_base: #181825;
-    out property <color> bg_surface: #1e1e2e;
-    out property <color> bg_surface1: #313244;
-    out property <color> bg_surface2: #45475a;
-    out property <color> border_normal: #313244;
-    out property <color> border_light: #45475a;
-    out property <color> accent_blue: #89b4fa;
-    out property <color> accent_green: #a6e3a1;
-    out property <color> accent_yellow: #f9e2af;
-    out property <color> accent_red: #f38ba8;
-    out property <color> text_primary: #cdd6f4;
-    out property <color> text_muted: #a6adc8;
-    out property <color> text_dim: #6c7086;
+    in-out property <int> active_theme: 1;
+
+    out property <color> bg_dark: active_theme == 1 ? #151518 : #11111b;
+    out property <color> bg_base: active_theme == 1 ? #1a1a1d : #181825;
+    out property <color> bg_surface: active_theme == 1 ? #212226 : #1e1e2e;
+    out property <color> bg_surface1: active_theme == 1 ? #312328 : #313244;
+    out property <color> bg_surface2: active_theme == 1 ? #4d2b33 : #45475a;
+    out property <color> border_normal: active_theme == 1 ? #3d2327 : #313244;
+    out property <color> border_light: active_theme == 1 ? #5c353b : #45475a;
+
+    // Component-level surfaces
+    out property <color> header_bg: active_theme == 1 ? #18181c : #11111b;
+    out property <color> sidebar_bg: active_theme == 1 ? #1a1a1e : #181825;
+    out property <color> terminal_bg: active_theme == 1 ? #151518 : #11111b;
+    out property <color> menu_bg: active_theme == 1 ? #252229 : #1e1e2e;
+    out property <color> menu_hover: active_theme == 1 ? #3d252c : #313244;
+    out property <color> menu_border: active_theme == 1 ? #542d34 : #45475a;
+
+    out property <color> accent_blue: active_theme == 1 ? #7feef2 : #89b4fa;
+    out property <color> accent_green: active_theme == 1 ? #acd145 : #a6e3a1;
+    out property <color> accent_yellow: active_theme == 1 ? #ffa71c : #f9e2af;
+    out property <color> accent_red: active_theme == 1 ? #fd6d6d : #f38ba8;
+    out property <color> text_primary: active_theme == 1 ? #c9c7c7 : #cdd6f4;
+    out property <color> text_muted: active_theme == 1 ? #ba6a75 : #a6adc8;
+    out property <color> text_dim: active_theme == 1 ? #7d4c55 : #6c7086;
     out property <string> font_family: "CaskaydiaCove NF SemiBold";
+
+    // Editor specific theme properties
+    out property <color> editor_bg: active_theme == 1 ? #212226 : #1e1e2e;
+    out property <color> gutter_bg: active_theme == 1 ? #1a1a1d : #181825;
+    out property <color> gutter_border: active_theme == 1 ? #3d2327 : #313244;
+    out property <color> line_number_color: active_theme == 1 ? #844040 : #585b70;
+    out property <color> selection_bg: active_theme == 1 ? #542d2d : #264f78;
+    out property <color> caret_color: active_theme == 1 ? #7feef2 : #89b4fa;
 }

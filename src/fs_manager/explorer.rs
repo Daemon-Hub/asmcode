@@ -16,10 +16,17 @@ pub struct FsEntry {
     pub size_formatted: String,
 }
 
+pub struct DeletedPathRecord {
+    pub original_path: PathBuf,
+    pub backup_path: PathBuf,
+    pub is_dir: bool,
+}
+
 pub struct FileManager {
     pub current_dir: PathBuf,
     pub active_file_path: Option<PathBuf>,
     pub expanded_folders: HashSet<PathBuf>,
+    pub deleted_history: Vec<DeletedPathRecord>,
 }
 
 impl FileManager {
@@ -29,6 +36,7 @@ impl FileManager {
             current_dir,
             active_file_path: None,
             expanded_folders: HashSet::new(),
+            deleted_history: Vec::new(),
         }
     }
 
@@ -144,11 +152,37 @@ impl FileManager {
 
     pub fn delete_path<P: AsRef<Path>>(&mut self, path: P) -> io::Result<()> {
         let p = path.as_ref();
-        if p.is_dir() {
-            fs::remove_dir_all(p)?;
-        } else if p.is_file() {
-            fs::remove_file(p)?;
+        if !p.exists() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "Path not found"));
         }
+        let is_dir = p.is_dir();
+        let recycle_dir = std::env::temp_dir().join("asmcode_recycle_bin");
+        let _ = fs::create_dir_all(&recycle_dir);
+
+        let unique_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let file_stem = p.file_name().unwrap_or_default().to_string_lossy();
+        let backup_name = format!("{}_{}", unique_id, file_stem);
+        let backup_path = recycle_dir.join(backup_name);
+
+        if fs::rename(p, &backup_path).is_err() {
+            if is_dir {
+                copy_dir_all(p, &backup_path)?;
+                fs::remove_dir_all(p)?;
+            } else {
+                fs::copy(p, &backup_path)?;
+                fs::remove_file(p)?;
+            }
+        }
+
+        self.deleted_history.push(DeletedPathRecord {
+            original_path: p.to_path_buf(),
+            backup_path,
+            is_dir,
+        });
+
         if self
             .active_file_path
             .as_ref()
@@ -157,6 +191,35 @@ impl FileManager {
             self.active_file_path = None;
         }
         Ok(())
+    }
+
+    pub fn undo_delete(&mut self) -> io::Result<Option<PathBuf>> {
+        let Some(record) = self.deleted_history.pop() else {
+            return Ok(None);
+        };
+        if let Some(parent) = record.original_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if fs::rename(&record.backup_path, &record.original_path).is_err() {
+            if record.is_dir {
+                copy_dir_all(&record.backup_path, &record.original_path)?;
+                let _ = fs::remove_dir_all(&record.backup_path);
+            } else {
+                fs::copy(&record.backup_path, &record.original_path)?;
+                let _ = fs::remove_file(&record.backup_path);
+            }
+        }
+        Ok(Some(record.original_path))
+    }
+
+    pub fn expand_parents_of(&mut self, path: &Path) {
+        let mut curr = path.parent();
+        while let Some(p) = curr {
+            if p.starts_with(&self.current_dir) {
+                self.expanded_folders.insert(p.to_path_buf());
+            }
+            curr = p.parent();
+        }
     }
 
     pub fn rename_path<P: AsRef<Path>>(
@@ -305,4 +368,48 @@ fn collect_tree_entries(
     }
 
     Ok(())
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_child = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_child)?;
+        } else {
+            fs::copy(entry.path(), dest_child)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_delete_and_undo_delete() {
+        let temp_dir = std::env::temp_dir().join("asmcode_test_undo_delete");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let file_path = temp_dir.join("test_file.asm");
+        fs::write(&file_path, "mvi a, 10h\nret\n").unwrap();
+        assert!(file_path.exists());
+
+        let mut fm = FileManager::new(&temp_dir);
+        fm.delete_path(&file_path).unwrap();
+        assert!(!file_path.exists());
+        assert_eq!(fm.deleted_history.len(), 1);
+
+        let restored = fm.undo_delete().unwrap();
+        assert_eq!(restored, Some(file_path.clone()));
+        assert!(file_path.exists());
+        let content = fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "mvi a, 10h\nret\n");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }

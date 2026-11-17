@@ -1,13 +1,11 @@
 use crate::session::AppSession;
 use crate::ui::AppWindow;
 use crate::ui::controller::IdeController;
-use crate::ui::editor_bridge::{
-    populate_docs_ui, refresh_suggestions_ui, update_highlight_and_labels,
-};
+use crate::ui::editor_bridge::{populate_docs_ui, refresh_suggestions_ui};
 use crate::ui::explorer_bridge::refresh_files_ui;
 use crate::ui::handlers::{
     attach_autocomplete_handlers, attach_editor_handlers, attach_file_handlers,
-    attach_toolchain_handlers, attach_view_handlers,
+    attach_toolchain_handlers, attach_view_handlers, open_file_internal,
 };
 use crate::ui::terminal::update_terminal_lines;
 use slint::SharedString;
@@ -28,10 +26,26 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
     app.set_terminal_expanded(session.terminal_expanded);
     app.set_sidebar_width(session.sidebar_width);
     app.set_terminal_height(session.terminal_height);
+    app.set_active_theme_id(session.active_theme_id);
+    app.set_cursor_blink(session.cursor_blink);
+    app.set_tab_size(session.tab_size);
+    if !session.compiler_path.is_empty() {
+        app.set_compiler_path(SharedString::from(&session.compiler_path));
+    }
+    if !session.emulator_path.is_empty() {
+        app.set_emulator_path(SharedString::from(&session.emulator_path));
+    }
+    app.set_toolchain_type(session.toolchain_type);
 
-    // Initial terminal lines
     {
-        let ctrl = controller_rc.lock().unwrap();
+        let mut ctrl = controller_rc.lock().unwrap();
+        ctrl.session = session.clone();
+        for tab_str in &session.open_tabs {
+            let p = PathBuf::from(tab_str);
+            if p.exists() && !ctrl.open_tabs.contains(&p) {
+                ctrl.open_tabs.push(p);
+            }
+        }
         update_terminal_lines(app, &ctrl.logs);
     }
 
@@ -61,26 +75,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
         });
 
         if let Some(target_file) = target_opt {
-            let mut ctrl = controller_rc.lock().unwrap();
-            if let Ok(content) = ctrl.file_manager.read_file_content(&target_file) {
-                let fname = target_file
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                let is_asm = fname.ends_with(".asm")
-                    || fname.ends_with(".inc")
-                    || fname.ends_with(".s")
-                    || fname.ends_with(".mac");
-                app.set_active_file_name(SharedString::from(&fname));
-                app.set_active_file_path(SharedString::from(
-                    target_file.to_string_lossy().to_string(),
-                ));
-                app.set_code_text(SharedString::from(&content));
-                app.set_is_dirty(false);
-                app.set_is_active_asm(is_asm);
-                update_highlight_and_labels(app, &ctrl.autocomplete, &content, is_asm);
-            }
+            open_file_internal(app, &controller_rc, &target_file, false);
         }
     }
 

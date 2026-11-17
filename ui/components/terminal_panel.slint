@@ -1,5 +1,6 @@
 import { TerminalLineItem } from "../models.slint";
 import { IconButton } from "icon_button.slint";
+import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
 
 export component TerminalPanel inherits Rectangle {
@@ -14,7 +15,7 @@ export component TerminalPanel inherits Rectangle {
     callback clear_output();
 
     height: root.terminal_expanded ? (root.terminal_height + 38px) : 38px;
-    background: #11111b;
+    background: Theme.terminal_bg;
 
     VerticalLayout {
         padding: 6px;
@@ -43,14 +44,14 @@ export component TerminalPanel inherits Rectangle {
                         : "TERMINAL / COMPILER & EMULATOR OUTPUT";
                     font-size: 13px;
                     font-weight: 700;
-                    color: #a6adc8;
+                    color: Theme.text_muted;
                     vertical-alignment: center;
                 }
 
                 Rectangle {
                     height: 22px;
                     border-radius: 3px;
-                    background: #313244;
+                    background: Theme.bg_surface1;
                     HorizontalLayout {
                         padding-left: 8px;
                         padding-right: 8px;
@@ -68,14 +69,14 @@ export component TerminalPanel inherits Rectangle {
                 width: 95px;
                 height: 26px;
                 border-radius: 3px;
-                background: #1e1e2e;
+                background: Theme.bg_surface;
                 border-width: 1px;
-                border-color: #45475a;
+                border-color: Theme.border_normal;
 
                 Text {
                     text: root.current_language == "ru" ? "Очистить" : "Clear";
                     font-size: 12px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -88,10 +89,10 @@ export component TerminalPanel inherits Rectangle {
         }
 
         if root.terminal_expanded: Rectangle {
-            background: #181825;
+            background: Theme.bg_base;
             border-radius: 4px;
             border-width: 1px;
-            border-color: #313244;
+            border-color: Theme.border_normal;
 
             ScrollView {
                 VerticalLayout {

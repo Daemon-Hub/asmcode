@@ -92,7 +92,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
     // Undo (Ctrl + Z)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
-    app.on_editor_undo(move |_cursor| {
+    app.on_editor_undo(move |current_cursor| {
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
@@ -102,16 +102,20 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             ui.set_is_dirty(true);
             let is_asm = ui.get_is_active_asm();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, &snap.text, is_asm);
-            snap.cursor_offset
+            if snap.cursor_offset > 0 {
+                snap.cursor_offset.min(snap.text.len() as i32)
+            } else {
+                current_cursor.min(snap.text.len() as i32)
+            }
         } else {
-            0
+            current_cursor
         }
     });
 
     // Redo (Ctrl + Y or Ctrl + Shift + Z)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
-    app.on_editor_redo(move |_cursor| {
+    app.on_editor_redo(move |current_cursor| {
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
@@ -121,9 +125,13 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             ui.set_is_dirty(true);
             let is_asm = ui.get_is_active_asm();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, &snap.text, is_asm);
-            snap.cursor_offset
+            if snap.cursor_offset > 0 {
+                snap.cursor_offset.min(snap.text.len() as i32)
+            } else {
+                current_cursor.min(snap.text.len() as i32)
+            }
         } else {
-            0
+            current_cursor
         }
     });
 

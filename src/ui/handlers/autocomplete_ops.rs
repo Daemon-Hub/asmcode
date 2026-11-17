@@ -4,6 +4,7 @@ use crate::ui::controller::IdeController;
 use crate::ui::editor_bridge::{
     populate_docs_ui, refresh_suggestions_ui, update_highlight_and_labels,
 };
+use crate::ui::handlers::file_ops::sync_tabs_ui;
 use slint::{ComponentHandle, Model, SharedString};
 use std::sync::{Arc, Mutex};
 
@@ -59,6 +60,8 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     // Code Edited (Typing in Editor with Live Autocomplete Trigger)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
+    let prev_code_len = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let prev_len_clone = Arc::clone(&prev_code_len);
     app.on_code_edited(move |new_code, cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
         ui.set_is_dirty(true);
@@ -67,6 +70,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             let mut ctrl = ctrl_clone.lock().unwrap();
             ctrl.undo_manager
                 .record_edit(new_code.as_str(), cursor_offset, false);
+            sync_tabs_ui(&ui, &ctrl);
         }
 
         let is_asm = ui.get_is_active_asm();
@@ -75,9 +79,37 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             update_highlight_and_labels(&ui, &ctrl.autocomplete, new_code.as_str(), is_asm);
         }
 
+        let is_large_file = ui.get_is_large_file_mode();
+        if is_large_file {
+            ui.set_show_autocomplete_popup(false);
+            return;
+        }
+
+        let old_len = prev_len_clone.swap(new_code.len(), std::sync::atomic::Ordering::Relaxed);
+        let was_popup_open = ui.get_show_autocomplete_popup();
+        let is_insertion = new_code.len() > old_len;
+
         let lang = ui.get_current_language().to_string();
         let prefix = extract_prefix_at_offset(new_code.as_str(), cursor_offset as usize);
-        if is_asm && !prefix.is_empty() {
+
+        // Only auto-trigger autocomplete when actively typing/inserting identifier characters,
+        // or if the popup was already open and user is refining completion.
+        // Deleting lines or characters when popup was closed must never open the popup!
+        let should_trigger = if is_insertion {
+            let b = if cursor_offset > 0 && (cursor_offset as usize) <= new_code.len() {
+                new_code.as_bytes().get(cursor_offset as usize - 1).copied()
+            } else {
+                None
+            };
+            match b {
+                Some(ch) => ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'@',
+                None => false,
+            }
+        } else {
+            was_popup_open
+        };
+
+        if is_asm && !prefix.is_empty() && should_trigger {
             refresh_suggestions_ui(&ui, &ctrl_clone, prefix, &lang);
             let has_suggestions = ui.get_suggestion_list().row_count() > 0;
             if has_suggestions {
@@ -105,6 +137,10 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     let app_weak = app.as_weak();
     app.on_trigger_autocomplete(move |cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_is_large_file_mode() {
+            ui.set_show_autocomplete_popup(false);
+            return;
+        }
         let code = ui.get_code_text().to_string();
         let prefix = extract_prefix_at_offset(&code, cursor_offset as usize);
         let lang = ui.get_current_language().to_string();

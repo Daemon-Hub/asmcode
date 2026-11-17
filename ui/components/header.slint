@@ -1,5 +1,6 @@
 import { IconButton } from "icon_button.slint";
 import { ActionButton } from "action_button.slint";
+import { Theme } from "theme.slint";
 
 export component Header inherits Rectangle {
     in property <string> current_language: "ru";
@@ -25,7 +26,7 @@ export component Header inherits Rectangle {
     callback run_emulator();
 
     height: 58px;
-    background: #11111b;
+    background: Theme.header_bg;
 
     HorizontalLayout {
         padding-left: 14px;
@@ -60,7 +61,7 @@ export component Header inherits Rectangle {
                         font-family: "CaskaydiaCove NF SemiBold";
                         font-size: 19px;
                         font-weight: 700;
-                        color: #89b4fa;
+                        color: Theme.accent_blue;
                         vertical-alignment: center;
                     }
                 }
@@ -70,11 +71,11 @@ export component Header inherits Rectangle {
                     width: 66px;
                     height: 34px;
                     border-radius: 4px;
-                    background: root.show_file_menu ? #313244 : #00000000;
+                    background: root.show_file_menu ? Theme.bg_surface1 : #00000000;
                     Text {
                         text: root.current_language == "ru" ? "Файл" : "File";
                         font-size: 15px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -88,11 +89,11 @@ export component Header inherits Rectangle {
                     width: 66px;
                     height: 34px;
                     border-radius: 4px;
-                    background: root.show_run_menu ? #313244 : #00000000;
+                    background: root.show_run_menu ? Theme.bg_surface1 : #00000000;
                     Text {
                         text: root.current_language == "ru" ? "Запуск" : "Run";
                         font-size: 15px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -106,11 +107,11 @@ export component Header inherits Rectangle {
                     width: 66px;
                     height: 34px;
                     border-radius: 4px;
-                    background: root.show_view_menu ? #313244 : #00000000;
+                    background: root.show_view_menu ? Theme.bg_surface1 : #00000000;
                     Text {
                         text: root.current_language == "ru" ? "Вид" : "View";
                         font-size: 15px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
@@ -124,66 +125,16 @@ export component Header inherits Rectangle {
                     width: 76px;
                     height: 34px;
                     border-radius: 4px;
-                    background: root.show_help_menu ? #313244 : #00000000;
+                    background: root.show_help_menu ? Theme.bg_surface1 : #00000000;
                     Text {
                         text: root.current_language == "ru" ? "Справка" : "Help";
                         font-size: 15px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
                     TouchArea {
                         clicked => { root.toggle_help_menu(); }
-                    }
-                }
-
-                // Active File Tab
-                if root.active_file_name != "": HorizontalLayout {
-                    padding-left: 10px;
-                    alignment: center;
-
-                    Rectangle {
-                        height: 34px;
-                        border-radius: 5px;
-                        background: #1e1e2e;
-                        border-width: 1px;
-                        border-color: #313244;
-
-                        HorizontalLayout {
-                            padding-left: 10px;
-                            padding-right: 10px;
-                            spacing: 8px;
-                            alignment: center;
-
-                            VerticalLayout {
-                                alignment: center;
-                                Image {
-                                    source: root.is_active_asm ? @image-url("../icons/assembly.svg") : @image-url("../icons/document.svg");
-                                    width: 16px;
-                                    height: 16px;
-                                }
-                            }
-
-                            Text {
-                                text: root.is_dirty ? root.active_file_name + " *" : root.active_file_name;
-                                font-family: "CaskaydiaCove NF SemiBold";
-                                font-size: 14px;
-                                font-weight: 600;
-                                color: root.is_dirty ? #f9e2af : #cdd6f4;
-                                vertical-alignment: center;
-                            }
-
-                            IconButton {
-                                icon_source: @image-url("../icons/close.svg");
-                                icon_width: 12px;
-                                icon_height: 12px;
-                                btn_width: 20px;
-                                btn_height: 20px;
-                                bg_hover: #f38ba833;
-                                bg_normal: #00000000;
-                                clicked => { root.close_active_file(); }
-                            }
-                        }
                     }
                 }
             }

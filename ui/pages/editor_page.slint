@@ -1,7 +1,10 @@
-import { HighlightLineItem, SuggestionItem } from "../models.slint";
+import { FileTabItem, HighlightLineItem, SuggestionItem } from "../models.slint";
+import { TabBar } from "../components/tab_bar.slint";
+import { TabContextMenu } from "../components/tab_context_menu.slint";
 import { RightDrawer } from "../components/right_drawer.slint";
 import { AutocompletePopup } from "../components/autocomplete_popup.slint";
 import { EditorContextMenu } from "../components/editor_context_menu.slint";
+import { Theme } from "../components/theme.slint";
 import { ScrollView } from "std-widgets.slint";
 
 export component EditorPage inherits HorizontalLayout {
@@ -12,6 +15,35 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <bool> cursor_visible: true;
     in-out property <length> cursor_x: 8px;
     in-out property <length> cursor_y: 0px;
+    in-out property <int> cursor_line: 0;
+
+    // Tabs & Large File Support
+    in property <[FileTabItem]> open_tabs: [];
+    in property <string> active_file_path: "";
+    in property <string> line_numbers_text: "";
+    in property <bool> is_large_file_mode: false;
+    in-out property <bool> show_tab_context_menu: false;
+    in-out property <string> tab_context_path: "";
+    in-out property <length> tab_context_x: 0px;
+    in-out property <length> tab_context_y: 0px;
+    in property <bool> is_tab_pinned: false;
+
+    callback switch_tab(string);
+    callback close_tab(string);
+    callback close_other_tabs(string);
+    callback close_saved_tabs();
+    callback close_all_tabs();
+    callback copy_relative_path(string);
+    callback copy_absolute_path(string);
+    callback reveal_in_explorer(string);
+    callback show_in_explorer_tree(string);
+    callback toggle_pin_tab(string);
+    callback force_enable_large_file_features();
+    callback close_all_context_menus();
+
+    public function refresh_cursor() {
+        code_input.set-selection-offsets(code_input.cursor-position-byte-offset, code_input.cursor-position-byte-offset);
+    }
 
     in-out property <string> code_text <=> code_input.text;
     in property <bool> is_active_asm: true;
@@ -39,6 +71,8 @@ export component EditorPage inherits HorizontalLayout {
 
     in-out property <bool> right_drawer_expanded: true;
     in-out property <string> search_filter <=> drawer.search_filter;
+    in-out property <int> active_theme_id: 1;
+    in-out property <int> cursor_idle_ticks: 0;
 
     callback code_edited(string, int);
     callback editor_undo(int) -> int;
@@ -54,6 +88,7 @@ export component EditorPage inherits HorizontalLayout {
     callback trigger_autocomplete(int);
     callback navigate_suggestion(int);
     callback save_file();
+    callback save_file_as();
     callback open_file_dialog();
     callback run_emulator();
     callback run_assemble_only();
@@ -62,104 +97,153 @@ export component EditorPage inherits HorizontalLayout {
     callback zoom_reset();
     callback filter_changed(string);
     callback insert_suggestion(string);
+    callback open_settings();
 
     spacing: 0px;
 
-    // Unified Code Viewport
-    Rectangle {
-        background: #1e1e2e;
-
-        HorizontalLayout {
+    // Central Editor Column (TabBar on top, Large File Banner, Code Area underneath)
+    central_area := Rectangle {
+        VerticalLayout {
+            width: 100%;
+            height: 100%;
             spacing: 0px;
+            padding: 0px;
 
-            // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
+            // Open Tabs Bar (spanning between explorer and RightDrawer)
+            if root.open_tabs.length > 0: TabBar {
+                open_tabs: root.open_tabs;
+                active_file_path: root.active_file_path;
+                switch_tab(p) => { root.switch_tab(p); }
+                close_tab(p) => { root.close_tab(p); }
+                tab_context_menu(p, x, y) => {
+                    root.close_all_context_menus();
+                    root.tab_context_path = p;
+                    root.tab_context_x = x;
+                    root.tab_context_y = y;
+                    root.show_tab_context_menu = true;
+                }
+            }
+
+        // Large File Optimizations Toast / Banner
+        if root.is_large_file_mode: Rectangle {
+            height: 34px;
+            background: Theme.bg_surface1;
+
             Rectangle {
-                width: 62px;
-                background: #181825;
-                clip: true;
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: Theme.border_normal;
+            }
 
-                VerticalLayout {
-                    y: editor_scroll.content-y;
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 8px;
                     alignment: start;
-                    spacing: 0px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("../icons/document.svg");
+                            width: 14px;
+                            height: 14px;
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru"
+                            ? "Режим больших файлов: подсветка синтаксиса и анализ кода отключены для повышения производительности"
+                            : "Large file mode: syntax highlighting and code analysis disabled for performance";
+                        font-size: 12px;
+                        color: Theme.accent_yellow;
+                        vertical-alignment: center;
+                    }
+                }
 
-                    for line in root.highlight_lines: Rectangle {
-                        height: root.editor_line_height;
-                        Text {
-                            text: line.line_number;
-                            font-family: "CaskaydiaCove NF SemiBold";
-                            font-size: root.editor_font_size;
-                            font-weight: 600;
-                            color: #585b70;
-                            horizontal-alignment: right;
-                            vertical-alignment: center;
-                            width: 50px;
+                Rectangle {
+                    width: 170px;
+                    height: 24px;
+                    y: 5px;
+                    border-radius: 3px;
+                    background: force_btn.has-hover ? Theme.accent_blue : Theme.bg_surface2;
+
+                    Text {
+                        text: root.current_language == "ru" ? "Включить принудительно" : "Enable Anyway";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: force_btn.has-hover ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    force_btn := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.force_enable_large_file_features();
                         }
                     }
                 }
             }
+        }
 
-            Rectangle { width: 1px; background: #313244; }
+        // Unified Code Viewport
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.editor_bg;
 
-            // Main Editor Scrollable Area
-            Rectangle {
-                background: #1e1e2e;
-                clip: true;
+            HorizontalLayout {
+                spacing: 0px;
 
-                editor_scroll := ScrollView {
+                // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
+                Rectangle {
+                    width: 62px;
+                    background: Theme.gutter_bg;
+                    clip: true;
+
+                    // Text-based line numbers (works for all files: asm, sh, txt, md, etc.)
+                    Text {
+                        x: 0px;
+                        y: editor_scroll.content-y;
+                        width: 52px;
+                        text: root.line_numbers_text;
+                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-size: root.editor_font_size;
+                        font-weight: 600;
+                        color: Theme.line_number_color;
+                        horizontal-alignment: right;
+                    }
+                }
+
+                Rectangle { width: 1px; background: Theme.gutter_border; }
+
+                // Main Editor Scrollable Area
+                Rectangle {
+                    background: Theme.editor_bg;
+                    clip: true;
+
+                    editor_scroll := ScrollView {
                     content-width: max(self.visible-width, 1600px);
                     content-height: max(self.visible-height, max(code_input.preferred-height, code_rows.preferred-height));
 
-                    // Syntax-Highlighted Code Lines Layer
-                    code_rows := VerticalLayout {
-                        x: 0px;
-                        y: 0px;
-                        alignment: start;
-                        spacing: 0px;
-
-                        for line in root.highlight_lines: HorizontalLayout {
-                            alignment: start;
-                            spacing: 0px;
-                            height: root.editor_line_height;
-                            padding-left: 8px;
-
-                            if line.tokens.length == 0: Text {
-                                text: " ";
-                                font-family: "CaskaydiaCove NF SemiBold";
-                                font-size: root.editor_font_size;
-                                font-weight: 600;
-                                font-italic: root.editor_font_italic;
-                                vertical-alignment: center;
-                            }
-
-                            for tok in line.tokens: Text {
-                                text: tok.text;
-                                color: tok.color;
-                                font-family: "CaskaydiaCove NF SemiBold";
-                                font-size: root.editor_font_size;
-                                font-weight: 600;
-                                font-italic: root.editor_font_italic;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-
-                    // Editor Right-Click Detector
+                    // Background Right-Click Detector
                     editor_touch := TouchArea {
                         x: 0px;
                         y: 0px;
                         width: parent.content-width;
                         height: parent.content-height;
                         pointer-event(e) => {
-                            if (e.button == PointerEventButton.right && (e.kind == PointerEventKind.down || e.kind == PointerEventKind.up)) {
-                                root.context_menu_x = self.mouse-x;
-                                root.context_menu_y = self.mouse-y;
+                            if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                                root.close_all_context_menus();
+                                root.context_menu_x = self.mouse-x + editor_scroll.content-x;
+                                root.context_menu_y = self.mouse-y + editor_scroll.content-y;
                                 root.show_context_menu = true;
                             }
                         }
                     }
 
-                    // Transparent TextInput
+                    // Transparent TextInput (handles input, cursor navigation and selection background)
                     code_input := TextInput {
                         x: 8px;
                         y: 0px;
@@ -168,22 +252,25 @@ export component EditorPage inherits HorizontalLayout {
                         font-family: "CaskaydiaCove NF SemiBold";
                         font-size: root.editor_font_size;
                         font-weight: 600;
-                        font-italic: root.editor_font_italic;
-                        color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : #cdd6f4;
+                        font-italic: false;
+                        color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : Theme.text_primary;
                         wrap: no-wrap;
                         single-line: false;
-                        selection-background-color: #2b4f81;
-                        selection-foreground-color: #ffffff;
+                        selection-background-color: Theme.selection_bg;
+                        selection-foreground-color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : #ffffff;
 
                         cursor-position-changed(cpos) => {
                             root.cursor_x = cpos.x + 8px;
-                            root.cursor_y = cpos.y;
+                            if root.editor_line_height > 0 {
+                                root.cursor_line = ((cpos.y + 2px) / root.editor_line_height);
+                            }
+                            root.cursor_y = root.cursor_line * root.editor_line_height;
                             root.cursor_visible = true;
+                            root.cursor_idle_ticks = 0;
 
-                            if (root.show_autocomplete_popup && root.popup_trigger_line >= 0 && root.editor_line_height > 0) {
-                                let cur_line = (cpos.y / root.editor_line_height);
-                                let diff = cur_line - root.popup_trigger_line;
-                                if (diff < -0.5 || diff > 0.5) {
+                            if (root.show_autocomplete_popup && root.popup_trigger_line >= 0) {
+                                let diff = root.cursor_line - root.popup_trigger_line;
+                                if (diff < 0 || diff > 0) {
                                     root.show_autocomplete_popup = false;
                                 }
                             }
@@ -191,11 +278,13 @@ export component EditorPage inherits HorizontalLayout {
 
                         edited => {
                             root.cursor_visible = true;
+                            root.cursor_idle_ticks = 0;
                             root.code_edited(self.text, self.cursor-position-byte-offset);
                         }
 
                         key-pressed(e) => {
                             root.cursor_visible = true;
+                            root.cursor_idle_ticks = 0;
 
                             // Escape: dismiss popups
                             if (e.text == Key.Escape) {
@@ -224,6 +313,12 @@ export component EditorPage inherits HorizontalLayout {
                             // Ctrl + Space: trigger autocomplete
                             if (e.modifiers.control && (e.text == " " || e.text == Key.Space || e.text == "\u{0000}")) {
                                 root.trigger_autocomplete(code_input.cursor-position-byte-offset);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + ,: Open Settings Modal
+                            if (e.modifiers.control && (e.text == "," || e.text == "<" || e.text == "б" || e.text == "Б")) {
+                                root.open_settings();
                                 return EventResult.accept;
                             }
 
@@ -265,6 +360,30 @@ export component EditorPage inherits HorizontalLayout {
                             // Ctrl + A: Select All
                             if (e.modifiers.control && (e.text == "a" || e.text == "A" || e.text == "ф" || e.text == "Ф" || e.text == "\u{0001}")) {
                                 code_input.select-all();
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + C: Copy (support EN and RU keyboard layout)
+                            if (e.modifiers.control && (e.text == "c" || e.text == "C" || e.text == "с" || e.text == "С" || e.text == "\u{0003}")) {
+                                code_input.copy();
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + V: Paste (support EN and RU keyboard layout)
+                            if (e.modifiers.control && (e.text == "v" || e.text == "V" || e.text == "м" || e.text == "М" || e.text == "\u{0016}")) {
+                                code_input.paste();
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + X: Cut (support EN and RU keyboard layout)
+                            if (e.modifiers.control && (e.text == "x" || e.text == "X" || e.text == "ч" || e.text == "Ч" || e.text == "\u{0018}")) {
+                                code_input.cut();
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + Shift + S: Save Copy As (creates a copy, leaves original file untouched)
+                            if (e.modifiers.control && e.modifiers.shift && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы" || e.text == "\u{0013}")) {
+                                root.save_file_as();
                                 return EventResult.accept;
                             }
 
@@ -315,14 +434,17 @@ export component EditorPage inherits HorizontalLayout {
                             // Zoom controls
                             if (e.modifiers.control && (e.text == "+" || e.text == "=")) {
                                 root.zoom_in();
+                                code_input.set-selection-offsets(code_input.cursor-position-byte-offset, code_input.cursor-position-byte-offset);
                                 return EventResult.accept;
                             }
                             if (e.modifiers.control && (e.text == "-" || e.text == "_")) {
                                 root.zoom_out();
+                                code_input.set-selection-offsets(code_input.cursor-position-byte-offset, code_input.cursor-position-byte-offset);
                                 return EventResult.accept;
                             }
                             if (e.modifiers.control && e.text == "0") {
                                 root.zoom_reset();
+                                code_input.set-selection-offsets(code_input.cursor-position-byte-offset, code_input.cursor-position-byte-offset);
                                 return EventResult.accept;
                             }
 
@@ -330,27 +452,47 @@ export component EditorPage inherits HorizontalLayout {
                         }
                     }
 
-                    // Slanted Blinking Cursor
-                    if code_input.has-focus && root.cursor_visible: Path {
-                        x: root.cursor_x + (root.editor_font_italic ? 3px : 2px);
-                        y: root.cursor_y + 1px;
-                        width: 8px;
-                        height: root.editor_line_height - 2px;
-                        viewbox-x: 0;
-                        viewbox-y: 0;
-                        viewbox-width: 8;
-                        viewbox-height: max(1, (root.editor_line_height - 2px) / 1px);
-                        stroke: #89b4fa;
-                        stroke-width: 2.2px;
-                        stroke-line-cap: square;
-                        MoveTo {
-                            x: root.editor_font_italic ? 4 : 1;
-                            y: 0;
+                    // Layer 3: Syntax-Highlighted Code Lines Layer (Rendered ON TOP OF selection background)
+                    code_rows := VerticalLayout {
+                        x: 0px;
+                        y: 0px;
+                        alignment: start;
+                        spacing: 0px;
+
+                        for line in root.highlight_lines: HorizontalLayout {
+                            alignment: start;
+                            spacing: 0px;
+                            height: root.editor_line_height;
+                            padding-left: 8px;
+
+                            if line.tokens.length == 0: Text {
+                                text: " ";
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: root.editor_font_size;
+                                font-weight: 600;
+                                font-italic: false;
+                                vertical-alignment: top;
+                            }
+
+                            for tok in line.tokens: Text {
+                                text: tok.text;
+                                color: tok.color;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: root.editor_font_size;
+                                font-weight: 600;
+                                font-italic: tok.is_italic;
+                                vertical-alignment: top;
+                            }
                         }
-                        LineTo {
-                            x: root.editor_font_italic ? 0 : 1;
-                            y: max(1, (root.editor_line_height - 2px) / 1px);
-                        }
+                    }
+
+                    // Layer 4: Vertical Blinking Caret (VS Code standard: strictly vertical, fixed 2px width, exact advance width, rendered on top)
+                    if code_input.has-focus && root.cursor_visible: Rectangle {
+                        x: root.cursor_x;
+                        y: root.cursor_y;
+                        width: 2px;
+                        height: root.editor_line_height;
+                        background: Theme.caret_color;
                     }
 
                     // In-Editor Floating Autocomplete Popup
@@ -373,68 +515,127 @@ export component EditorPage inherits HorizontalLayout {
                             root.show_autocomplete_popup = false;
                         }
                     }
+                }
 
-                    // Backdrop to dismiss editor context menu
-                    if root.show_context_menu: TouchArea {
-                        x: 0px;
-                        y: 0px;
-                        width: parent.width;
-                        height: parent.height;
-                        z: 110;
-                        clicked => { root.show_context_menu = false; }
+                // Fixed Viewport Backdrop to dismiss editor context menu
+                if root.show_context_menu: TouchArea {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: parent.height;
+                    z: 110;
+                    clicked => { root.show_context_menu = false; }
+                }
+
+                // In-Editor Context Menu (Fixed at viewport coordinate, NEVER scrolls with text)
+                if root.show_context_menu: EditorContextMenu {
+                    x: min(max(10px, root.context_menu_x), parent.width - 260px);
+                    y: min(max(10px, root.context_menu_y), parent.height - 380px);
+                    z: 120;
+                    current_language: root.current_language;
+                    undo => {
+                        root.show_context_menu = false;
+                        let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
+                        code_input.set-selection-offsets(new_pos, new_pos);
                     }
-
-                    // In-Editor Context Menu
-                    if root.show_context_menu: EditorContextMenu {
-                        x: min(max(10px, root.context_menu_x), parent.width - 260px);
-                        y: min(max(10px, root.context_menu_y), parent.height - 380px);
-                        current_language: root.current_language;
-                        undo => {
-                            root.show_context_menu = false;
-                            let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
-                            code_input.set-selection-offsets(new_pos, new_pos);
-                        }
-                        redo => {
-                            root.show_context_menu = false;
-                            let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
-                            code_input.set-selection-offsets(new_pos, new_pos);
-                        }
-                        cut => {
-                            root.show_context_menu = false;
-                            code_input.cut();
-                        }
-                        copy => {
-                            root.show_context_menu = false;
-                            code_input.copy();
-                        }
-                        paste => {
-                            root.show_context_menu = false;
-                            code_input.paste();
-                        }
-                        select_all => {
-                            root.show_context_menu = false;
-                            code_input.select-all();
-                        }
-                        toggle_comment => {
-                            root.show_context_menu = false;
-                            let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
-                            code_input.set-selection-offsets(new_pos, new_pos);
-                        }
-                        duplicate_line => {
-                            root.show_context_menu = false;
-                            let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
-                            code_input.set-selection-offsets(new_pos, new_pos);
-                        }
-                        run_assemble => {
-                            root.show_context_menu = false;
-                            root.run_assemble_only();
-                        }
-                        run_emulator => {
-                            root.show_context_menu = false;
-                            root.run_emulator();
-                        }
+                    redo => {
+                        root.show_context_menu = false;
+                        let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
+                        code_input.set-selection-offsets(new_pos, new_pos);
+                    }
+                    cut => {
+                        root.show_context_menu = false;
+                        code_input.cut();
+                    }
+                    copy => {
+                        root.show_context_menu = false;
+                        code_input.copy();
+                    }
+                    paste => {
+                        root.show_context_menu = false;
+                        code_input.paste();
+                    }
+                    select_all => {
+                        root.show_context_menu = false;
+                        code_input.select-all();
+                    }
+                    toggle_comment => {
+                        root.show_context_menu = false;
+                        let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                        code_input.set-selection-offsets(new_pos, new_pos);
+                    }
+                    duplicate_line => {
+                        root.show_context_menu = false;
+                        let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
+                        code_input.set-selection-offsets(new_pos, new_pos);
+                    }
+                    run_assemble => {
+                        root.show_context_menu = false;
+                        root.run_assemble_only();
+                    }
+                    run_emulator => {
+                        root.show_context_menu = false;
+                        root.run_emulator();
                     }
                 }
+            }
+        }
+    }
+}
+
+        // Fixed Backdrop to dismiss Tab context menu
+        if root.show_tab_context_menu: TouchArea {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            z: 140;
+            clicked => { root.show_tab_context_menu = false; }
+        }
+
+        // Floating Tab Context Menu (VS Code style)
+        if root.show_tab_context_menu: TabContextMenu {
+            x: min(max(10px, root.tab_context_x), parent.width - 280px);
+            y: min(max(36px, root.tab_context_y), parent.height - 300px);
+            z: 150;
+            current_language: root.current_language;
+            target_path: root.tab_context_path;
+            is_pinned: root.is_tab_pinned;
+            close_tab(p) => {
+                root.show_tab_context_menu = false;
+                root.close_tab(p);
+            }
+            close_other_tabs(p) => {
+                root.show_tab_context_menu = false;
+                root.close_other_tabs(p);
+            }
+            close_saved_tabs => {
+                root.show_tab_context_menu = false;
+                root.close_saved_tabs();
+            }
+            close_all_tabs => {
+                root.show_tab_context_menu = false;
+                root.close_all_tabs();
+            }
+            copy_relative_path(p) => {
+                root.show_tab_context_menu = false;
+                root.copy_relative_path(p);
+            }
+            copy_absolute_path(p) => {
+                root.show_tab_context_menu = false;
+                root.copy_absolute_path(p);
+            }
+            reveal_in_explorer(p) => {
+                root.show_tab_context_menu = false;
+                root.reveal_in_explorer(p);
+            }
+            show_in_explorer_tree(p) => {
+                root.show_tab_context_menu = false;
+                root.show_in_explorer_tree(p);
+            }
+            toggle_pin_tab(p) => {
+                root.show_tab_context_menu = false;
+                root.toggle_pin_tab(p);
             }
         }
     }

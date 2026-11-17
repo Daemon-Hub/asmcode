@@ -2,9 +2,10 @@ import "./fonts/CaskaydiaCoveNF-SemiBold.ttf";
 import "./fonts/CaskaydiaCoveNF-SemiBoldItalic.ttf";
 
 // Re-export models for Rust bindings and external usage
-export { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem } from "./models.slint";
+export { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem } from "./models.slint";
 
-import { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem } from "./models.slint";
+import { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem } from "./models.slint";
+import { Theme } from "./components/theme.slint";
 import { Header } from "./components/header.slint";
 import { Sidebar } from "./components/sidebar.slint";
 import { TerminalPanel } from "./components/terminal_panel.slint";
@@ -12,6 +13,8 @@ import { FileDropdownMenu, RunDropdownMenu, ViewDropdownMenu, HelpDropdownMenu }
 import { ExplorerContextMenu } from "./components/explorer_context_menu.slint";
 import { EditorPage } from "./pages/editor_page.slint";
 import { DocsPage } from "./pages/docs_page.slint";
+import { TabBar } from "./components/tab_bar.slint";
+import { SettingsDialog } from "./components/settings_dialog.slint";
 
 export component AppWindow inherits Window {
     title: "ASMCode - Intel 8080 IDE";
@@ -20,15 +23,18 @@ export component AppWindow inherits Window {
     preferred-height: 1000px;
     min-width: 1200px;
     min-height: 800px;
-    background: #181825;
+    background: Theme.bg_base;
     default-font-family: "CaskaydiaCove NF SemiBold";
+
+    // Theme selector: 0 = Catppuccin Dark, 1 = Cyberpunk 2077 Red (Default)
+    in-out property <int> active_theme_id <=> Theme.active_theme;
 
     // Language setting: "ru" by default, "en" optional
     in-out property <string> current_language: "ru";
 
     // Dynamic Zoom & Font properties
     in-out property <length> editor_font_size: 18px;
-    in-out property <bool> editor_font_italic: true;
+    in-out property <bool> editor_font_italic: false;
     out property <length> editor_line_height: measure_text_2.preferred-height - measure_text_1.preferred-height;
 
     // Resizable Layout Dimensions
@@ -48,14 +54,37 @@ export component AppWindow inherits Window {
     in-out property <length> context_menu_y: 100px;
     in-out property <length> explorer_menu_x: 100px;
     in-out property <length> explorer_menu_y: 100px;
+    in-out property <bool> show_settings_dialog: false;
+    in-out property <string> compiler_path: "C:\\bin\\asmx20.exe";
+    in-out property <string> emulator_path: "C:\\bin\\cpmemu.exe";
+    in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
+    in-out property <bool> cursor_blink: true;
+    in-out property <int> tab_size: 4;
+    in-out property <bool> show_deleted_tab_modal: false;
+    in-out property <string> pending_deleted_tab_path: "";
 
-    // Blinking Cursor Timer (530ms standard IDE blink rate)
+    public function close_all_context_menus() {
+        root.show_file_menu = false;
+        root.show_run_menu = false;
+        root.show_view_menu = false;
+        root.show_help_menu = false;
+        root.show_explorer_context_menu = false;
+        root.show_editor_context_menu = false;
+    }
+
+    // Blinking Cursor Timer (VS Code standard: stays solid while typing/moving, blinks only after 450ms idle)
     in-out property <bool> cursor_visible: true;
+    in-out property <int> cursor_idle_ticks: 0;
     Timer {
-        interval: 530ms;
-        running: true;
+        interval: 450ms;
+        running: root.cursor_blink;
         triggered => {
-            root.cursor_visible = !root.cursor_visible;
+            if root.cursor_idle_ticks < 1 {
+                root.cursor_visible = true;
+                root.cursor_idle_ticks += 1;
+            } else {
+                root.cursor_visible = !root.cursor_visible;
+            }
         }
     }
 
@@ -64,6 +93,7 @@ export component AppWindow inherits Window {
         font-family: "CaskaydiaCove NF SemiBold";
         font-size: root.editor_font_size;
         font-weight: 600;
+        font-italic: root.editor_font_italic;
         text: "Mg";
     }
     measure_text_2 := Text {
@@ -71,6 +101,7 @@ export component AppWindow inherits Window {
         font-family: "CaskaydiaCove NF SemiBold";
         font-size: root.editor_font_size;
         font-weight: 600;
+        font-italic: root.editor_font_italic;
         text: "Mg\nMg";
     }
 
@@ -119,6 +150,13 @@ export component AppWindow inherits Window {
     in property <[LabelItem]> label_list: [];
     in property <[SuggestionItem]> suggestion_list: [];
     in property <[DocItem]> docs_list: [];
+    in-out property <[FileTabItem]> open_tabs: [];
+
+    // Large File Optimizations
+    in-out property <bool> is_large_file_mode: false;
+    in-out property <bool> show_large_file_modal: false;
+    in-out property <string> pending_large_file_path: "";
+    in-out property <string> large_file_modal_text: "";
 
     // Selected suggestion details
     in-out property <string> selected_sugg_name: "MOV";
@@ -142,6 +180,8 @@ export component AppWindow inherits Window {
     callback copy_path_requested(string);
     callback reveal_in_explorer_requested(string);
     callback save_file();
+    callback save_file_as();
+    callback switch_theme(int);
     callback open_file_dialog();
     callback open_folder_dialog();
     callback run_assemble_only();
@@ -171,6 +211,24 @@ export component AppWindow inherits Window {
     callback editor_undo(int) -> int;
     callback editor_redo(int) -> int;
     callback navigate_suggestion(int);
+    callback switch_tab(string);
+    callback close_tab(string);
+    callback close_other_tabs(string);
+    callback close_saved_tabs();
+    callback close_all_tabs();
+    callback copy_relative_path(string);
+    callback show_in_explorer_tree(string);
+    callback toggle_pin_tab(string);
+    callback explorer_undo();
+    callback save_settings();
+    callback reset_settings_defaults();
+    callback browse_compiler();
+    callback browse_emulator();
+    callback force_enable_large_file_features();
+    callback confirm_open_large_file(string);
+    callback cancel_open_large_file();
+    callback confirm_close_deleted_tab(string);
+    callback cancel_close_deleted_tab();
 
     zoom_in => {
         if root.editor_font_size < 38px {
@@ -274,6 +332,7 @@ export component AppWindow inherits Window {
                     root.show_explorer_context_menu = true;
                 }
                 label_clicked(line_num) => { root.label_clicked(line_num); }
+                explorer_undo => { root.explorer_undo(); }
             }
 
             // Resizable Splitter Handle between Explorer and Central Area
@@ -291,6 +350,22 @@ export component AppWindow inherits Window {
 
             // Central Area: Mode 0 (Editor) or Mode 2 (Docs)
             if root.editor_mode != 2: EditorPage {
+                open_tabs: root.open_tabs;
+                active_file_path: root.active_file_path;
+                line_numbers_text: root.line_numbers_text;
+                is_large_file_mode: root.is_large_file_mode;
+                switch_tab(p) => { root.switch_tab(p); }
+                close_tab(p) => { root.close_tab(p); }
+                close_other_tabs(p) => { root.close_other_tabs(p); }
+                close_saved_tabs => { root.close_saved_tabs(); }
+                close_all_tabs => { root.close_all_tabs(); }
+                copy_relative_path(p) => { root.copy_relative_path(p); }
+                copy_absolute_path(p) => { root.copy_path_requested(p); }
+                reveal_in_explorer(p) => { root.reveal_in_explorer_requested(p); }
+                show_in_explorer_tree(p) => { root.show_in_explorer_tree(p); }
+                toggle_pin_tab(p) => { root.toggle_pin_tab(p); }
+                open_settings => { root.show_settings_dialog = true; }
+                force_enable_large_file_features => { root.force_enable_large_file_features(); }
                 current_language: root.current_language;
                 editor_font_size: root.editor_font_size;
                 editor_font_italic: root.editor_font_italic;
@@ -334,6 +409,9 @@ export component AppWindow inherits Window {
                 trigger_autocomplete(o) => { root.trigger_autocomplete(o); }
                 navigate_suggestion(d) => { root.navigate_suggestion(d); }
                 save_file => { root.save_file(); }
+                save_file_as => { root.save_file_as(); }
+                active_theme_id: root.active_theme_id;
+                cursor_idle_ticks <=> root.cursor_idle_ticks;
                 open_file_dialog => { root.open_file_dialog(); }
                 run_emulator => { root.run_emulator(); }
                 run_assemble_only => { root.run_assemble_only(); }
@@ -377,20 +455,29 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Modal Backdrop: Closes top dropdown menus and explorer context menus when clicking outside
-    if root.show_file_menu || root.show_run_menu || root.show_view_menu || root.show_help_menu || root.show_explorer_context_menu: TouchArea {
+    // Modal Backdrop: Closes top dropdown menus when clicking outside (leaves header unblocked for 1-click tab switching)
+    if root.show_file_menu || root.show_run_menu || root.show_view_menu || root.show_help_menu: TouchArea {
         x: 0px;
-        y: 0px;
+        y: 54px;
         width: 100%;
-        height: 100%;
+        height: parent.height - 54px;
         z: 95;
         clicked => {
             root.show_file_menu = false;
             root.show_run_menu = false;
             root.show_view_menu = false;
             root.show_help_menu = false;
-            root.show_context_menu = false;
-            root.show_editor_context_menu = false;
+        }
+    }
+
+    // Modal Backdrop: Closes explorer context menu when clicking outside
+    if root.show_explorer_context_menu: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 95;
+        clicked => {
             root.show_explorer_context_menu = false;
         }
     }
@@ -416,9 +503,17 @@ export component AppWindow inherits Window {
             root.show_file_menu = false;
             root.save_file();
         }
+        save_file_as => {
+            root.show_file_menu = false;
+            root.save_file_as();
+        }
         refresh_files => {
             root.show_file_menu = false;
             root.refresh_files();
+        }
+        open_settings => {
+            root.show_file_menu = false;
+            root.show_settings_dialog = true;
         }
     }
 
@@ -445,12 +540,15 @@ export component AppWindow inherits Window {
         y: 58px;
         current_language: root.current_language;
         editor_font_size: root.editor_font_size;
-        editor_font_italic: root.editor_font_italic;
+        active_theme_id: root.active_theme_id;
         zoom_in => { root.zoom_in(); }
         zoom_out => { root.zoom_out(); }
         zoom_reset => { root.zoom_reset(); }
-        toggle_italic => { root.editor_font_italic = !root.editor_font_italic; }
         toggle_language => { root.toggle_language(); }
+        switch_theme(tid) => {
+            root.show_view_menu = false;
+            root.switch_theme(tid);
+        }
     }
 
     if root.show_help_menu: HelpDropdownMenu {
@@ -487,6 +585,10 @@ export component AppWindow inherits Window {
             root.show_explorer_context_menu = false;
             root.delete_file_requested(path);
         }
+        undo_delete_requested => {
+            root.show_explorer_context_menu = false;
+            root.explorer_undo();
+        }
         copy_path_requested(path) => {
             root.show_explorer_context_menu = false;
             root.copy_path_requested(path);
@@ -498,6 +600,273 @@ export component AppWindow inherits Window {
         refresh_requested => {
             root.show_explorer_context_menu = false;
             root.refresh_files();
+        }
+    }
+
+    // Large File Warning Modal Dialog (> 500 MB)
+    if root.show_large_file_modal: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: #000000aa;
+        z: 200;
+
+        TouchArea {
+            // consume clicks outside modal
+        }
+
+        Rectangle {
+            width: 500px;
+            height: modal_col.preferred-height;
+            background: Theme.menu_bg;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.accent_yellow;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #000000cc;
+
+            modal_col := VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/document.svg");
+                            width: 22px;
+                            height: 22px;
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Предупреждение о большом файле" : "Large File Warning";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.accent_yellow;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: root.large_file_modal_text;
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+
+                    // Cancel button
+                    Rectangle {
+                        width: 110px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: cancel_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Отмена" : "Cancel";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Theme.text_primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        cancel_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_large_file_modal = false;
+                                root.cancel_open_large_file();
+                            }
+                        }
+                    }
+
+                    // Confirm Open button
+                    Rectangle {
+                        width: 150px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: confirm_touch.has-hover ? #f9e2af : Theme.accent_yellow;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Открыть всё равно" : "Open Anyway";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #151518;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        confirm_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_large_file_modal = false;
+                                root.confirm_open_large_file(root.pending_large_file_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal Backdrop to dismiss Settings Dialog on click outside
+    if root.show_settings_dialog: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        z: 240;
+        clicked => { root.show_settings_dialog = false; }
+    }
+
+    // Centered Settings Dialog (File > Settings or Ctrl+,)
+    if root.show_settings_dialog: SettingsDialog {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        z: 250;
+        current_language: root.current_language;
+        editor_font_size <=> root.editor_font_size;
+        editor_font_italic <=> root.editor_font_italic;
+        cursor_blink <=> root.cursor_blink;
+        tab_size <=> root.tab_size;
+        active_theme_id <=> root.active_theme_id;
+        selected_language: root.current_language;
+        compiler_path <=> root.compiler_path;
+        emulator_path <=> root.emulator_path;
+        toolchain_type <=> root.toolchain_type;
+        close_dialog => { root.show_settings_dialog = false; }
+        save_settings => {
+            root.show_settings_dialog = false;
+            root.save_settings();
+        }
+        reset_defaults => {
+            root.reset_settings_defaults();
+        }
+        browse_compiler => { root.browse_compiler(); }
+        browse_emulator => { root.browse_emulator(); }
+    }
+
+    // Deleted File Tab Close Confirmation Modal Dialog
+    if root.show_deleted_tab_modal: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: #000000aa;
+        z: 300;
+
+        TouchArea {
+            // consume clicks outside modal
+        }
+
+        Rectangle {
+            width: 480px;
+            height: del_modal_col.preferred-height;
+            background: Theme.menu_bg;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.accent_red;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000cc;
+
+            del_modal_col := VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/delete.svg");
+                            width: 22px;
+                            height: 22px;
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Файл удален на диске" : "File Deleted on Disk";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.accent_red;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Этот файл был удален с диска в проводнике. Закрытие вкладки приведет к безвозвратной потере несохраненного содержимого из памяти. Закрыть вкладку?"
+                        : "This file has been deleted from disk. Closing the tab will discard the in-memory content permanently. Close tab anyway?";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: end;
+
+                    // Keep Tab Open button
+                    Rectangle {
+                        width: 130px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: keep_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Оставить вкладку" : "Keep Open";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Theme.text_primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        keep_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_deleted_tab_modal = false;
+                                root.cancel_close_deleted_tab();
+                            }
+                        }
+                    }
+
+                    // Discard and Close button
+                    Rectangle {
+                        width: 150px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: del_confirm_touch.has-hover ? #ff4d6d : Theme.accent_red;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Закрыть и удалить" : "Discard & Close";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        del_confirm_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_deleted_tab_modal = false;
+                                root.confirm_close_deleted_tab(root.pending_deleted_tab_path);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

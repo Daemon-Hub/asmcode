@@ -1,5 +1,6 @@
 use crate::ui::AppWindow;
-use crate::ui::controller::IdeController;
+use crate::ui::controller::{IdeController, persist_current_session};
+use crate::ui::editor_bridge::update_highlight_and_labels;
 use crate::ui::terminal::sync_logs;
 use slint::{Color, ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
@@ -14,6 +15,29 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             ui.set_editor_mode(0);
         } else {
             ui.set_editor_mode(2);
+        }
+    });
+
+    // Switch Editor Theme (0 = Catppuccin Dark, 1 = Cyberpunk 2077 Red)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_switch_theme(move |new_theme_id| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        ui.set_active_theme_id(new_theme_id);
+
+        let code = ui.get_code_text().to_string();
+        let is_asm = ui.get_is_active_asm();
+        {
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            let theme_name = if new_theme_id == 1 {
+                "Cyberpunk 2077 Red"
+            } else {
+                "Catppuccin Dark"
+            };
+            ctrl.append_log(&format!("[THEME] Active theme: {}", theme_name));
+            update_highlight_and_labels(&ui, &ctrl.autocomplete, &code, is_asm);
+            persist_current_session(&ui, &ctrl);
+            sync_logs(&ui, &ctrl);
         }
     });
 

@@ -1,6 +1,7 @@
 import { FileItem, LabelItem } from "../models.slint";
 import { IconButton } from "icon_button.slint";
 import { InlineDialog } from "inline_dialog.slint";
+import { Theme } from "theme.slint";
 import { ListView } from "std-widgets.slint";
 
 export component Sidebar inherits Rectangle {
@@ -27,13 +28,23 @@ export component Sidebar inherits Rectangle {
     callback file_right_clicked(string, string, length, length);
     callback explorer_bg_right_clicked(length, length);
     callback label_clicked(int);
+    callback explorer_undo();
 
     width: root.sidebar_width;
-    background: #181825;
+    background: Theme.sidebar_bg;
 
-    VerticalLayout {
-        padding: 10px;
-        spacing: 10px;
+    sidebar_focus := FocusScope {
+        key-pressed(e) => {
+            if (e.modifiers.control && (e.text == "z" || e.text == "Z" || e.text == "я" || e.text == "Я" || e.text == "\u{001a}")) {
+                root.explorer_undo();
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 10px;
 
         // Header
         HorizontalLayout {
@@ -42,7 +53,7 @@ export component Sidebar inherits Rectangle {
                 text: root.current_language == "ru" ? "ПРОВОДНИК" : "EXPLORER";
                 font-size: 13px;
                 font-weight: 700;
-                color: #a6adc8;
+                color: Theme.text_muted;
                 vertical-alignment: center;
             }
 
@@ -55,8 +66,8 @@ export component Sidebar inherits Rectangle {
                     icon_height: 16px;
                     btn_width: 32px;
                     btn_height: 28px;
-                    bg_normal: #313244;
-                    bg_hover: #45475a;
+                    bg_normal: Theme.bg_surface1;
+                    bg_hover: Theme.bg_surface2;
                     clicked => { root.navigate_parent(); }
                 }
 
@@ -66,8 +77,8 @@ export component Sidebar inherits Rectangle {
                     icon_height: 14px;
                     btn_width: 32px;
                     btn_height: 28px;
-                    bg_normal: #313244;
-                    bg_hover: #45475a;
+                    bg_normal: Theme.bg_surface1;
+                    bg_hover: Theme.bg_surface2;
                     clicked => { root.show_new_file_dialog = !root.show_new_file_dialog; }
                 }
 
@@ -77,8 +88,8 @@ export component Sidebar inherits Rectangle {
                     icon_height: 14px;
                     btn_width: 32px;
                     btn_height: 28px;
-                    bg_normal: #313244;
-                    bg_hover: #45475a;
+                    bg_normal: Theme.bg_surface1;
+                    bg_hover: Theme.bg_surface2;
                     clicked => { root.refresh_files(); }
                 }
             }
@@ -125,17 +136,17 @@ export component Sidebar inherits Rectangle {
         Text {
             text: root.current_dir_path;
             font-size: 12px;
-            color: #6c7086;
+            color: Theme.text_dim;
             overflow: elide;
         }
 
         // Hierarchical File Tree View
         Rectangle {
             vertical-stretch: 1;
-            background: #11111b;
+            background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
-            border-color: #313244;
+            border-color: Theme.border_normal;
             clip: true;
 
             bg_touch := TouchArea {
@@ -155,7 +166,7 @@ export component Sidebar inherits Rectangle {
                 for item in root.file_list: Rectangle {
                     height: 30px;
                     border-radius: 4px;
-                    background: (root.active_file_path == item.path) ? #313244 : (file_row_touch.has-hover ? #1e1e2e : #00000000);
+                    background: (root.active_file_path == item.path) ? Theme.bg_surface2 : (file_row_touch.has-hover ? Theme.bg_surface1 : #00000000);
 
                     HorizontalLayout {
                         padding-left: 4px + item.depth * 14px;
@@ -224,7 +235,7 @@ export component Sidebar inherits Rectangle {
                         Text {
                             text: item.size_str;
                             font-size: 11px;
-                            color: #6c7086;
+                            color: Theme.text_dim;
                             vertical-alignment: center;
                         }
                     }
@@ -250,7 +261,7 @@ export component Sidebar inherits Rectangle {
                 text: root.current_language == "ru" ? "МЕТКИ ПРОГРАММЫ" : "LABELS OUTLINE";
                 font-size: 13px;
                 font-weight: 700;
-                color: #a6adc8;
+                color: Theme.text_muted;
                 vertical-alignment: center;
             }
 
@@ -267,10 +278,10 @@ export component Sidebar inherits Rectangle {
         if root.labels_expanded: Rectangle {
             height: 180px;
             vertical-stretch: 0;
-            background: #11111b;
+            background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
-            border-color: #313244;
+            border-color: Theme.border_normal;
             clip: true;
 
             ListView {
@@ -298,7 +309,7 @@ export component Sidebar inherits Rectangle {
                             font-family: "CaskaydiaCove NF SemiBold";
                             font-size: 13px;
                             font-weight: 600;
-                            color: #e5c07b;
+                            color: Theme.accent_yellow;
                             vertical-alignment: center;
                             overflow: elide;
                         }
@@ -308,7 +319,7 @@ export component Sidebar inherits Rectangle {
                         Text {
                             text: (root.current_language == "ru" ? "Стр:" : "L:") + lbl.line_number;
                             font-size: 12px;
-                            color: #6c7086;
+                            color: Theme.text_dim;
                             vertical-alignment: center;
                         }
                     }
@@ -320,4 +331,5 @@ export component Sidebar inherits Rectangle {
             }
         }
     }
+}
 }

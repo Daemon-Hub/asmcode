@@ -1,0 +1,270 @@
+import { FileTabItem } from "../models.slint";
+import { Theme } from "theme.slint";
+
+export component TabBar inherits Rectangle {
+    in property <[FileTabItem]> open_tabs: [];
+    in property <string> active_file_path: "";
+
+    callback switch_tab(string);
+    callback close_tab(string);
+    callback tab_context_menu(string, length, length);
+
+    height: 36px;
+    background: Theme.terminal_bg;
+    clip: true;
+
+    // Fixed tab geometry to prevent squashing and alignment shifts
+    out property <length> tab_width: 155px;
+    out property <length> total_width: root.open_tabs.length * root.tab_width;
+    out property <bool> is_overflowing: root.total_width > root.width;
+    out property <length> max_scroll: root.is_overflowing ? root.total_width - root.width + (root.is_overflowing ? 46px : 0px) : 0px;
+
+    in-out property <length> scroll_offset: 0px;
+
+    // Bottom container border
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: Theme.border_normal;
+        z: 10;
+    }
+
+    // Background wheel scroll detector
+    TouchArea {
+        x: 0px;
+        y: 0px;
+        width: root.width - (root.is_overflowing ? 46px : 0px);
+        height: parent.height;
+        scroll-event(e) => {
+            if root.is_overflowing {
+                let delta = e.delta-x != 0 ? e.delta-x : e.delta-y;
+                root.scroll_offset = max(-root.max_scroll, min(0px, root.scroll_offset + delta));
+                return EventResult.accept;
+            }
+            return EventResult.reject;
+        }
+    }
+
+    // Scrollable Tabs Strip
+    tabs_strip := Rectangle {
+        x: max(-root.max_scroll, min(0px, root.scroll_offset));
+        y: 0px;
+        width: root.total_width;
+        height: 35px;
+
+        for tab[idx] in root.open_tabs: Rectangle {
+            x: idx * root.tab_width;
+            y: 0px;
+            width: root.tab_width;
+            height: 35px;
+            background: tab.is_deleted ? #ff004422 : (tab.is_active ? Theme.editor_bg : (tab_touch.has-hover ? Theme.bg_surface1 : Theme.sidebar_bg));
+
+            // Active top accent line
+            if tab.is_active: Rectangle {
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: 2px;
+                background: tab.is_deleted ? Theme.accent_red : Theme.accent_blue;
+            }
+
+            // Right border divider
+            Rectangle {
+                x: parent.width - 1px;
+                y: 0px;
+                width: 1px;
+                height: parent.height;
+                background: Theme.border_normal;
+            }
+
+            // File Type Icon
+            Image {
+                x: 10px;
+                y: 10px;
+                source: tab.is_asm ? @image-url("../icons/assembly.svg") : @image-url("../icons/document.svg");
+                width: 15px;
+                height: 15px;
+            }
+
+            // Tab Title Text (strictly elided so it never collides with close button)
+            Text {
+                x: 30px;
+                y: 0px;
+                width: parent.width - 58px;
+                height: parent.height;
+                text: tab.is_deleted ? tab.name + " [Удален]" : (tab.is_dirty ? tab.name + " *" : tab.name);
+                font-family: "CaskaydiaCove NF SemiBold";
+                font-size: 13px;
+                font-weight: tab.is_active ? 700 : 500;
+                color: tab.is_deleted ? Theme.accent_red : (tab.is_active ? (tab.is_dirty ? Theme.accent_yellow : Theme.text_primary) : Theme.text_muted);
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            // Strikethrough line across tab title if file was deleted on disk
+            if tab.is_deleted: Rectangle {
+                x: 28px;
+                y: 17px;
+                width: parent.width - 56px;
+                height: 1px;
+                background: Theme.accent_red;
+                z: 6;
+            }
+
+            // Tab Click TouchArea with pass-through scroll support
+            tab_touch := TouchArea {
+                x: 0px;
+                y: 0px;
+                width: parent.width - 26px;
+                height: parent.height;
+                mouse-cursor: pointer;
+                pointer-event(e) => {
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                        root.tab_context_menu(tab.path, self.mouse-x + idx * root.tab_width + root.scroll_offset, self.mouse-y + 36px);
+                    }
+                }
+                clicked => {
+                    root.switch_tab(tab.path);
+                }
+                scroll-event(e) => {
+                    if root.is_overflowing {
+                        let delta = e.delta-x != 0 ? e.delta-x : e.delta-y;
+                        root.scroll_offset = max(-root.max_scroll, min(0px, root.scroll_offset + delta));
+                        return EventResult.accept;
+                    }
+                    return EventResult.reject;
+                }
+            }
+
+            // Pin indicator if pinned
+            if tab.is_pinned: Image {
+                x: parent.width - 22px;
+                y: 11px;
+                width: 13px;
+                height: 13px;
+                source: @image-url("../icons/key.svg");
+            }
+
+            // Close Tab Button (Fixed at right edge, hidden if pinned)
+            if !tab.is_pinned: close_btn := Rectangle {
+                x: parent.width - 26px;
+                y: 8px;
+                width: 18px;
+                height: 18px;
+                border-radius: 9px;
+                background: close_touch.has-hover ? Theme.bg_surface2 : #00000000;
+
+                Image {
+                    source: @image-url("../icons/close.svg");
+                    width: 10px;
+                    height: 10px;
+                    x: 4px;
+                    y: 4px;
+                }
+
+                close_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.close_tab(tab.path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Scrollbar Track & Thumb Indicator (when overflowing)
+    if root.is_overflowing: Rectangle {
+        x: 0px;
+        y: parent.height - 2px;
+        width: root.width - 46px;
+        height: 2px;
+        background: #00000044;
+        z: 15;
+
+        // Thumb
+        Rectangle {
+            out property <length> track_w: parent.width;
+            out property <length> thumb_w: max(32px, self.track_w * (root.width / root.total_width));
+            out property <float> scroll_ratio: root.max_scroll > 0px ? (-root.scroll_offset / root.max_scroll) : 0.0;
+
+            x: self.scroll_ratio * (self.track_w - self.thumb_w);
+            y: 0px;
+            width: self.thumb_w;
+            height: 2px;
+            background: Theme.accent_blue;
+        }
+    }
+
+    // Overflow Scroll Buttons (< and >) pinned on right
+    if root.is_overflowing: Rectangle {
+        x: parent.width - 46px;
+        y: 0px;
+        width: 46px;
+        height: parent.height - 1px;
+        background: Theme.terminal_bg;
+        z: 20;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 1px;
+            height: parent.height;
+            background: Theme.border_normal;
+        }
+
+        HorizontalLayout {
+            spacing: 1px;
+            padding-left: 2px;
+            padding-right: 2px;
+
+            // Scroll Left Button
+            Rectangle {
+                width: 20px;
+                height: 28px;
+                y: 3px;
+                border-radius: 3px;
+                background: scroll_l_touch.has-hover ? Theme.bg_surface1 : #00000000;
+
+                Image {
+                    source: @image-url("../icons/chevron_left.svg");
+                    width: 12px;
+                    height: 12px;
+                    x: 4px;
+                    y: 8px;
+                }
+
+                scroll_l_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.scroll_offset = min(0px, root.scroll_offset + root.tab_width);
+                    }
+                }
+            }
+
+            // Scroll Right Button
+            Rectangle {
+                width: 20px;
+                height: 28px;
+                y: 3px;
+                border-radius: 3px;
+                background: scroll_r_touch.has-hover ? Theme.bg_surface1 : #00000000;
+
+                Image {
+                    source: @image-url("../icons/chevron_right.svg");
+                    width: 12px;
+                    height: 12px;
+                    x: 4px;
+                    y: 8px;
+                }
+
+                scroll_r_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.scroll_offset = max(-root.max_scroll, root.scroll_offset - root.tab_width);
+                    }
+                }
+            }
+        }
+    }
+}

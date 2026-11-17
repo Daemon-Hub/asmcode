@@ -1,5 +1,6 @@
 import { SuggestionItem } from "../models.slint";
 import { IconButton } from "icon_button.slint";
+import { Theme } from "theme.slint";
 import { LineEdit, ListView } from "std-widgets.slint";
 
 export component RightDrawer inherits Rectangle {
@@ -22,7 +23,7 @@ export component RightDrawer inherits Rectangle {
     callback insert_suggestion(string);
 
     width: root.right_drawer_expanded ? 340px : 38px;
-    background: #181825;
+    background: Theme.sidebar_bg;
 
     VerticalLayout {
         padding: 8px;
@@ -35,7 +36,7 @@ export component RightDrawer inherits Rectangle {
                 text: root.current_language == "ru" ? "АВТОДОПОЛНЕНИЕ / ПОДСКАЗКИ" : "INTELLISENSE";
                 font-size: 12px;
                 font-weight: 700;
-                color: #89b4fa;
+                color: Theme.accent_blue;
                 vertical-alignment: center;
             }
 
@@ -58,10 +59,10 @@ export component RightDrawer inherits Rectangle {
 
         if root.right_drawer_expanded: Rectangle {
             vertical-stretch: 1;
-            background: #11111b;
+            background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
-            border-color: #313244;
+            border-color: Theme.border_normal;
             clip: true;
 
             ListView {
@@ -73,7 +74,7 @@ export component RightDrawer inherits Rectangle {
                 for sugg[idx] in root.suggestion_list: Rectangle {
                     height: 34px;
                     border-radius: 3px;
-                    background: (root.selected_sugg_name == sugg.name) ? #313244 : #00000000;
+                    background: (root.selected_sugg_name == sugg.name) ? Theme.bg_surface2 : (sugg_row_touch.has-hover ? Theme.bg_surface1 : #00000000);
 
                     HorizontalLayout {
                         padding-left: 8px;
@@ -95,7 +96,7 @@ export component RightDrawer inherits Rectangle {
                             text: sugg.name;
                             font-size: 14px;
                             font-weight: 700;
-                            color: (sugg.icon_kind == "label") ? #e5c07b : #61afef;
+                            color: (sugg.icon_kind == "label") ? Theme.accent_yellow : Theme.accent_blue;
                             vertical-alignment: center;
                         }
 
@@ -104,12 +105,12 @@ export component RightDrawer inherits Rectangle {
                         Text {
                             text: sugg.category;
                             font-size: 12px;
-                            color: #a6adc8;
+                            color: Theme.text_muted;
                             vertical-alignment: center;
                         }
                     }
 
-                    TouchArea {
+                    sugg_row_touch := TouchArea {
                         clicked => { root.select_suggestion(idx); }
                     }
                 }
@@ -120,10 +121,10 @@ export component RightDrawer inherits Rectangle {
         if root.right_drawer_expanded: Rectangle {
             vertical-stretch: 0;
             height: card_layout.preferred-height;
-            background: #11111b;
+            background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
-            border-color: #313244;
+            border-color: Theme.border_normal;
 
             card_layout := VerticalLayout {
                 padding: 10px;
@@ -135,20 +136,20 @@ export component RightDrawer inherits Rectangle {
                         text: root.selected_sugg_name;
                         font-size: 16px;
                         font-weight: 700;
-                        color: #61afef;
+                        color: Theme.accent_blue;
                     }
 
                     Rectangle {
                         height: 24px;
                         border-radius: 3px;
-                        background: #313244;
+                        background: Theme.bg_surface1;
                         HorizontalLayout {
                             padding-left: 8px;
                             padding-right: 8px;
                             Text {
                                 text: root.selected_sugg_cycles + (root.current_language == "ru" ? " тактов" : " cyc");
                                 font-size: 11px;
-                                color: #f9e2af;
+                                color: Theme.accent_yellow;
                                 vertical-alignment: center;
                             }
                         }
@@ -159,26 +160,26 @@ export component RightDrawer inherits Rectangle {
                     text: (root.current_language == "ru" ? "Формат: " : "Format: ") + root.selected_sugg_syntax;
                     font-family: "CaskaydiaCove NF SemiBold";
                     font-size: 13px;
-                    color: #a6e3a1;
+                    color: Theme.accent_green;
                 }
 
                 Text {
                     text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + root.selected_sugg_flags;
                     font-size: 12px;
-                    color: #f9e2af;
+                    color: Theme.accent_yellow;
                 }
 
                 Text {
                     text: root.selected_sugg_summary;
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     wrap: word-wrap;
                 }
 
                 // Usage Example inside Card
                 Rectangle {
                     height: 34px;
-                    background: #181825;
+                    background: Theme.bg_base;
                     border-radius: 3px;
                     HorizontalLayout {
                         padding-left: 8px;
@@ -187,7 +188,7 @@ export component RightDrawer inherits Rectangle {
                             text: root.selected_sugg_example;
                             font-family: "CaskaydiaCove NF SemiBold";
                             font-size: 12px;
-                            color: #98c379;
+                            color: Theme.accent_blue;
                             vertical-alignment: center;
                             overflow: elide;
                         }
@@ -197,12 +198,12 @@ export component RightDrawer inherits Rectangle {
                 Rectangle {
                     height: 32px;
                     border-radius: 4px;
-                    background: #89b4fa;
+                    background: Theme.accent_blue;
                     Text {
                         text: root.current_language == "ru" ? "Вставить шаблон" : "Insert Template";
                         font-size: 13px;
                         font-weight: 600;
-                        color: #11111b;
+                        color: #151518;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }

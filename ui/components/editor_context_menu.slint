@@ -1,3 +1,5 @@
+import { Theme } from "theme.slint";
+
 export component EditorContextMenu inherits Rectangle {
     in property <string> current_language: "ru";
 
@@ -14,10 +16,10 @@ export component EditorContextMenu inherits Rectangle {
 
     width: 250px;
     height: ctx_layout.preferred-height;
-    background: #1e1e2e;
+    background: Theme.menu_bg;
     border-radius: 6px;
     border-width: 1px;
-    border-color: #45475a;
+    border-color: Theme.menu_border;
     drop-shadow-blur: 14px;
     drop-shadow-color: #000000bb;
     z: 120;
@@ -30,7 +32,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_undo.has-hover ? #313244 : #00000000;
+            background: ctx_undo.has-hover ? Theme.menu_hover : #00000000;
             ctx_undo := TouchArea {
                 clicked => { root.undo(); }
             }
@@ -48,11 +50,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Отменить" : "Undo";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+Z"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+Z"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -60,7 +62,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_redo.has-hover ? #313244 : #00000000;
+            background: ctx_redo.has-hover ? Theme.menu_hover : #00000000;
             ctx_redo := TouchArea {
                 clicked => { root.redo(); }
             }
@@ -78,21 +80,21 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Повторить" : "Redo";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+Y"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+Y"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
-        Rectangle { height: 1px; background: #313244; }
+        Rectangle { height: 1px; background: Theme.border_normal; }
 
         // Cut
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_cut.has-hover ? #313244 : #00000000;
+            background: ctx_cut.has-hover ? Theme.menu_hover : #00000000;
             ctx_cut := TouchArea {
                 clicked => { root.cut(); }
             }
@@ -110,11 +112,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Вырезать" : "Cut";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+X"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+X"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -122,7 +124,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_copy.has-hover ? #313244 : #00000000;
+            background: ctx_copy.has-hover ? Theme.menu_hover : #00000000;
             ctx_copy := TouchArea {
                 clicked => { root.copy(); }
             }
@@ -140,11 +142,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Копировать" : "Copy";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+C"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+C"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -152,7 +154,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_paste.has-hover ? #313244 : #00000000;
+            background: ctx_paste.has-hover ? Theme.menu_hover : #00000000;
             ctx_paste := TouchArea {
                 clicked => { root.paste(); }
             }
@@ -170,11 +172,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Вставить" : "Paste";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+V"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+V"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -182,7 +184,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_selall.has-hover ? #313244 : #00000000;
+            background: ctx_selall.has-hover ? Theme.menu_hover : #00000000;
             ctx_selall := TouchArea {
                 clicked => { root.select_all(); }
             }
@@ -200,21 +202,21 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Выделить всё" : "Select All";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+A"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+A"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
-        Rectangle { height: 1px; background: #313244; }
+        Rectangle { height: 1px; background: Theme.border_normal; }
 
         // Toggle Comment
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_comm.has-hover ? #313244 : #00000000;
+            background: ctx_comm.has-hover ? Theme.menu_hover : #00000000;
             ctx_comm := TouchArea {
                 clicked => { root.toggle_comment(); }
             }
@@ -232,11 +234,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Закомментировать (;)" : "Toggle Comment (;)";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+/"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+/"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -244,7 +246,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_dup.has-hover ? #313244 : #00000000;
+            background: ctx_dup.has-hover ? Theme.menu_hover : #00000000;
             ctx_dup := TouchArea {
                 clicked => { root.duplicate_line(); }
             }
@@ -262,21 +264,21 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Дублировать строку" : "Duplicate Line";
                         font-size: 13px;
-                        color: #cdd6f4;
+                        color: Theme.text_primary;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "Ctrl+D"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "Ctrl+D"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
-        Rectangle { height: 1px; background: #313244; }
+        Rectangle { height: 1px; background: Theme.border_normal; }
 
         // Assemble with asmx20
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_asm.has-hover ? #313244 : #00000000;
+            background: ctx_asm.has-hover ? Theme.menu_hover : #00000000;
             ctx_asm := TouchArea {
                 clicked => { root.run_assemble(); }
             }
@@ -294,11 +296,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Собрать в .COM" : "Build .COM";
                         font-size: 13px;
-                        color: #89b4fa;
+                        color: Theme.accent_blue;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "asmx20"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                Text { text: "asmx20"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
             }
         }
 
@@ -306,7 +308,7 @@ export component EditorContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: ctx_run.has-hover ? #313244 : #00000000;
+            background: ctx_run.has-hover ? Theme.menu_hover : #00000000;
             ctx_run := TouchArea {
                 clicked => { root.run_emulator(); }
             }
@@ -324,11 +326,11 @@ export component EditorContextMenu inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Запустить в CP/M" : "Run in CP/M";
                         font-size: 13px;
-                        color: #a6e3a1;
+                        color: Theme.accent_green;
                         vertical-alignment: center;
                     }
                 }
-                Text { text: "F5"; font-size: 11px; color: #a6e3a1; vertical-alignment: center; }
+                Text { text: "F5"; font-size: 11px; color: Theme.accent_green; vertical-alignment: center; }
             }
         }
     }

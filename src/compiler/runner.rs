@@ -27,29 +27,16 @@ pub struct CompileReport {
 pub struct CompilerRunner;
 
 impl CompilerRunner {
-    pub fn get_asmx_path() -> PathBuf {
-        let fixed_path = PathBuf::from(r"C:\bin\asmx20.exe");
-        if fixed_path.exists() {
-            return fixed_path;
-        }
-        PathBuf::from("asmx20.exe")
+    pub fn assemble_file_builtin(file_path: &Path) -> CompileReport {
+        crate::compiler::kit_engine::assemble_file(file_path)
     }
 
-    pub fn get_cpmemu_path() -> PathBuf {
-        let fixed_path = PathBuf::from(r"C:\bin\cpmemu.exe");
-        if fixed_path.exists() {
-            return fixed_path;
-        }
-        PathBuf::from("cpmemu.exe")
-    }
-
-    pub fn assemble_file(file_path: &Path) -> CompileReport {
+    pub fn assemble_file_external(file_path: &Path, asmx_bin: &Path) -> CompileReport {
         let mut logs = Vec::new();
-        let asmx_bin = Self::get_asmx_path();
         let com_path = file_path.with_extension("com");
 
         logs.push(format!(
-            "[{}] [ASSEMBLER] Starting assembly for: {}",
+            "[{}] [ASSEMBLER:asmx] Starting assembly for: {}",
             get_timestamp(),
             file_path.display()
         ));
@@ -63,7 +50,7 @@ impl CompilerRunner {
 
         let parent_dir = file_path.parent().unwrap_or_else(|| Path::new("."));
 
-        let mut cmd = Command::new(&asmx_bin);
+        let mut cmd = Command::new(asmx_bin);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         let output = match cmd
@@ -84,7 +71,7 @@ impl CompilerRunner {
             Ok(out) => out,
             Err(err) => {
                 logs.push(format!(
-                    "[{}] [ERROR] Failed to execute assembler ({}): {}",
+                    "[{}] [ERROR] Failed to execute external assembler ({}): {}",
                     get_timestamp(),
                     asmx_bin.display(),
                     err
@@ -94,7 +81,7 @@ impl CompilerRunner {
                     output_logs: logs,
                     diagnostics: vec![Diagnostic {
                         line: 1,
-                        message: format!("Failed to run assembler: {}", err),
+                        message: format!("Failed to run external assembler: {}", err),
                         is_error: true,
                     }],
                     instruction_count: 0,
@@ -122,14 +109,14 @@ impl CompilerRunner {
         if success {
             let file_size = std::fs::metadata(&com_path).map(|m| m.len()).unwrap_or(0);
             logs.push(format!(
-                "[{}] [SUCCESS] Generated binary: {} ({} bytes)",
+                "[{}] [SUCCESS:asmx] Generated binary: {} ({} bytes)",
                 get_timestamp(),
                 com_path.file_name().unwrap_or_default().to_string_lossy(),
                 file_size
             ));
         } else {
             logs.push(format!(
-                "[{}] [ERROR] Assembly failed with exit code: {:?}",
+                "[{}] [ERROR:asmx] Assembly failed with exit code: {:?}",
                 get_timestamp(),
                 output.status.code()
             ));
@@ -145,12 +132,45 @@ impl CompilerRunner {
         }
     }
 
-    pub fn run_in_emulator(com_path: &Path) -> Vec<String> {
+    pub fn assemble_file(
+        file_path: &Path,
+        toolchain_type: i32,
+        custom_asmx: &str,
+    ) -> (CompileReport, Option<String>) {
+        if toolchain_type == 1 {
+            let trimmed = custom_asmx.trim();
+            let asmx_path = PathBuf::from(trimmed);
+            if !trimmed.is_empty() && asmx_path.exists() {
+                let report = Self::assemble_file_external(file_path, &asmx_path);
+                (report, None)
+            } else {
+                let warn = if trimmed.is_empty() {
+                    "[ПРЕДУПРЕЖДЕНИЕ] Путь к внешнему компилятору не указан. Применен встроенный тулчейн по умолчанию (intel-8080-kit).".to_string()
+                } else {
+                    format!(
+                        "[ПРЕДУПРЕЖДЕНИЕ] Внешний компилятор не найден по пути '{}'. Применен встроенный тулчейн по умолчанию (intel-8080-kit).",
+                        trimmed
+                    )
+                };
+                let mut report = Self::assemble_file_builtin(file_path);
+                report.output_logs.insert(0, warn.clone());
+                (report, Some(warn))
+            }
+        } else {
+            let report = Self::assemble_file_builtin(file_path);
+            (report, None)
+        }
+    }
+
+    pub fn run_emulator_builtin(com_path: &Path) -> Vec<String> {
+        crate::compiler::kit_engine::run_com_file(com_path)
+    }
+
+    pub fn run_emulator_external(com_path: &Path, cpmemu_bin: &Path) -> Vec<String> {
         let mut logs = Vec::new();
-        let cpmemu_bin = Self::get_cpmemu_path();
 
         logs.push(format!(
-            "[{}] [EMULATOR] Running in CP/M 8080 Emulator: {}",
+            "[{}] [EMULATOR:cpmemu] Running in CP/M 8080 Emulator: {}",
             get_timestamp(),
             com_path.display()
         ));
@@ -163,7 +183,7 @@ impl CompilerRunner {
 
         let parent_dir = com_path.parent().unwrap_or_else(|| Path::new("."));
 
-        let mut cmd = Command::new(&cpmemu_bin);
+        let mut cmd = Command::new(cpmemu_bin);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
         match cmd
@@ -186,14 +206,14 @@ impl CompilerRunner {
                     }
                 }
                 logs.push(format!(
-                    "[{}] [EMULATOR] Process finished with exit code {:?}",
+                    "[{}] [EMULATOR:cpmemu] Process finished with exit code {:?}",
                     get_timestamp(),
                     output.status.code()
                 ));
             }
             Err(err) => {
                 logs.push(format!(
-                    "[{}] [ERROR] Failed to run emulator ({}): {}",
+                    "[{}] [ERROR] Failed to run external emulator ({}): {}",
                     get_timestamp(),
                     cpmemu_bin.display(),
                     err
@@ -202,6 +222,36 @@ impl CompilerRunner {
         }
 
         logs
+    }
+
+    pub fn run_in_emulator(
+        com_path: &Path,
+        toolchain_type: i32,
+        custom_cpmemu: &str,
+    ) -> (Vec<String>, Option<String>) {
+        if toolchain_type == 1 {
+            let trimmed = custom_cpmemu.trim();
+            let cpmemu_path = PathBuf::from(trimmed);
+            if !trimmed.is_empty() && cpmemu_path.exists() {
+                let logs = Self::run_emulator_external(com_path, &cpmemu_path);
+                (logs, None)
+            } else {
+                let warn = if trimmed.is_empty() {
+                    "[ПРЕДУПРЕЖДЕНИЕ] Путь к внешнему эмулятору не указан. Применен встроенный эмулятор по умолчанию (intel-8080-kit).".to_string()
+                } else {
+                    format!(
+                        "[ПРЕДУПРЕЖДЕНИЕ] Внешний эмулятор не найден по пути '{}'. Применен встроенный эмулятор по умолчанию (intel-8080-kit).",
+                        trimmed
+                    )
+                };
+                let mut logs = Self::run_emulator_builtin(com_path);
+                logs.insert(0, warn.clone());
+                (logs, Some(warn))
+            }
+        } else {
+            let logs = Self::run_emulator_builtin(com_path);
+            (logs, None)
+        }
     }
 
     pub fn validate_syntax(source_code: &str) -> CompileReport {
@@ -219,4 +269,60 @@ fn get_timestamp() -> String {
     let minutes = (total_secs / 60) % 60;
     let hours = (total_secs / 3600) % 24;
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_assemble_file_default_builtin() {
+        let temp_dir = std::env::temp_dir();
+        let asm_path = temp_dir.join("test_default_toolchain.asm");
+        std::fs::write(&asm_path, "org 100h\nmvi a, 42h\nret\n").unwrap();
+
+        let (report, warning) = CompilerRunner::assemble_file(&asm_path, 0, "");
+        assert!(warning.is_none());
+        assert!(report.success);
+        assert!(report.com_path.is_some());
+
+        let com_path = report.com_path.unwrap();
+        let (emu_logs, emu_warn) = CompilerRunner::run_in_emulator(&com_path, 0, "");
+        assert!(emu_warn.is_none());
+        assert!(!emu_logs.is_empty());
+
+        let _ = std::fs::remove_file(&asm_path);
+        let _ = std::fs::remove_file(&com_path);
+    }
+
+    #[test]
+    fn test_assemble_file_fallback_on_invalid_external_path() {
+        let temp_dir = std::env::temp_dir();
+        let asm_path = temp_dir.join("test_fallback_toolchain.asm");
+        std::fs::write(&asm_path, "org 100h\nmvi a, 10h\nret\n").unwrap();
+
+        let (report, warning) =
+            CompilerRunner::assemble_file(&asm_path, 1, "C:\\non_existent_folder_xyz\\asmx20.exe");
+        assert!(warning.is_some());
+        let warn_str = warning.unwrap();
+        assert!(warn_str.contains("ПРЕДУПРЕЖДЕНИЕ"));
+        assert!(warn_str.contains("intel-8080-kit"));
+        assert!(report.success);
+        assert!(report.com_path.is_some());
+
+        let com_path = report.com_path.unwrap();
+        let (emu_logs, emu_warn) = CompilerRunner::run_in_emulator(
+            &com_path,
+            1,
+            "C:\\non_existent_folder_xyz\\cpmemu.exe",
+        );
+        assert!(emu_warn.is_some());
+        let emu_warn_str = emu_warn.unwrap();
+        assert!(emu_warn_str.contains("ПРЕДУПРЕЖДЕНИЕ"));
+        assert!(emu_warn_str.contains("intel-8080-kit"));
+        assert!(!emu_logs.is_empty());
+
+        let _ = std::fs::remove_file(&asm_path);
+        let _ = std::fs::remove_file(&com_path);
+    }
 }

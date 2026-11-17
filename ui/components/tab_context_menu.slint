@@ -1,0 +1,245 @@
+import { Theme } from "theme.slint";
+
+export component TabContextMenu inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <string> target_path: "";
+    in property <bool> is_pinned: false;
+
+    callback close_tab(string);
+    callback close_other_tabs(string);
+    callback close_saved_tabs();
+    callback close_all_tabs();
+    callback copy_relative_path(string);
+    callback copy_absolute_path(string);
+    callback reveal_in_explorer(string);
+    callback show_in_explorer_tree(string);
+    callback toggle_pin_tab(string);
+
+    width: 330px;
+    height: tab_ctx_layout.preferred-height;
+    background: Theme.menu_bg;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.menu_border;
+    drop-shadow-blur: 14px;
+    drop-shadow-color: #000000bb;
+    z: 150;
+
+    tab_ctx_layout := VerticalLayout {
+        padding: 6px;
+        spacing: 2px;
+
+        // Close Tab
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_close.has-hover ? Theme.menu_hover : #00000000;
+            t_close := TouchArea {
+                clicked => { root.close_tab(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Закрыть" : "Close";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Ctrl+W"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        // Close Others
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_close_others.has-hover ? Theme.menu_hover : #00000000;
+            t_close_others := TouchArea {
+                clicked => { root.close_other_tabs(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Закрыть другие" : "Close Others";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Close Saved
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_close_saved.has-hover ? Theme.menu_hover : #00000000;
+            t_close_saved := TouchArea {
+                clicked => { root.close_saved_tabs(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Закрыть сохраненные" : "Close Saved";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Ctrl+K U"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        // Close All
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_close_all.has-hover ? Theme.menu_hover : #00000000;
+            t_close_all := TouchArea {
+                clicked => { root.close_all_tabs(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Закрыть все" : "Close All";
+                    font-size: 13px;
+                    color: Theme.accent_red;
+                    vertical-alignment: center;
+                }
+                Text { text: "Ctrl+K W"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border_normal; }
+
+        // Copy Relative Path
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_copy_rel.has-hover ? Theme.menu_hover : #00000000;
+            t_copy_rel := TouchArea {
+                clicked => { root.copy_relative_path(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Скопировать относительный путь" : "Copy Relative Path";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Ctrl+K Shift+C"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        // Copy Path (Absolute)
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_copy_abs.has-hover ? Theme.menu_hover : #00000000;
+            t_copy_abs := TouchArea {
+                clicked => { root.copy_absolute_path(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Скопировать путь" : "Copy Path";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Shift+Alt+C"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border_normal; }
+
+        // Reveal in Windows Explorer
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_reveal.has-hover ? Theme.menu_hover : #00000000;
+            t_reveal := TouchArea {
+                clicked => { root.reveal_in_explorer(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Открыть в проводнике" : "Open in File Explorer";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Shift+Alt+R"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+
+        // Show in Explorer Tree
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_show_tree.has-hover ? Theme.menu_hover : #00000000;
+            t_show_tree := TouchArea {
+                clicked => { root.show_in_explorer_tree(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.current_language == "ru" ? "Показать в панели проводника" : "Reveal in Sidebar";
+                    font-size: 13px;
+                    color: Theme.accent_blue;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border_normal; }
+
+        // Pin / Unpin Tab
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: t_pin.has-hover ? Theme.menu_hover : #00000000;
+            t_pin := TouchArea {
+                clicked => { root.toggle_pin_tab(root.target_path); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 12px;
+                alignment: space-between;
+                Text {
+                    text: root.is_pinned
+                        ? (root.current_language == "ru" ? "Открепить вкладку" : "Unpin Tab")
+                        : (root.current_language == "ru" ? "Закрепить" : "Pin Tab");
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    vertical-alignment: center;
+                }
+                Text { text: "Ctrl+K Enter"; font-size: 11px; color: Theme.text_muted; vertical-alignment: center; }
+            }
+        }
+    }
+}

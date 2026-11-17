@@ -55,7 +55,11 @@ impl UndoManager {
             if self.undo_stack.len() >= MAX_HISTORY {
                 self.undo_stack.remove(0);
             }
-            self.undo_stack.push(self.current_snapshot.clone());
+            let mut snap_to_push = self.current_snapshot.clone();
+            if snap_to_push.cursor_offset <= 0 && cursor > 0 {
+                snap_to_push.cursor_offset = cursor.min(snap_to_push.text.len() as i32);
+            }
+            self.undo_stack.push(snap_to_push);
             self.redo_stack.clear();
             self.last_record_time = Instant::now();
         }
@@ -68,6 +72,12 @@ impl UndoManager {
 
     pub fn undo(&mut self) -> Option<TextSnapshot> {
         let previous = self.undo_stack.pop()?;
+        if previous.text.is_empty()
+            && self.current_snapshot.text.trim().len() > 10
+            && self.undo_stack.is_empty()
+        {
+            return None;
+        }
         self.redo_stack.push(self.current_snapshot.clone());
         self.current_snapshot = previous.clone();
         self.last_record_time = Instant::now();

@@ -12,6 +12,7 @@ export struct FileItem {
 export struct TokenItem {
     text: string,
     color: color,
+    is_italic: bool,
 }
 
 export struct HighlightLineItem {
@@ -54,3 +55,14 @@ export struct TerminalLineItem {
     text: string,
     text_color: color,
 }
+
+export struct FileTabItem {
+    name: string,
+    path: string,
+    is_active: bool,
+    is_dirty: bool,
+    is_asm: bool,
+    is_pinned: bool,
+    is_deleted: bool,
+}
+

@@ -12,21 +12,36 @@ pub fn update_highlight_and_labels(
     code: &str,
     is_asm: bool,
 ) {
-    let line_count = code.lines().count().max(1);
-    let mut numbers_str = String::with_capacity(line_count * 5);
-    for i in 1..=line_count {
+    let line_count = if code.is_empty() {
+        1
+    } else {
+        code.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1
+    };
+
+    let is_large_file = app.get_is_large_file_mode();
+
+    // Fast O(1) bounded numbers generation
+    let max_numbers = if is_large_file {
+        100_000
+    } else {
+        line_count.min(300_000)
+    };
+    let actual_count = line_count.min(max_numbers);
+    let mut numbers_str = String::with_capacity(actual_count * 6);
+    for i in 1..=actual_count {
         numbers_str.push_str(&i.to_string());
         numbers_str.push('\n');
     }
     app.set_line_numbers_text(SharedString::from(numbers_str));
 
-    if !is_asm {
+    if !is_asm || is_large_file {
         app.set_highlight_lines(ModelRc::default());
         app.set_label_list(ModelRc::default());
         return;
     }
 
-    let lines = highlight_document(code);
+    let theme_id = app.get_active_theme_id();
+    let lines = highlight_document(code, theme_id);
     let line_models: Vec<HighlightLineItem> = lines
         .into_iter()
         .map(|line| {
@@ -36,6 +51,7 @@ pub fn update_highlight_and_labels(
                 .map(|tok| TokenItem {
                     text: SharedString::from(tok.text),
                     color: tok.color,
+                    is_italic: tok.is_italic,
                 })
                 .collect();
             HighlightLineItem {

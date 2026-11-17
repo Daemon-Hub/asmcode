@@ -1,3 +1,5 @@
+import { Theme } from "theme.slint";
+
 export component ExplorerContextMenu inherits Rectangle {
     in property <string> current_language: "ru";
     in property <string> selected_explorer_path: "";
@@ -7,16 +9,17 @@ export component ExplorerContextMenu inherits Rectangle {
     callback create_new_folder();
     callback rename_requested();
     callback delete_requested(string);
+    callback undo_delete_requested();
     callback copy_path_requested(string);
     callback reveal_in_explorer_requested(string);
     callback refresh_requested();
 
     width: 240px;
     height: exp_menu_layout.preferred-height;
-    background: #1e1e2e;
+    background: Theme.menu_bg;
     border-radius: 6px;
     border-width: 1px;
-    border-color: #45475a;
+    border-color: Theme.menu_border;
     drop-shadow-blur: 12px;
     drop-shadow-color: #000000bb;
     z: 110;
@@ -29,7 +32,7 @@ export component ExplorerContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_newfile.has-hover ? #313244 : #00000000;
+            background: exp_m_newfile.has-hover ? Theme.menu_hover : #00000000;
             exp_m_newfile := TouchArea {
                 clicked => { root.create_new_file(); }
             }
@@ -45,7 +48,7 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Новый файл..." : "New File...";
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     vertical-alignment: center;
                 }
             }
@@ -55,7 +58,7 @@ export component ExplorerContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_newfolder.has-hover ? #313244 : #00000000;
+            background: exp_m_newfolder.has-hover ? Theme.menu_hover : #00000000;
             exp_m_newfolder := TouchArea {
                 clicked => { root.create_new_folder(); }
             }
@@ -71,19 +74,19 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Новая папка..." : "New Folder...";
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     vertical-alignment: center;
                 }
             }
         }
 
-        Rectangle { height: 1px; background: #313244; }
+        Rectangle { height: 1px; background: Theme.border_normal; }
 
         // Rename
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_rename.has-hover ? #313244 : #00000000;
+            background: exp_m_rename.has-hover ? Theme.menu_hover : #00000000;
             exp_m_rename := TouchArea {
                 clicked => {
                     if root.selected_explorer_name != "" {
@@ -103,7 +106,7 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Переименовать..." : "Rename...";
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     vertical-alignment: center;
                 }
             }
@@ -113,7 +116,7 @@ export component ExplorerContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_del.has-hover ? #313244 : #00000000;
+            background: exp_m_del.has-hover ? Theme.menu_hover : #00000000;
             exp_m_del := TouchArea {
                 clicked => {
                     if root.selected_explorer_path != "" {
@@ -133,19 +136,53 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Удалить" : "Delete";
                     font-size: 13px;
-                    color: #f38ba8;
+                    color: Theme.accent_red;
                     vertical-alignment: center;
                 }
             }
         }
 
-        Rectangle { height: 1px; background: #313244; }
+        // Undo Delete (Ctrl+Z)
+        Rectangle {
+            height: 30px;
+            border-radius: 4px;
+            background: exp_m_undo.has-hover ? Theme.menu_hover : #00000000;
+            exp_m_undo := TouchArea {
+                clicked => { root.undo_delete_requested(); }
+            }
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                alignment: space-between;
+                HorizontalLayout {
+                    spacing: 8px;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("../icons/refresh.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Отменить удаление" : "Undo Delete";
+                        font-size: 13px;
+                        color: Theme.accent_yellow;
+                        vertical-alignment: center;
+                    }
+                }
+                Text {
+                    text: "Ctrl+Z";
+                    font-size: 11px;
+                    color: Theme.text_muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: Theme.border_normal; }
 
         // Copy Path
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_copy.has-hover ? #313244 : #00000000;
+            background: exp_m_copy.has-hover ? Theme.menu_hover : #00000000;
             exp_m_copy := TouchArea {
                 clicked => {
                     if root.selected_explorer_path != "" {
@@ -165,7 +202,7 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Копировать путь" : "Copy Path";
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     vertical-alignment: center;
                 }
             }
@@ -175,7 +212,7 @@ export component ExplorerContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_rev.has-hover ? #313244 : #00000000;
+            background: exp_m_rev.has-hover ? Theme.menu_hover : #00000000;
             exp_m_rev := TouchArea {
                 clicked => {
                     if root.selected_explorer_path != "" {
@@ -195,7 +232,7 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Показать в проводнике Windows" : "Reveal in Explorer";
                     font-size: 13px;
-                    color: #cdd6f4;
+                    color: Theme.text_primary;
                     vertical-alignment: center;
                 }
             }
@@ -205,7 +242,7 @@ export component ExplorerContextMenu inherits Rectangle {
         Rectangle {
             height: 30px;
             border-radius: 4px;
-            background: exp_m_ref.has-hover ? #313244 : #00000000;
+            background: exp_m_ref.has-hover ? Theme.menu_hover : #00000000;
             exp_m_ref := TouchArea {
                 clicked => { root.refresh_requested(); }
             }
@@ -221,7 +258,7 @@ export component ExplorerContextMenu inherits Rectangle {
                 Text {
                     text: root.current_language == "ru" ? "Обновить проводник" : "Refresh";
                     font-size: 13px;
-                    color: #89b4fa;
+                    color: Theme.accent_blue;
                     vertical-alignment: center;
                 }
             }

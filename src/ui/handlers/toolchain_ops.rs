@@ -38,11 +38,15 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         ui.set_status_message(SharedString::from("Building (.COM)..."));
         ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
 
-        // 2. Assemble with asmx20 on background thread (Never freezes UI)
+        let toolchain_type = ui.get_toolchain_type();
+        let compiler_path = ui.get_compiler_path().to_string();
+
+        // 2. Assemble with selected toolchain on background thread (Never freezes UI)
         let app_weak_inner = app_weak.clone();
         let ctrl_clone_inner = Arc::clone(&ctrl_clone);
         std::thread::spawn(move || {
-            let report = CompilerRunner::assemble_file(&target_path);
+            let (report, warning) =
+                CompilerRunner::assemble_file(&target_path, toolchain_type, &compiler_path);
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(ui) = app_weak_inner.upgrade() else {
                     return;
@@ -53,8 +57,15 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
                 }
 
                 if report.success {
-                    ui.set_status_message(SharedString::from("Build OK (.COM generated)"));
-                    ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    if warning.is_some() {
+                        ui.set_status_message(SharedString::from(
+                            "Предупреждение: бинарник не найден (применен встроенный)",
+                        ));
+                        ui.set_status_color(Color::from_rgb_u8(249, 226, 175));
+                    } else {
+                        ui.set_status_message(SharedString::from("Build OK (.COM generated)"));
+                        ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    }
                 } else {
                     ui.set_status_message(SharedString::from("Assembly Failed"));
                     ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
@@ -65,7 +76,7 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         });
     });
 
-    // Run in Emulator (asmx20 + cpmemu - Asynchronous, Never Freezes UI)
+    // Run in Emulator (asmx20 + cpmemu or intel-8080-kit - Asynchronous, Never Freezes UI)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
     app.on_run_emulator(move || {
@@ -94,21 +105,29 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
             return;
         }
         ui.set_is_dirty(false);
-        ui.set_status_message(SharedString::from("Assembling & Launching (cpmemu)..."));
+        ui.set_status_message(SharedString::from("Assembling & Launching..."));
         ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
+
+        let toolchain_type = ui.get_toolchain_type();
+        let compiler_path = ui.get_compiler_path().to_string();
+        let emulator_path = ui.get_emulator_path().to_string();
 
         // 2. Assemble and Run on background thread (Never freezes UI)
         let app_weak_inner = app_weak.clone();
         let ctrl_clone_inner = Arc::clone(&ctrl_clone);
         std::thread::spawn(move || {
-            let report = CompilerRunner::assemble_file(&target_path);
-            let emu_logs = if report.success {
-                report
-                    .com_path
-                    .as_deref()
-                    .map(CompilerRunner::run_in_emulator)
+            let (report, compile_warn) =
+                CompilerRunner::assemble_file(&target_path, toolchain_type, &compiler_path);
+            let (emu_logs, emu_warn) = if report.success {
+                if let Some(com_path) = report.com_path.as_deref() {
+                    let (logs, warn) =
+                        CompilerRunner::run_in_emulator(com_path, toolchain_type, &emulator_path);
+                    (Some(logs), warn)
+                } else {
+                    (None, None)
+                }
             } else {
-                None
+                (None, None)
             };
 
             let _ = slint::invoke_from_event_loop(move || {
@@ -127,8 +146,20 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
                     for log in logs {
                         ctrl.append_log(&log);
                     }
-                    ui.set_status_message(SharedString::from("Execution Complete (cpmemu)"));
-                    ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    if compile_warn.is_some() || emu_warn.is_some() {
+                        ui.set_status_message(SharedString::from(
+                            "Выполнено (с предупреждением: бинарник не найден, применен встроенный)",
+                        ));
+                        ui.set_status_color(Color::from_rgb_u8(249, 226, 175));
+                    } else if toolchain_type == 1 {
+                        ui.set_status_message(SharedString::from("Execution Complete (cpmemu)"));
+                        ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    } else {
+                        ui.set_status_message(SharedString::from(
+                            "Execution Complete (intel-8080-kit)",
+                        ));
+                        ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    }
                 }
 
                 sync_logs(&ui, &ctrl);
