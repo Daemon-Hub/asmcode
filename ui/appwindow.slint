@@ -1,0 +1,3424 @@
+import "./fonts/CaskaydiaCoveNF-SemiBold.ttf";
+import "./fonts/CaskaydiaCoveNF-SemiBoldItalic.ttf";
+import { Button, LineEdit, ScrollView, ListView } from "std-widgets.slint";
+
+export struct FileItem {
+    name: string,
+    path: string,
+    is_dir: bool,
+    is_asm: bool,
+    is_expanded: bool,
+    depth: int,
+    icon_name: string,
+    size_str: string,
+}
+
+export struct TokenItem {
+    text: string,
+    color: color,
+}
+
+export struct HighlightLineItem {
+    line_number: int,
+    tokens: [TokenItem],
+}
+
+export struct LabelItem {
+    name: string,
+    line_number: int,
+}
+
+export struct SuggestionItem {
+    name: string,
+    category: string,
+    syntax: string,
+    summary: string,
+    flags: string,
+    cycles: string,
+    insert_text: string,
+    icon_kind: string,
+    example: string,
+}
+
+export struct DocItem {
+    name: string,
+    syntax: string,
+    summary: string,
+    operands: string,
+    flags: string,
+    cycles: string,
+    bytes: int,
+    category: string,
+}
+
+export struct TerminalLineItem {
+    line_number: int,
+    prefix: string,
+    prefix_color: color,
+    text: string,
+    text_color: color,
+}
+
+export component AppWindow inherits Window {
+    title: "ASMCode - Intel 8080 IDE";
+    icon: @image-url("icons/app_8080.svg");
+    preferred-width: 1600px;
+    preferred-height: 1000px;
+    min-width: 1200px;
+    min-height: 800px;
+    background: #181825;
+    default-font-family: "CaskaydiaCove NF SemiBold";
+
+
+    // Language setting: "ru" by default, "en" optional
+    in-out property <string> current-language: "ru";
+
+    // Dynamic Zoom & Font properties
+    in-out property <length> editor-font-size: 18px;
+    in-out property <bool> editor-font-italic: true;
+    out property <length> editor-line-height: measure_text_2.preferred-height - measure_text_1.preferred-height;
+
+    // Resizable Layout Dimensions
+    in-out property <length> sidebar-width: 320px;
+    in-out property <length> terminal-height: 180px;
+
+    // Collapsible Sections & Panels
+    in-out property <bool> labels-expanded: true;
+    in-out property <bool> right-drawer-expanded: true;
+    in-out property <bool> terminal-expanded: true;
+
+    // Custom Context Menu States & Coordinates
+    in-out property <bool> show-context-menu: false;
+    in-out property <bool> show-editor-context-menu: false;
+    in-out property <bool> show-explorer-context-menu: false;
+    in-out property <length> context-menu-x: 100px;
+    in-out property <length> context-menu-y: 100px;
+    in-out property <length> explorer-menu-x: 100px;
+    in-out property <length> explorer-menu-y: 100px;
+
+    callback open-context-menu(length, length);
+    open-context-menu(mx, my) => {
+        root.context-menu-x = min(mx, root.width - 260px);
+        root.context-menu-y = min(my, root.height - 350px);
+        root.show-context-menu = true;
+    }
+
+    // Blinking Cursor Timer (530ms standard IDE blink rate)
+    in-out property <bool> cursor-visible: true;
+    Timer {
+        interval: 530ms;
+        running: true;
+        triggered => {
+            root.cursor-visible = !root.cursor-visible;
+        }
+    }
+
+    measure_text_1 := Text {
+        visible: false;
+        font-family: "CaskaydiaCove NF SemiBold";
+        font-size: root.editor-font-size;
+        font-weight: 600;
+        text: "Mg";
+    }
+    measure_text_2 := Text {
+        visible: false;
+        font-family: "CaskaydiaCove NF SemiBold";
+        font-size: root.editor-font-size;
+        font-weight: 600;
+        text: "Mg\nMg";
+    }
+
+    // Zoom callbacks
+    callback zoom-in();
+    callback zoom-out();
+    callback zoom-reset();
+    callback toggle-language();
+    callback trigger-autocomplete(int);
+    callback apply-completion(string);
+    callback apply-completion-at(string, int) -> int;
+    callback insert-tab(int) -> int;
+    callback insert-newline(int) -> int;
+    callback delete-word-left(int) -> int;
+    callback toggle-comment(int) -> int;
+    callback toggle-comment-range(int, int) -> int;
+    callback duplicate-line(int) -> int;
+    callback editor-undo(int) -> int;
+    callback editor-redo(int) -> int;
+    callback navigate-suggestion(int);
+
+    zoom-in => {
+        if root.editor-font-size < 38px {
+            root.editor-font-size += 2px;
+        }
+    }
+    zoom-out => {
+        if root.editor-font-size > 12px {
+            root.editor-font-size -= 2px;
+        }
+    }
+    zoom-reset => {
+        root.editor-font-size = 18px;
+    }
+
+    // State properties
+    in-out property <string> current-dir-path: "D:\\Rust\\asmcode";
+    in-out property <string> active-file-name: "";
+    in-out property <string> active-file-path: "";
+    in-out property <bool> is-dirty: false;
+    in-out property <bool> is-active-asm: true;
+    callback close-active-file();
+    in-out property <string> code-text: "";
+    in-out property <string> line-numbers-text: "1\n2\n3";
+    in-out property <bool> show-new-file-dialog: false;
+    in-out property <bool> show-new-folder-dialog: false;
+    in-out property <bool> show-rename-dialog: false;
+    in-out property <string> rename-target-name: "";
+    in-out property <string> selected-explorer-path: "";
+    in-out property <string> selected-explorer-name: "";
+    in-out property <string> status-message: "Ready";
+    in-out property <color> status-color: #a6e3a1;
+    in-out property <string> search-filter: "";
+    in-out property <string> output-log-text: "[SYSTEM] ASMCode Intel 8080 IDE initialized.";
+    in property <[TerminalLineItem]> terminal-lines: [];
+
+    // Menu dropdown toggles
+    in-out property <bool> show-file-menu: false;
+    in-out property <bool> show-run-menu: false;
+    in-out property <bool> show-view-menu: false;
+    in-out property <bool> show-help-menu: false;
+
+    // Autocomplete popup toggle & stationary anchor
+    in-out property <bool> show-autocomplete-popup: false;
+    in-out property <length> popup-anchor-x: 10px;
+    in-out property <length> popup-anchor-y: 0px;
+    in-out property <int> popup-trigger-line: -1;
+
+    // Cursor tracking
+    in-out property <length> cursor-x: 8px;
+    in-out property <length> cursor-y: 0px;
+
+    // View toggle: 0 = Unified Highlighted Editor, 2 = 8080 Opcode Encyclopedia
+    in-out property <int> editor-mode: 0;
+
+    // Models
+    in property <[FileItem]> file-list: [];
+    in property <[HighlightLineItem]> highlight-lines: [];
+    in property <[LabelItem]> label-list: [];
+    in property <[SuggestionItem]> suggestion-list: [];
+    in property <[DocItem]> docs-list: [];
+
+    // Selected suggestion details for companion docs flyout
+    in-out property <string> selected-sugg-name: "MOV";
+    in-out property <string> selected-sugg-category: "Пересылка данных";
+    in-out property <string> selected-sugg-syntax: "MOV r1, r2";
+    in-out property <string> selected-sugg-summary: "Копирование байта из регистра/памяти в другой регистр/память.";
+    in-out property <string> selected-sugg-flags: "None";
+    in-out property <string> selected-sugg-cycles: "5 (r,r) / 7 (r,M or M,r)";
+    in-out property <string> selected-sugg-insert-text: "mov";
+    in-out property <string> selected-sugg-icon-kind: "transfer";
+    in-out property <string> selected-sugg-example: "mov a, b        ; Копировать B в A";
+
+    // Callbacks
+    callback file-clicked(string, bool);
+    callback navigate-parent();
+    callback refresh-files();
+    callback create-file(string);
+    callback create-new-folder(string);
+    callback rename-file(string, string);
+    callback delete-file-requested(string);
+    callback copy-path-requested(string);
+    callback reveal-in-explorer-requested(string);
+    callback save-file();
+    callback open-file-dialog();
+    callback open-folder-dialog();
+    callback run-assemble-only();
+    callback run-emulator();
+    callback run-syntax-check();
+    callback clear-output();
+    callback code-edited(string);
+    callback insert-suggestion(string);
+    callback select-suggestion(int);
+    callback filter-changed(string);
+    callback label-clicked(int);
+    callback toggle-docs-mode();
+
+    VerticalLayout {
+        spacing: 0px;
+        padding: 0px;
+
+        // Top VS Code Style Menu Bar (height: 58px, strictly vertically centered)
+        Rectangle {
+            height: 58px;
+            background: #11111b;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                alignment: space-between;
+
+                // Left: Thematic 8080 Brand Logo, Menus, and Active Document Tab
+                VerticalLayout {
+                    alignment: center;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        // Thematic Brand Title with Intel 8080 CPU Icon
+                        HorizontalLayout {
+                            padding-right: 10px;
+                            spacing: 8px;
+                            alignment: start;
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: @image-url("icons/app_8080.svg");
+                                    width: 22px;
+                                    height: 22px;
+                                }
+                            }
+                            Text {
+                                text: "ASMCode";
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 19px;
+                                font-weight: 700;
+                                color: #89b4fa;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // File Menu Button
+                        Rectangle {
+                            width: 66px;
+                            height: 34px;
+                            border-radius: 4px;
+                            background: root.show-file-menu ? #313244 : #00000000;
+                            Text {
+                                text: root.current-language == "ru" ? "Файл" : "File";
+                                font-size: 15px;
+                                color: #cdd6f4;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                clicked => {
+                                    root.show-file-menu = !root.show-file-menu;
+                                    root.show-run-menu = false;
+                                    root.show-view-menu = false;
+                                    root.show-help-menu = false;
+                                }
+                            }
+                        }
+
+                        // Run Menu Button
+                        Rectangle {
+                            width: 66px;
+                            height: 34px;
+                            border-radius: 4px;
+                            background: root.show-run-menu ? #313244 : #00000000;
+                            Text {
+                                text: root.current-language == "ru" ? "Запуск" : "Run";
+                                font-size: 15px;
+                                color: #cdd6f4;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                clicked => {
+                                    root.show-run-menu = !root.show-run-menu;
+                                    root.show-file-menu = false;
+                                    root.show-view-menu = false;
+                                    root.show-help-menu = false;
+                                }
+                            }
+                        }
+
+                        // View Menu Button (Zoom, Font, Language)
+                        Rectangle {
+                            width: 66px;
+                            height: 34px;
+                            border-radius: 4px;
+                            background: root.show-view-menu ? #313244 : #00000000;
+                            Text {
+                                text: root.current-language == "ru" ? "Вид" : "View";
+                                font-size: 15px;
+                                color: #cdd6f4;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                clicked => {
+                                    root.show-view-menu = !root.show-view-menu;
+                                    root.show-file-menu = false;
+                                    root.show-run-menu = false;
+                                    root.show-help-menu = false;
+                                }
+                            }
+                        }
+
+                        // Help Menu Button
+                        Rectangle {
+                            width: 76px;
+                            height: 34px;
+                            border-radius: 4px;
+                            background: root.show-help-menu ? #313244 : #00000000;
+                            Text {
+                                text: root.current-language == "ru" ? "Справка" : "Help";
+                                font-size: 15px;
+                                color: #cdd6f4;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                clicked => {
+                                    root.show-help-menu = !root.show-help-menu;
+                                    root.show-file-menu = false;
+                                    root.show-run-menu = false;
+                                    root.show-view-menu = false;
+                                }
+                            }
+                        }
+
+                        // Active File Tab Indicator with Real Assembly SVG Icon & Context Menu button
+                        if root.active-file-name != "": HorizontalLayout {
+                            padding-left: 10px;
+                            alignment: center;
+                            Rectangle {
+                                height: 34px;
+                                border-radius: 5px;
+                                background: #1e1e2e;
+                                border-width: 1px;
+                                border-color: #313244;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    spacing: 8px;
+                                    alignment: center;
+
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: root.is-active-asm ? @image-url("icons/assembly.svg") : @image-url("icons/document.svg");
+                                            width: 16px;
+                                            height: 16px;
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.is-dirty ? root.active-file-name + " *" : root.active-file-name;
+                                        font-family: "CaskaydiaCove NF SemiBold";
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                        color: root.is-dirty ? #f9e2af : #cdd6f4;
+                                        vertical-alignment: center;
+                                    }
+
+
+
+                                    // Close Tab Button
+                                    Rectangle {
+                                        width: 20px;
+                                        height: 20px;
+                                        border-radius: 3px;
+                                        background: tab_close_touch.has-hover ? #f38ba833 : #00000000;
+                                        tab_close_touch := TouchArea {
+                                            clicked => {
+                                                root.close-active-file();
+                                            }
+                                        }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            HorizontalLayout {
+                                                alignment: center;
+                                                Image {
+                                                    source: @image-url("icons/close.svg");
+                                                    width: 12px;
+                                                    height: 12px;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
+
+                    }
+                // Right: Action Buttons with Vector Icons (Vertically Centered)
+                VerticalLayout {
+                    alignment: center;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+
+                        // Toggle Editor vs Docs
+                        Rectangle {
+                            height: 34px;
+                            border-radius: 4px;
+                            background: root.editor-mode == 2
+                                ? (docs_btn_touch.pressed ? #74c7ec : #89b4fa)
+                                : (docs_btn_touch.pressed ? #45475a : (docs_btn_touch.has-hover ? #313244 : #1e1e2e));
+                            border-width: 1px;
+                            border-color: root.editor-mode == 2 ? #89b4fa : (docs_btn_touch.has-hover ? #585b70 : #45475a);
+                            docs_btn_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.toggle-docs-mode();
+                                }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: root.editor-mode == 2 ? @image-url("icons/editor.svg") : @image-url("icons/book.svg");
+                                        width: 15px;
+                                        height: 15px;
+                                        colorize: root.editor-mode == 2 ? #11111b : #89b4fa;
+                                    }
+                                }
+                                Text {
+                                    text: root.current-language == "ru"
+                                        ? (root.editor-mode == 2 ? "Редактор" : "Справка 8080")
+                                        : (root.editor-mode == 2 ? "Editor" : "8080 Docs");
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: root.editor-mode == 2 ? #11111b : #cdd6f4;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Save Button
+                        Rectangle {
+                            height: 34px;
+                            border-radius: 4px;
+                            background: save_btn_touch.pressed ? #45475a : (save_btn_touch.has-hover ? #313244 : #1e1e2e);
+                            border-width: 1px;
+                            border-color: save_btn_touch.has-hover ? #585b70 : #45475a;
+                            save_btn_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.save-file(); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: @image-url("icons/save.svg");
+                                        width: 15px;
+                                        height: 15px;
+                                    }
+                                }
+                                Text {
+                                    text: root.current-language == "ru" ? "Сохранить" : "Save";
+                                    font-size: 13px;
+                                    color: #cdd6f4;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Syntax Check
+                        Rectangle {
+                            height: 34px;
+                            border-radius: 4px;
+                            background: check_btn_touch.pressed ? #45475a : (check_btn_touch.has-hover ? #313244 : #1e1e2e);
+                            border-width: 1px;
+                            border-color: check_btn_touch.has-hover ? #a6e3a1 : #45475a;
+                            check_btn_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.run-syntax-check(); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: @image-url("icons/check.svg");
+                                        width: 15px;
+                                        height: 15px;
+                                    }
+                                }
+                                Text {
+                                    text: root.current-language == "ru" ? "Проверить" : "Check";
+                                    font-size: 13px;
+                                    color: #a6e3a1;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Assemble Only (asmx20)
+                        Rectangle {
+                            height: 34px;
+                            border-radius: 4px;
+                            background: build_btn_touch.pressed ? #585b70 : (build_btn_touch.has-hover ? #45475a : #313244);
+                            border-width: 1px;
+                            border-color: build_btn_touch.has-hover ? #89b4fa : #45475a;
+                            build_btn_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.run-assemble-only(); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: @image-url("icons/build.svg");
+                                        width: 15px;
+                                        height: 15px;
+                                    }
+                                }
+                                Text {
+                                    text: root.current-language == "ru" ? "Собрать .COM" : "Build .COM";
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: #89b4fa;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Primary Run Button with Bright Green Triangle Icon (High Contrast)
+                        Rectangle {
+                            height: 34px;
+                            border-radius: 4px;
+                            background: run_btn_touch.pressed ? #3e664b : (run_btn_touch.has-hover ? #2e4a36 : #1e3325);
+                            border-width: 1px;
+                            border-color: run_btn_touch.has-hover ? #a6e3a1 : #585b70;
+                            run_btn_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.run-emulator(); }
+                            }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 14px;
+                                spacing: 8px;
+                                alignment: center;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: @image-url("icons/run.svg");
+                                        width: 16px;
+                                        height: 16px;
+                                    }
+                                }
+                                Text {
+                                    text: root.current-language == "ru" ? "Запуск (cpmemu)" : "Run (cpmemu)";
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    color: #a6e3a1;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle { height: 1px; background: #313244; }
+
+        // Main Center Workspace (Sidebar + Unified Editor + Collapsible Drawer)
+        HorizontalLayout {
+            spacing: 0px;
+
+            // Left Sidebar: File Explorer Tree & Labels
+            Rectangle {
+                width: root.sidebar-width;
+                background: #181825;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 10px;
+
+                    // Sidebar Explorer Header
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.current-language == "ru" ? "ПРОВОДНИК" : "EXPLORER";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #a6adc8;
+                            vertical-alignment: center;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            // Parent Directory Arrow Button
+                            Rectangle {
+                                width: 32px;
+                                height: 28px;
+                                border-radius: 3px;
+                                background: #313244;
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: @image-url("icons/arrow_up.svg");
+                                            width: 16px;
+                                            height: 16px;
+                                        }
+                                    }
+                                }
+                                TouchArea { clicked => { root.navigate-parent(); } }
+                            }
+                            // New File Button
+                            Rectangle {
+                                width: 32px;
+                                height: 28px;
+                                border-radius: 3px;
+                                background: #313244;
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: @image-url("icons/plus.svg");
+                                            width: 14px;
+                                            height: 14px;
+                                        }
+                                    }
+                                }
+                                TouchArea { clicked => { root.show-new-file-dialog = !root.show-new-file-dialog; } }
+                            }
+                            // Refresh Button
+                            Rectangle {
+                                width: 32px;
+                                height: 28px;
+                                border-radius: 3px;
+                                background: #313244;
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        alignment: center;
+                                        Image {
+                                            source: @image-url("icons/refresh.svg");
+                                            width: 14px;
+                                            height: 14px;
+                                        }
+                                    }
+                                }
+                                TouchArea { clicked => { root.refresh-files(); } }
+                            }
+                        }
+                    }
+
+                    // Inline Bar: Create New Folder Dialog
+                    if root.show-new-folder-dialog: Rectangle {
+                        height: 42px;
+                        background: #11111b;
+                        border-radius: 5px;
+                        border-width: 1.5px;
+                        border-color: #89b4fa;
+                        clip: true;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 8px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            spacing: 8px;
+                            alignment: stretch;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: @image-url("icons/folder.svg");
+                                    width: 16px;
+                                    height: 16px;
+                                }
+                            }
+
+                            new_folder_input := LineEdit {
+                                text: "subfolder";
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 13px;
+                                accepted(text) => {
+                                    root.create-new-folder(text);
+                                    root.show-new-folder-dialog = false;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 44px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: folder_ok_touch.has-hover ? #a6e3a1 : #94e2d5;
+                                    Text {
+                                        text: "OK";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #11111b;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    folder_ok_touch := TouchArea {
+                                        clicked => {
+                                            root.create-new-folder(new_folder_input.text);
+                                            root.show-new-folder-dialog = false;
+                                        }
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: folder_cancel_touch.has-hover ? #f38ba833 : #00000000;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/close.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                            }
+                                        }
+                                    }
+                                    folder_cancel_touch := TouchArea {
+                                        clicked => { root.show-new-folder-dialog = false; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Inline Bar: Rename File/Folder Dialog
+                    if root.show-rename-dialog: Rectangle {
+                        height: 42px;
+                        background: #11111b;
+                        border-radius: 5px;
+                        border-width: 1.5px;
+                        border-color: #f9e2af;
+                        clip: true;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 8px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            spacing: 8px;
+                            alignment: stretch;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: @image-url("icons/editor.svg");
+                                    width: 16px;
+                                    height: 16px;
+                                }
+                            }
+
+                            rename_input := LineEdit {
+                                text: root.rename-target-name;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 13px;
+                                accepted(text) => {
+                                    root.rename-file(root.selected-explorer-path, text);
+                                    root.show-rename-dialog = false;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 44px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: rename_ok_touch.has-hover ? #f9e2af : #fab387;
+                                    Text {
+                                        text: "OK";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #11111b;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    rename_ok_touch := TouchArea {
+                                        clicked => {
+                                            root.rename-file(root.selected-explorer-path, rename_input.text);
+                                            root.show-rename-dialog = false;
+                                        }
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: rename_cancel_touch.has-hover ? #f38ba833 : #00000000;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/close.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                            }
+                                        }
+                                    }
+                                    rename_cancel_touch := TouchArea {
+                                        clicked => { root.show-rename-dialog = false; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Inline Bar: Create New File Dialog
+                    if root.show-new-file-dialog: Rectangle {
+                        height: 42px;
+                        background: #11111b;
+                        border-radius: 5px;
+                        border-width: 1.5px;
+                        border-color: #89b4fa;
+                        clip: true;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 8px;
+                            padding-top: 4px;
+                            padding-bottom: 4px;
+                            spacing: 8px;
+                            alignment: stretch;
+
+                            VerticalLayout {
+                                alignment: center;
+                                Image {
+                                    source: @image-url("icons/assembly.svg");
+                                    width: 16px;
+                                    height: 16px;
+                                }
+                            }
+
+                            new_input := LineEdit {
+                                placeholder-text: "name.asm";
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 13px;
+                                text: "newfile.asm";
+                                accepted(text) => {
+                                    root.create-file(text);
+                                    root.show-new-file-dialog = false;
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 44px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: file_ok_touch.has-hover ? #a6e3a1 : #94e2d5;
+                                    Text {
+                                        text: "OK";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #11111b;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                    file_ok_touch := TouchArea {
+                                        clicked => {
+                                            root.create-file(new_input.text);
+                                            root.show-new-file-dialog = false;
+                                        }
+                                    }
+                                }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: file_cancel_touch.has-hover ? #f38ba833 : #00000000;
+                                    VerticalLayout {
+                                        alignment: center;
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/close.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                            }
+                                        }
+                                    }
+                                    file_cancel_touch := TouchArea {
+                                        clicked => { root.show-new-file-dialog = false; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Path Indicator
+                    Text {
+                        text: root.current-dir-path;
+                        font-size: 12px;
+                        color: #6c7086;
+                        overflow: elide;
+                    }
+
+                    // Hierarchical File Tree View (Virtualized & vertically stretched, zero top gap)
+                    Rectangle {
+                        vertical-stretch: 1;
+                        background: #11111b;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: #313244;
+                        clip: true;
+
+                        explorer_bg_touch := TouchArea {
+                            pointer-event(e) => {
+                                if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
+                                    root.selected-explorer-path = "";
+                                    root.selected-explorer-name = "";
+                                    root.explorer-menu-x = self.mouse-x;
+                                    root.explorer-menu-y = self.mouse-y + 100px;
+                                    root.show-explorer-context-menu = true;
+                                }
+                            }
+                        }
+
+                        ListView {
+                            for item in root.file-list: Rectangle {
+                                height: 30px;
+                                border-radius: 4px;
+                                background: (root.active-file-path == item.path) ? #313244 : (file_row_touch.has-hover ? #1e1e2e : #00000000);
+
+                                    HorizontalLayout {
+                                        padding-left: 4px + item.depth * 14px;
+                                        padding-right: 8px;
+                                        spacing: 6px;
+                                        alignment: start;
+
+                                        // Expand/Collapse Chevron arrow for directories
+                                        VerticalLayout {
+                                            alignment: center;
+                                            width: 14px;
+                                            if item.is_dir: Image {
+                                                source: item.is_expanded ? @image-url("icons/chevron_down.svg") : @image-url("icons/chevron_right.svg");
+                                                width: 12px;
+                                                height: 12px;
+                                            }
+                                        }
+
+                                        // Folder or File Icon (Named folders and typed files)
+                                        VerticalLayout {
+                                            alignment: center;
+                                            // Named Folders
+                                            if item.is_dir && item.icon_name == "src": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-src-open.svg") : @image-url("icons/folder-src.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "ui": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-ui-open.svg") : @image-url("icons/folder-ui.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "target": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-target-open.svg") : @image-url("icons/folder-target.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "docs": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-docs-open.svg") : @image-url("icons/folder-docs.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "test": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-test-open.svg") : @image-url("icons/folder-test.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "scripts": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-scripts-open.svg") : @image-url("icons/folder-scripts.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "tools": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-tools-open.svg") : @image-url("icons/folder-tools.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "config": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-config-open.svg") : @image-url("icons/folder-config.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "debug": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-debug-open.svg") : @image-url("icons/folder-debug.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "components": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-components-open.svg") : @image-url("icons/folder-components.svg");
+                                                width: 18px; height: 18px;
+                                            }
+                                            if item.is_dir && item.icon_name == "default": Image {
+                                                source: item.is_expanded ? @image-url("icons/folder-open.svg") : @image-url("icons/folder.svg");
+                                                width: 18px; height: 18px;
+                                            }
+
+                                            // File Type Icons
+                                            if !item.is_dir && item.icon_name == "asm": Image { source: @image-url("icons/assembly.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "rust": Image { source: @image-url("icons/rust.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "toml": Image { source: @image-url("icons/toml.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "markdown": Image { source: @image-url("icons/markdown.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "json": Image { source: @image-url("icons/json.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "lock": Image { source: @image-url("icons/lock.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "exe": Image { source: @image-url("icons/exe.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "powershell": Image { source: @image-url("icons/powershell.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "image": Image { source: @image-url("icons/image.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "c": Image { source: @image-url("icons/c.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "cpp": Image { source: @image-url("icons/cpp.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "csharp": Image { source: @image-url("icons/csharp.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "xml": Image { source: @image-url("icons/xml.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "yaml": Image { source: @image-url("icons/yaml.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "zip": Image { source: @image-url("icons/zip.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "pdf": Image { source: @image-url("icons/pdf.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "log": Image { source: @image-url("icons/log.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "key": Image { source: @image-url("icons/key.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "hex": Image { source: @image-url("icons/hex.svg"); width: 18px; height: 18px; }
+                                            if !item.is_dir && item.icon_name == "document": Image { source: @image-url("icons/document.svg"); width: 18px; height: 18px; }
+                                        }
+
+                                        Text {
+                                            text: item.name;
+                                            font-size: 13px;
+                                            color: item.is_asm ? #89b4fa : (item.is_dir ? #f9e2af : #cdd6f4);
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        Rectangle { }
+                                        Text {
+                                            text: item.size_str;
+                                            font-size: 11px;
+                                            color: #6c7086;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    file_row_touch := TouchArea {
+                                        clicked => {
+                                            root.selected-explorer-path = item.path;
+                                            root.selected-explorer-name = item.name;
+                                            root.file-clicked(item.path, item.is_dir);
+                                        }
+                                        pointer-event(e) => {
+                                            if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
+                                                root.selected-explorer-path = item.path;
+                                                root.selected-explorer-name = item.name;
+                                                root.explorer-menu-x = self.mouse-x + 10px;
+                                                root.explorer-menu-y = self.mouse-y + 110px;
+                                                root.show-explorer-context-menu = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                    // Collapsible Labels Outline Section with Arrow
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.current-language == "ru" ? "МЕТКИ ПРОГРАММЫ" : "LABELS OUTLINE";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #a6adc8;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 3px;
+                            background: labels_toggle_touch.has-hover ? #313244 : #00000000;
+                            labels_toggle_touch := TouchArea {
+                                clicked => { root.labels-expanded = !root.labels-expanded; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: root.labels-expanded ? @image-url("icons/chevron_down.svg") : @image-url("icons/chevron_right.svg");
+                                        width: 14px;
+                                        height: 14px;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if root.labels-expanded: Rectangle {
+                        height: 180px;
+                        vertical-stretch: 0;
+                        background: #11111b;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: #313244;
+                        clip: true;
+
+                        ListView {
+                            for lbl in root.label-list: Rectangle {
+                                    height: 28px;
+                                    border-radius: 3px;
+                                    background: #00000000;
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        spacing: 8px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: @image-url("icons/label.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                            }
+                                        }
+                                        Text {
+                                            text: lbl.name;
+                                            font-family: "CaskaydiaCove NF SemiBold";
+                                            font-size: 13px;
+                                            font-weight: 600;
+                                            color: #e5c07b;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                        Rectangle { }
+                                        Text {
+                                            text: (root.current-language == "ru" ? "Стр:" : "L:") + lbl.line_number;
+                                            font-size: 12px;
+                                            color: #6c7086;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                    TouchArea {
+                                        clicked => { root.label-clicked(lbl.line_number); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+            // Resizable Splitter Handle between Explorer and Editor
+            Rectangle {
+                width: 5px;
+                background: sidebar_resize_touch.has-hover ? #89b4fa : #313244;
+                sidebar_resize_touch := TouchArea {
+                    mouse-cursor: col-resize;
+                    moved => {
+                        let new_w = root.sidebar-width + (self.mouse-x - self.pressed-x);
+                        root.sidebar-width = max(180px, min(650px, new_w));
+                    }
+                }
+            }
+
+            // Central Area: THE UNIFIED EDITOR WITH SYNCHRONIZED GUTTER & SYNTAX HIGHLIGHTING
+            Rectangle {
+                background: #1e1e2e;
+
+                // Mode 0: Code Editor
+                if root.editor-mode != 2: HorizontalLayout {
+                    spacing: 0px;
+
+                    // Unified Code Viewport
+                    Rectangle {
+                        background: #1e1e2e;
+
+                        HorizontalLayout {
+                            spacing: 0px;
+
+                            // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
+                            Rectangle {
+                                width: 62px;
+                                background: #181825;
+                                clip: true;
+
+                                VerticalLayout {
+                                    y: editor_scroll.content-y;
+                                    alignment: start;
+                                    spacing: 0px;
+
+                                    for line in root.highlight-lines: Rectangle {
+                                        height: root.editor-line-height;
+                                        Text {
+                                            text: line.line_number;
+                                            font-family: "CaskaydiaCove NF SemiBold";
+                                            font-size: root.editor-font-size;
+                                            font-weight: 600;
+                                            color: #585b70;
+                                            horizontal-alignment: right;
+                                            vertical-alignment: center;
+                                            width: 50px;
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle { width: 1px; background: #313244; }
+
+                            // Main Editor Scrollable Area with Mouse Wheel Scrolling & Stylized Context Menu
+                            Rectangle {
+                                background: #1e1e2e;
+                                clip: true;
+
+                                editor_scroll := ScrollView {
+                                    content-width: max(self.visible-width, 1600px);
+                                    content-height: max(self.visible-height, max(code_input.preferred-height, code_rows.preferred-height));
+
+                                    // Syntax-Highlighted Code Lines Layer
+                                    code_rows := VerticalLayout {
+                                        x: 0px;
+                                        y: 0px;
+                                        alignment: start;
+                                        spacing: 0px;
+
+                                        for line in root.highlight-lines: HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 0px;
+                                            height: root.editor-line-height;
+                                            padding-left: 8px;
+
+                                            if line.tokens.length == 0: Text {
+                                                text: " ";
+                                                font-family: "CaskaydiaCove NF SemiBold";
+                                                font-size: root.editor-font-size;
+                                                font-weight: 600;
+                                                font-italic: root.editor-font-italic;
+                                                vertical-alignment: center;
+                                            }
+
+                                            for tok in line.tokens: Text {
+                                                text: tok.text;
+                                                color: tok.color;
+                                                font-family: "CaskaydiaCove NF SemiBold";
+                                                font-size: root.editor-font-size;
+                                                font-weight: 600;
+                                                font-italic: root.editor-font-italic;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    // Editor Right-Click Detector for Custom Stylized Context Menu
+                                    editor_touch := TouchArea {
+                                        x: 0px;
+                                        y: 0px;
+                                        width: parent.content-width;
+                                        height: parent.content-height;
+                                        pointer-event(e) => {
+                                            if (e.button == PointerEventButton.right && (e.kind == PointerEventKind.down || e.kind == PointerEventKind.up)) {
+                                                root.context-menu-x = self.mouse-x;
+                                                root.context-menu-y = self.mouse-y;
+                                                root.show-context-menu = true;
+                                            }
+                                        }
+                                    }
+
+                                    // Transparent TextInput for typing, selecting, and navigation
+                                    code_input := TextInput {
+                                        x: 8px;
+                                        y: 0px;
+                                        width: parent.content-width - 8px;
+                                        height: max(parent.content-height, code_rows.preferred-height);
+                                        text <=> root.code-text;
+                                        font-family: "CaskaydiaCove NF SemiBold";
+                                        font-size: root.editor-font-size;
+                                        font-weight: 600;
+                                        font-italic: root.editor-font-italic;
+                                        color: (root.is-active-asm && root.highlight-lines.length > 0) ? #00000001 : #cdd6f4;
+                                        wrap: no-wrap;
+                                        single-line: false;
+                                        selection-background-color: #2b4f81;
+                                        selection-foreground-color: #ffffff;
+
+                                        cursor-position-changed(cpos) => {
+                                            root.cursor-x = cpos.x + 8px;
+                                            root.cursor-y = cpos.y;
+                                            root.cursor-visible = true;
+
+                                            // Close popup if cursor moved away from trigger line
+                                            if (root.show-autocomplete-popup && root.popup-trigger-line >= 0 && root.editor-line-height > 0) {
+                                                let cur_line = (cpos.y / root.editor-line-height);
+                                                let diff = cur_line - root.popup-trigger-line;
+                                                if (diff < -0.5 || diff > 0.5) {
+                                                    root.show-autocomplete-popup = false;
+                                                }
+                                            }
+                                        }
+
+                                        edited => {
+                                            root.cursor-visible = true;
+                                            root.code-edited(self.text);
+                                        }
+
+                                        key-pressed(e) => {
+                                            root.cursor-visible = true;
+
+                                            // Escape: dismiss autocomplete popup or context menu
+                                            if (e.text == Key.Escape) {
+                                                if root.show-context-menu || root.show-editor-context-menu || root.show-explorer-context-menu {
+                                                    root.show-context-menu = false;
+                                                    root.show-editor-context-menu = false;
+                                                    root.show-explorer-context-menu = false;
+                                                    return EventResult.accept;
+                                                }
+                                                if root.show-autocomplete-popup {
+                                                    root.show-autocomplete-popup = false;
+                                                    return EventResult.accept;
+                                                }
+                                            }
+
+                                            // Context Menu Key or Shift + F10
+                                            if (e.text == Key.Menu || (e.modifiers.shift && e.text == Key.F10)) {
+                                                root.open-context-menu(root.cursor-x + 100px, root.cursor-y + 60px);
+                                                return EventResult.accept;
+                                            }
+
+                                            // Autocomplete arrow navigation
+                                            if (root.show-autocomplete-popup && root.suggestion-list.length > 0) {
+                                                if (e.text == Key.UpArrow) {
+                                                    root.navigate-suggestion(-1);
+                                                    return EventResult.accept;
+                                                }
+                                                if (e.text == Key.DownArrow) {
+                                                    root.navigate-suggestion(1);
+                                                    return EventResult.accept;
+                                                }
+                                            }
+
+                                            // Ctrl + Space: trigger autocomplete
+                                            if (e.modifiers.control && e.text == " ") {
+                                                root.trigger-autocomplete(code_input.cursor-position-byte-offset);
+                                                return EventResult.accept;
+                                            }
+
+                                            // Ctrl + Z: Undo
+                                            if (e.modifiers.control && !e.modifiers.shift && (e.text == "z" || e.text == "Z" || e.text == "я" || e.text == "Я" || e.text == "\u{001a}")) {
+                                                let new_pos = root.editor-undo(code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                return EventResult.accept;
+                                            }
+
+                                            // Ctrl + Y or Ctrl + Shift + Z: Redo
+                                            if ((e.modifiers.control && (e.text == "y" || e.text == "Y" || e.text == "н" || e.text == "Н" || e.text == "\u{0019}")) || (e.modifiers.control && e.modifiers.shift && (e.text == "z" || e.text == "Z" || e.text == "я" || e.text == "Я"))) {
+                                                let new_pos = root.editor-redo(code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                return EventResult.accept;
+                                            }
+
+                                            // Ctrl + Backspace: delete word left, strictly bounded to current line (never deletes previous line)
+                                            if (e.modifiers.control && (e.text == Key.Backspace || e.text == "\u{007f}" || e.text == "\u{0008}")) {
+                                                let new_pos = root.delete-word-left(code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                return EventResult.accept;
+                                            }
+
+                                            // Ctrl + /: Toggle line comment with ';'
+                                            if (e.modifiers.control && (e.text == "/" || e.text == "?" || e.text == "." || e.text == ",")) {
+                                                let new_pos = root.toggle-comment-range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                return EventResult.accept;
+                                            }
+
+                                        // Ctrl + D: Duplicate current line
+                                        if (e.modifiers.control && (e.text == "d" || e.text == "D" || e.text == "в" || e.text == "В" || e.text == "\u{0004}")) {
+                                            let new_pos = root.duplicate-line(code_input.cursor-position-byte-offset);
+                                            code_input.set-selection-offsets(new_pos, new_pos);
+                                            return EventResult.accept;
+                                        }
+
+                                        // Ctrl + A: Select All
+                                        if (e.modifiers.control && (e.text == "a" || e.text == "A" || e.text == "ф" || e.text == "Ф" || e.text == "\u{0001}")) {
+                                            code_input.select-all();
+                                            return EventResult.accept;
+                                        }
+
+                                        // Tab key: insert 4 spaces or apply autocomplete without losing focus
+                                        if (e.text == Key.Tab) {
+                                            if root.show-autocomplete-popup && root.suggestion-list.length > 0 {
+                                                let new_pos = root.apply-completion-at(root.selected-sugg-insert-text, code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                root.show-autocomplete-popup = false;
+                                            } else {
+                                                let new_pos = root.insert-tab(code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                            }
+                                            return EventResult.accept;
+                                        }
+
+                                        // Enter key: preserve indentation (auto-indent)
+                                        if (e.text == Key.Return) {
+                                            if root.show-autocomplete-popup && root.suggestion-list.length > 0 {
+                                                let new_pos = root.apply-completion-at(root.selected-sugg-insert-text, code_input.cursor-position-byte-offset);
+                                                code_input.set-selection-offsets(new_pos, new_pos);
+                                                root.show-autocomplete-popup = false;
+                                                return EventResult.accept;
+                                            }
+                                            let new_pos = root.insert-newline(code_input.cursor-position-byte-offset);
+                                            code_input.set-selection-offsets(new_pos, new_pos);
+                                            return EventResult.accept;
+                                        }
+
+                                        // Ctrl + S (both English 's', Russian 'ы', and ASCII Control-S '\u{0013}')
+                                        if (e.modifiers.control && (e.text == "s" || e.text == "S" || e.text == "ы" || e.text == "Ы" || e.text == "\u{0013}")) {
+                                            root.save-file();
+                                            return EventResult.accept;
+                                        }
+
+                                        // Ctrl + O (both English 'o', Russian 'щ', and ASCII Control-O '\u{000f}')
+                                        if (e.modifiers.control && (e.text == "o" || e.text == "O" || e.text == "щ" || e.text == "Щ" || e.text == "\u{000f}")) {
+                                            root.open-file-dialog();
+                                            return EventResult.accept;
+                                        }
+
+                                        // F5: Run in emulator
+                                        if (e.text == Key.F5) {
+                                            root.run-emulator();
+                                            return EventResult.accept;
+                                        }
+
+                                        // Zoom controls
+                                        if (e.modifiers.control && (e.text == "+" || e.text == "=")) {
+                                            root.zoom-in();
+                                            return EventResult.accept;
+                                        }
+                                        if (e.modifiers.control && (e.text == "-" || e.text == "_")) {
+                                            root.zoom-out();
+                                            return EventResult.accept;
+                                        }
+                                        if (e.modifiers.control && e.text == "0") {
+                                            root.zoom-reset();
+                                            return EventResult.accept;
+                                        }
+
+                                        return EventResult.reject;
+                                    }
+                                }
+
+                                // Slanted Blinking Cursor: exactly matches font slant angle
+                                if code_input.has-focus && root.cursor-visible: Path {
+                                    x: root.cursor-x - (root.editor-font-italic ? 2px : 0px);
+                                    y: root.cursor-y + 1px;
+                                    width: 8px;
+                                    height: root.editor-line-height - 2px;
+                                    viewbox-x: 0;
+                                    viewbox-y: 0;
+                                    viewbox-width: 8;
+                                    viewbox-height: max(1, (root.editor-line-height - 2px) / 1px);
+                                    stroke: #89b4fa;
+                                    stroke-width: 2.2px;
+                                    stroke-line-cap: square;
+                                    MoveTo {
+                                        x: root.editor-font-italic ? 4 : 1;
+                                        y: 0;
+                                    }
+                                    LineTo {
+                                        x: root.editor-font-italic ? 0 : 1;
+                                        y: max(1, (root.editor-line-height - 2px) / 1px);
+                                    }
+                                }
+
+                                // In-Editor Floating Autocomplete Popup with Stationary Anchor & Companion Docs
+                                if root.show-autocomplete-popup && root.suggestion-list.length > 0: Rectangle {
+                                    x: min(max(10px, root.popup-anchor-x + 10px), parent.width - 640px);
+                                    y: min(max(10px, root.popup-anchor-y + root.editor-line-height + 4px), parent.height - 240px);
+                                    width: 630px;
+                                    height: 230px;
+                                    background: #181825;
+                                    border-radius: 6px;
+                                    border-width: 1px;
+                                    border-color: #89b4fa;
+                                    drop-shadow-blur: 14px;
+                                    drop-shadow-color: #000000aa;
+                                    z: 80;
+
+                                    HorizontalLayout {
+                                        padding: 6px;
+                                        spacing: 8px;
+
+                                        // Left: Suggestions List (width: 260px)
+                                        Rectangle {
+                                            width: 260px;
+                                            background: #11111b;
+                                            border-radius: 4px;
+                                            border-width: 1px;
+                                            border-color: #313244;
+
+                                            ScrollView {
+                                                VerticalLayout {
+                                                    padding: 4px;
+                                                    spacing: 2px;
+                                                    alignment: start;
+                                                    for sugg[idx] in root.suggestion-list: Rectangle {
+                                                        height: 30px;
+                                                        border-radius: 3px;
+                                                        background: (root.selected-sugg-name == sugg.name) ? #313244 : #00000000;
+
+                                                        HorizontalLayout {
+                                                            padding-left: 8px;
+                                                            padding-right: 8px;
+                                                            spacing: 8px;
+                                                            alignment: start;
+
+                                                            VerticalLayout {
+                                                                alignment: center;
+                                                                if sugg.icon_kind == "transfer": Image { source: @image-url("icons/grp_transfer.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "arith": Image { source: @image-url("icons/grp_arith.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "logic": Image { source: @image-url("icons/grp_logic.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "branch": Image { source: @image-url("icons/grp_branch.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "stack": Image { source: @image-url("icons/grp_stack.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "directive": Image { source: @image-url("icons/grp_directive.svg"); width: 14px; height: 14px; }
+                                                                if sugg.icon_kind == "label": Image { source: @image-url("icons/label.svg"); width: 14px; height: 14px; }
+                                                            }
+
+                                                            Text {
+                                                                text: sugg.name;
+                                                                font-family: "CaskaydiaCove NF SemiBold";
+                                                                font-size: 13px;
+                                                                font-weight: 700;
+                                                                color: (sugg.icon_kind == "label") ? #e5c07b : #61afef;
+                                                                vertical-alignment: center;
+                                                            }
+
+                                                            Rectangle { }
+
+                                                            Text {
+                                                                text: sugg.category;
+                                                                font-size: 11px;
+                                                                color: #a6adc8;
+                                                                vertical-alignment: center;
+                                                                overflow: elide;
+                                                            }
+                                                        }
+
+                                                        TouchArea {
+                                                            clicked => {
+                                                                root.select-suggestion(idx);
+                                                                root.apply-completion(sugg.insert_text);
+                                                                root.show-autocomplete-popup = false;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Right: Companion Documentation & Example Flyout
+                                        Rectangle {
+                                            background: #11111b;
+                                            border-radius: 4px;
+                                            border-width: 1px;
+                                            border-color: #313244;
+
+                                            VerticalLayout {
+                                                padding: 8px;
+                                                spacing: 5px;
+
+                                                // Title row + Category + Cycles
+                                                HorizontalLayout {
+                                                    alignment: space-between;
+                                                    HorizontalLayout {
+                                                        spacing: 8px;
+                                                        VerticalLayout {
+                                                            alignment: center;
+                                                            if root.selected-sugg-icon-kind == "transfer": Image { source: @image-url("icons/grp_transfer.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "arith": Image { source: @image-url("icons/grp_arith.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "logic": Image { source: @image-url("icons/grp_logic.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "branch": Image { source: @image-url("icons/grp_branch.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "stack": Image { source: @image-url("icons/grp_stack.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "directive": Image { source: @image-url("icons/grp_directive.svg"); width: 16px; height: 16px; }
+                                                            if root.selected-sugg-icon-kind == "label": Image { source: @image-url("icons/label.svg"); width: 16px; height: 16px; }
+                                                        }
+                                                        Text {
+                                                            text: root.selected-sugg-name;
+                                                            font-family: "CaskaydiaCove NF SemiBold";
+                                                            font-size: 16px;
+                                                            font-weight: 700;
+                                                            color: #61afef;
+                                                            vertical-alignment: center;
+                                                        }
+                                                        Rectangle {
+                                                            height: 20px;
+                                                            border-radius: 3px;
+                                                            background: #1e1e2e;
+                                                            HorizontalLayout {
+                                                                padding-left: 6px;
+                                                                padding-right: 6px;
+                                                                Text {
+                                                                    text: root.selected-sugg-category;
+                                                                    font-size: 10px;
+                                                                    color: #f9e2af;
+                                                                    vertical-alignment: center;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    Rectangle {
+                                                        height: 20px;
+                                                        border-radius: 3px;
+                                                        background: #313244;
+                                                        HorizontalLayout {
+                                                            padding-left: 6px;
+                                                            padding-right: 6px;
+                                                            Text {
+                                                                text: root.selected-sugg-cycles + (root.current-language == "ru" ? " тактов" : " cyc");
+                                                                font-size: 10px;
+                                                                color: #a6e3a1;
+                                                                vertical-alignment: center;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Syntax & Flags
+                                                HorizontalLayout {
+                                                    spacing: 10px;
+                                                    Text {
+                                                        text: (root.current-language == "ru" ? "Формат: " : "Syntax: ") + root.selected-sugg-syntax;
+                                                        font-family: "CaskaydiaCove NF SemiBold";
+                                                        font-size: 12px;
+                                                        color: #a6e3a1;
+                                                        vertical-alignment: center;
+                                                    }
+                                                    Rectangle { }
+                                                    Text {
+                                                        text: (root.current-language == "ru" ? "Флаги: " : "Flags: ") + root.selected-sugg-flags;
+                                                        font-size: 11px;
+                                                        color: #f9e2af;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+
+                                                // Summary
+                                                Text {
+                                                    text: root.selected-sugg-summary;
+                                                    font-size: 12px;
+                                                    color: #cdd6f4;
+                                                    wrap: word-wrap;
+                                                }
+
+                                                // Example Usage Header
+                                                Text {
+                                                    text: root.current-language == "ru" ? "Пример использования:" : "Usage Example:";
+                                                    font-size: 11px;
+                                                    font-weight: 700;
+                                                    color: #89b4fa;
+                                                }
+
+                                                // Example Code Box
+                                                Rectangle {
+                                                    height: 38px;
+                                                    background: #181825;
+                                                    border-radius: 4px;
+                                                    border-width: 1px;
+                                                    border-color: #45475a;
+                                                    HorizontalLayout {
+                                                        padding-left: 8px;
+                                                        padding-right: 8px;
+                                                        alignment: start;
+                                                        Text {
+                                                            text: root.selected-sugg-example;
+                                                            font-family: "CaskaydiaCove NF SemiBold";
+                                                            font-size: 12px;
+                                                            color: #98c379;
+                                                            vertical-alignment: center;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Editor backdrop to dismiss context menu when clicking outside it in editor
+                                if root.show-context-menu: TouchArea {
+                                    x: 0px;
+                                    y: 0px;
+                                    width: parent.width;
+                                    height: parent.height;
+                                    z: 110;
+                                    clicked => {
+                                        root.show-context-menu = false;
+                                    }
+                                }
+
+                                // Floating In-Editor Context Menu (Direct access to code_input, Catppuccin Mocha Theme)
+                                if root.show-context-menu: Rectangle {
+                                    x: min(max(10px, root.context-menu-x), parent.width - 260px);
+                                    y: min(max(10px, root.context-menu-y), parent.height - 380px);
+                                    width: 250px;
+                                    height: ctx_layout.preferred-height;
+                                    background: #1e1e2e;
+                                    border-radius: 6px;
+                                    border-width: 1px;
+                                    border-color: #45475a;
+                                    drop-shadow-blur: 14px;
+                                    drop-shadow-color: #000000bb;
+                                    z: 120;
+
+                                    ctx_layout := VerticalLayout {
+                                        padding: 6px;
+                                        spacing: 2px;
+
+                                        // Undo
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_undo.has-hover ? #313244 : #00000000;
+                                            ctx_undo := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    let new_pos = root.editor-undo(code_input.cursor-position-byte-offset);
+                                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/undo.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Отменить" : "Undo";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+Z"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Redo
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_redo.has-hover ? #313244 : #00000000;
+                                            ctx_redo := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    let new_pos = root.editor-redo(code_input.cursor-position-byte-offset);
+                                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/redo.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Повторить" : "Redo";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+Y"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        Rectangle { height: 1px; background: #313244; }
+
+                                        // Cut
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_cut.has-hover ? #313244 : #00000000;
+                                            ctx_cut := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    code_input.cut();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/cut.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Вырезать" : "Cut";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+X"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Copy
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_copy.has-hover ? #313244 : #00000000;
+                                            ctx_copy := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    code_input.copy();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/copy.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Копировать" : "Copy";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+C"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Paste
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_paste.has-hover ? #313244 : #00000000;
+                                            ctx_paste := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    code_input.paste();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/paste.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Вставить" : "Paste";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+V"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Select All
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_selall.has-hover ? #313244 : #00000000;
+                                            ctx_selall := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    code_input.select-all();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/editor.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Выделить всё" : "Select All";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+A"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        Rectangle { height: 1px; background: #313244; }
+
+                                        // Toggle Comment (Ctrl+/)
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_comm.has-hover ? #313244 : #00000000;
+                                            ctx_comm := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    let new_pos = root.toggle-comment-range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/comment.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Закомментировать (;)" : "Toggle Comment (;)";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+/"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Duplicate Line (Ctrl+D)
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_dup.has-hover ? #313244 : #00000000;
+                                            ctx_dup := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    let new_pos = root.duplicate-line(code_input.cursor-position-byte-offset);
+                                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/copy.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Дублировать строку" : "Duplicate Line";
+                                                        font-size: 13px;
+                                                        color: #cdd6f4;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "Ctrl+D"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        Rectangle { height: 1px; background: #313244; }
+
+                                        // Assemble with asmx20
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_asm.has-hover ? #313244 : #00000000;
+                                            ctx_asm := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    root.run-assemble-only();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/build.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Собрать в .COM" : "Build .COM";
+                                                        font-size: 13px;
+                                                        color: #89b4fa;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "asmx20"; font-size: 11px; color: #6c7086; vertical-alignment: center; }
+                                            }
+                                        }
+
+                                        // Run in CP/M Emulator (F5)
+                                        Rectangle {
+                                            height: 30px;
+                                            border-radius: 4px;
+                                            background: ctx_run.has-hover ? #313244 : #00000000;
+                                            ctx_run := TouchArea {
+                                                clicked => {
+                                                    root.show-context-menu = false;
+                                                    root.run-emulator();
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                padding-left: 10px;
+                                                padding-right: 10px;
+                                                spacing: 8px;
+                                                alignment: space-between;
+                                                HorizontalLayout {
+                                                    spacing: 8px;
+                                                    VerticalLayout {
+                                                        alignment: center;
+                                                        Image { source: @image-url("icons/run.svg"); width: 14px; height: 14px; }
+                                                    }
+                                                    Text {
+                                                        text: root.current-language == "ru" ? "Запустить в CP/M" : "Run in CP/M";
+                                                        font-size: 13px;
+                                                        color: #a6e3a1;
+                                                        vertical-alignment: center;
+                                                    }
+                                                }
+                                                Text { text: "F5"; font-size: 11px; color: #a6e3a1; vertical-alignment: center; }
+                                            }
+                                        }
+                                    }
+                                }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { width: 1px; background: #313244; }
+
+                    // Autocomplete / Intellisense Drawer (Collapsible)
+                    Rectangle {
+                        width: root.right-drawer-expanded ? 340px : 38px;
+                        background: #181825;
+
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 8px;
+
+                            // Collapsible Drawer Header with Chevron Arrow
+                            HorizontalLayout {
+                                alignment: space-between;
+                                if root.right-drawer-expanded: Text {
+                                    text: root.current-language == "ru" ? "АВТОДОПОЛНЕНИЕ / ПОДСКАЗКИ" : "INTELLISENSE";
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: #89b4fa;
+                                    vertical-alignment: center;
+                                }
+                                Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 3px;
+                                    background: drawer_toggle_touch.has-hover ? #313244 : #00000000;
+                                    drawer_toggle_touch := TouchArea {
+                                        clicked => { root.right-drawer-expanded = !root.right-drawer-expanded; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            Image {
+                                                source: root.right-drawer-expanded ? @image-url("icons/chevron_right.svg") : @image-url("icons/chevron_down.svg");
+                                                width: 14px;
+                                                height: 14px;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if root.right-drawer-expanded: filter_box := LineEdit {
+                                placeholder-text: root.current-language == "ru" ? "Поиск команд 8080 (Ctrl+Пробел)..." : "Filter 8080 opcodes (Ctrl+Space)...";
+                                font-size: 14px;
+                                text <=> root.search-filter;
+                                edited(q) => { root.filter-changed(q); }
+                            }
+
+                            if root.right-drawer-expanded: Rectangle {
+                                vertical-stretch: 1;
+                                background: #11111b;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: #313244;
+                                clip: true;
+
+                                ListView {
+                                    for sugg[idx] in root.suggestion-list: Rectangle {
+                                            height: 34px;
+                                            border-radius: 3px;
+                                            background: (root.selected-sugg-name == sugg.name) ? #313244 : #00000000;
+
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                spacing: 8px;
+
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    if sugg.icon_kind == "transfer": Image { source: @image-url("icons/grp_transfer.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "arith": Image { source: @image-url("icons/grp_arith.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "logic": Image { source: @image-url("icons/grp_logic.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "branch": Image { source: @image-url("icons/grp_branch.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "stack": Image { source: @image-url("icons/grp_stack.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "directive": Image { source: @image-url("icons/grp_directive.svg"); width: 14px; height: 14px; }
+                                                    if sugg.icon_kind == "label": Image { source: @image-url("icons/label.svg"); width: 14px; height: 14px; }
+                                                }
+
+                                                Text {
+                                                    text: sugg.name;
+                                                    font-size: 14px;
+                                                    font-weight: 700;
+                                                    color: (sugg.icon_kind == "label") ? #e5c07b : #61afef;
+                                                    vertical-alignment: center;
+                                                }
+                                                Rectangle { }
+                                                Text {
+                                                    text: sugg.category;
+                                                    font-size: 12px;
+                                                    color: #a6adc8;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            TouchArea {
+                                                clicked => { root.select-suggestion(idx); }
+                                            }
+                                        }
+                                }
+                            }
+
+                            // Instruction Tooltip Card (Pinned at bottom, snug fit without empty gaps)
+                            if root.right-drawer-expanded: Rectangle {
+                                vertical-stretch: 0;
+                                height: card_layout.preferred-height;
+                                background: #11111b;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: #313244;
+
+                                card_layout := VerticalLayout {
+                                    padding: 10px;
+                                    spacing: 8px;
+
+                                    HorizontalLayout {
+                                        alignment: space-between;
+                                        Text {
+                                            text: root.selected-sugg-name;
+                                            font-size: 16px;
+                                            font-weight: 700;
+                                            color: #61afef;
+                                        }
+                                        Rectangle {
+                                            height: 24px;
+                                            border-radius: 3px;
+                                            background: #313244;
+                                            HorizontalLayout {
+                                                padding-left: 8px;
+                                                padding-right: 8px;
+                                                Text {
+                                                    text: root.selected-sugg-cycles + (root.current-language == "ru" ? " тактов" : " cyc");
+                                                    font-size: 11px;
+                                                    color: #f9e2af;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        text: (root.current-language == "ru" ? "Формат: " : "Format: ") + root.selected-sugg-syntax;
+                                        font-family: "CaskaydiaCove NF SemiBold";
+                                        font-size: 13px;
+                                        color: #a6e3a1;
+                                    }
+
+                                    Text {
+                                        text: (root.current-language == "ru" ? "Флаги: " : "Flags: ") + root.selected-sugg-flags;
+                                        font-size: 12px;
+                                        color: #f9e2af;
+                                    }
+
+                                    Text {
+                                        text: root.selected-sugg-summary;
+                                        font-size: 13px;
+                                        color: #cdd6f4;
+                                        wrap: word-wrap;
+                                    }
+
+                                    // Usage Example inside Card
+                                    Rectangle {
+                                        height: 34px;
+                                        background: #181825;
+                                        border-radius: 3px;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            Text {
+                                                text: root.selected-sugg-example;
+                                                font-family: "CaskaydiaCove NF SemiBold";
+                                                font-size: 12px;
+                                                color: #98c379;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        height: 32px;
+                                        border-radius: 4px;
+                                        background: #89b4fa;
+                                        Text {
+                                            text: root.current-language == "ru" ? "Вставить шаблон" : "Insert Template";
+                                            font-size: 13px;
+                                            font-weight: 600;
+                                            color: #11111b;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                        TouchArea {
+                                            clicked => {
+                                                root.insert-suggestion(root.selected-sugg-syntax);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
+
+                // Mode 2: Intel 8080 Opcode Encyclopedia
+                if root.editor-mode == 2: Rectangle {
+                    background: #1e1e2e;
+
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 12px;
+
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: root.current-language == "ru"
+                                    ? "ИНТЕРАКТИВНЫЙ СПРАВОЧНИК КОМАНД INTEL 8080"
+                                    : "INTEL 8080 INSTRUCTION SET ENCYCLOPEDIA";
+                                font-size: 16px;
+                                font-weight: 700;
+                                color: #89b4fa;
+                            }
+                            Text {
+                                text: root.current-language == "ru" ? "Всего команд: 60" : "Total entries: 60 instructions";
+                                font-size: 14px;
+                                color: #a6adc8;
+                            }
+                        }
+
+                        ListView {
+                            for doc in root.docs-list: Rectangle {
+                                height: 72px;
+
+                                Rectangle {
+                                    x: 0px;
+                                    y: 4px;
+                                    width: parent.width;
+                                    height: 64px;
+                                    background: #181825;
+                                    border-radius: 5px;
+                                    border-width: 1px;
+                                    border-color: #313244;
+
+                                    HorizontalLayout {
+                                        padding-left: 14px;
+                                        padding-right: 14px;
+                                        spacing: 14px;
+
+                                        VerticalLayout {
+                                            width: 130px;
+                                            alignment: center;
+                                            Text {
+                                                text: doc.name;
+                                                font-size: 17px;
+                                                font-weight: 700;
+                                                color: #61afef;
+                                            }
+                                            Text {
+                                                text: doc.category;
+                                                font-size: 12px;
+                                                color: #a6adc8;
+                                            }
+                                        }
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text {
+                                                text: doc.syntax;
+                                                font-family: "CaskaydiaCove NF SemiBold";
+                                                font-size: 14px;
+                                                color: #a6e3a1;
+                                            }
+                                            Text {
+                                                text: doc.summary;
+                                                font-size: 13px;
+                                                color: #cdd6f4;
+                                                overflow: elide;
+                                            }
+                                        }
+
+                                        Rectangle { }
+
+                                        VerticalLayout {
+                                            width: 170px;
+                                            alignment: center;
+                                            Text {
+                                                text: (root.current-language == "ru" ? "Флаги: " : "Flags: ") + doc.flags;
+                                                font-size: 12px;
+                                                color: #f9e2af;
+                                            }
+                                            Text {
+                                                text: (root.current-language == "ru" ? "Такты: " : "Cycles: ") + doc.cycles + " | " + doc.bytes + " Б";
+                                                font-size: 12px;
+                                                color: #cdd6f4;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
+            }
+        }
+
+    }
+    }
+        // Resizable Splitter Handle above Terminal
+        if root.terminal-expanded: Rectangle {
+            height: 5px;
+            background: term_split_touch.has-hover ? #89b4fa : #313244;
+            term_split_touch := TouchArea {
+                mouse-cursor: row-resize;
+                moved => {
+                    let new_h = root.terminal-height - (self.mouse-y - self.pressed-y);
+                    root.terminal-height = max(70px, min(550px, new_h));
+                }
+            }
+        }
+        if !root.terminal-expanded: Rectangle { height: 1px; background: #313244; }
+
+        // Bottom Panel: Output / Terminal Console (Collapsible with arrow, Resizable Height)
+        Rectangle {
+            height: root.terminal-expanded ? (root.terminal-height + 38px) : 38px;
+            background: #11111b;
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 8px;
+                    alignment: space-between;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        // Terminal Collapse Toggle Arrow Button
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 3px;
+                            background: term_toggle_touch.has-hover ? #313244 : #00000000;
+                            term_toggle_touch := TouchArea {
+                                clicked => { root.terminal-expanded = !root.terminal-expanded; }
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    Image {
+                                        source: root.terminal-expanded ? @image-url("icons/chevron_down.svg") : @image-url("icons/arrow_up.svg");
+                                        width: 14px;
+                                        height: 14px;
+                                    }
+                                }
+                            }
+                        }
+                        Text {
+                            text: root.current-language == "ru"
+                                ? "ТЕРМИНАЛ / ВЫВОД КОМПИЛЯТОРА И ЭМУЛЯТОРА"
+                                : "TERMINAL / COMPILER & EMULATOR OUTPUT";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #a6adc8;
+                            vertical-alignment: center;
+                        }
+                        Rectangle {
+                            height: 22px;
+                            border-radius: 3px;
+                            background: #313244;
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: root.status-message;
+                                    font-size: 12px;
+                                    color: root.status-color;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 95px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: #1e1e2e;
+                        border-width: 1px;
+                        border-color: #45475a;
+                        Text {
+                            text: root.current-language == "ru" ? "Очистить" : "Clear";
+                            font-size: 12px;
+                            color: #cdd6f4;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => { root.clear-output(); }
+                        }
+                    }
+                }
+
+                if root.terminal-expanded: Rectangle {
+                    background: #181825;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: #313244;
+
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 3px;
+                            alignment: start;
+
+                            if root.terminal-lines.length == 0: Text {
+                                text: root.output-log-text;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 14px;
+                                color: #cdd6f4;
+                                wrap: word-wrap;
+                            }
+
+                            for line in root.terminal-lines: HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                if line.prefix != "": Text {
+                                    text: line.prefix;
+                                    color: line.prefix_color;
+                                    font-family: "CaskaydiaCove NF SemiBold";
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                }
+                                Text {
+                                    text: line.text;
+                                    color: line.text_color;
+                                    font-family: "CaskaydiaCove NF SemiBold";
+                                    font-size: 13px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+    // Modal Backdrop: Closes top dropdown menus and explorer context menus when clicking outside
+    if root.show-file-menu || root.show-run-menu || root.show-view-menu || root.show-help-menu || root.show-explorer-context-menu: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        z: 95;
+        clicked => {
+            root.show-file-menu = false;
+            root.show-run-menu = false;
+            root.show-view-menu = false;
+            root.show-help-menu = false;
+            root.show-context-menu = false;
+            root.show-editor-context-menu = false;
+            root.show-explorer-context-menu = false;
+        }
+    }
+
+    // VS Code Style Floating Dropdown Menu Popups with Crisp SVG Icons and Exact Snug Height
+    if root.show-file-menu: Rectangle {
+        x: 80px;
+        y: 58px;
+        width: 270px;
+        height: file_menu_layout.preferred-height;
+        background: #1e1e2e;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #45475a;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000088;
+        z: 100;
+
+        file_menu_layout := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: file_item_1.has-hover ? #313244 : #00000000;
+                file_item_1 := TouchArea {
+                    clicked => {
+                        root.show-file-menu = false;
+                        root.show-new-file-dialog = true;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/plus.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Новый файл..." : "New File...";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: file_item_2.has-hover ? #313244 : #00000000;
+                file_item_2 := TouchArea {
+                    clicked => {
+                        root.show-file-menu = false;
+                        root.open-file-dialog();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/folder-open.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Открыть файл... (Ctrl+O)" : "Open File... (Ctrl+O)";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: file_item_3.has-hover ? #313244 : #00000000;
+                file_item_3 := TouchArea {
+                    clicked => {
+                        root.show-file-menu = false;
+                        root.open-folder-dialog();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/folder.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Открыть папку..." : "Open Folder...";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #313244; }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: file_item_4.has-hover ? #313244 : #00000000;
+                file_item_4 := TouchArea {
+                    clicked => {
+                        root.show-file-menu = false;
+                        root.save-file();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/save.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Сохранить (Ctrl+S)" : "Save (Ctrl+S)";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: file_item_5.has-hover ? #313244 : #00000000;
+                file_item_5 := TouchArea {
+                    clicked => {
+                        root.show-file-menu = false;
+                        root.refresh-files();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/refresh.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Обновить проводник" : "Refresh Explorer";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    if root.show-run-menu: Rectangle {
+        x: 148px;
+        y: 58px;
+        width: 310px;
+        height: run_menu_layout.preferred-height;
+        background: #1e1e2e;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #45475a;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000088;
+        z: 100;
+
+        run_menu_layout := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: run_item_1.has-hover ? #313244 : #00000000;
+                run_item_1 := TouchArea {
+                    clicked => {
+                        root.show-run-menu = false;
+                        root.run-emulator();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/run.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Запуск в эмуляторе CP/M (F5)" : "Run in CP/M Emulator (F5)";
+                        font-size: 13px;
+                        color: #a6e3a1;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: run_item_2.has-hover ? #313244 : #00000000;
+                run_item_2 := TouchArea {
+                    clicked => {
+                        root.show-run-menu = false;
+                        root.run-assemble-only();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/build.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Собрать с asmx20 в .COM" : "Assemble with asmx20 to .COM";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: run_item_3.has-hover ? #313244 : #00000000;
+                run_item_3 := TouchArea {
+                    clicked => {
+                        root.show-run-menu = false;
+                        root.run-syntax-check();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/check.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Проверить синтаксис 8080" : "Validate 8080 Syntax";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // View / Settings Dropdown Menu (Exact Snug Height)
+    if root.show-view-menu: Rectangle {
+        x: 216px;
+        y: 58px;
+        width: 330px;
+        height: view_menu_layout.preferred-height;
+        background: #1e1e2e;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #45475a;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000088;
+        z: 100;
+
+        view_menu_layout := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: view_item_1.has-hover ? #313244 : #00000000;
+                view_item_1 := TouchArea {
+                    clicked => { root.zoom-in(); }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/zoom_in.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Приблизить (Ctrl + / Колесо ↑)" : "Zoom In (Ctrl + / Wheel ↑)";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: view_item_2.has-hover ? #313244 : #00000000;
+                view_item_2 := TouchArea {
+                    clicked => { root.zoom-out(); }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/zoom_out.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Отдалить (Ctrl - / Колесо ↓)" : "Zoom Out (Ctrl - / Wheel ↓)";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: view_item_3.has-hover ? #313244 : #00000000;
+                view_item_3 := TouchArea {
+                    clicked => { root.zoom-reset(); }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/refresh.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Сброс масштаба 100% (Ctrl 0)" : "Reset Zoom (Ctrl 0)";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #313244; }
+
+            // Font size adjuster row
+            Rectangle {
+                height: 34px;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    alignment: space-between;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("icons/editor.svg");
+                                width: 16px;
+                                height: 16px;
+                            }
+                        }
+                        Text {
+                            text: (root.current-language == "ru" ? "Размер шрифта: " : "Font size: ") + (root.editor-font-size / 1px) + "px";
+                            font-size: 13px;
+                            color: #a6adc8;
+                            vertical-alignment: center;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Rectangle {
+                            width: 28px;
+                            height: 26px;
+                            border-radius: 3px;
+                            background: #313244;
+                            Text { text: "-"; font-size: 16px; color: #cdd6f4; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.zoom-out(); } }
+                        }
+                        Rectangle {
+                            width: 28px;
+                            height: 26px;
+                            border-radius: 3px;
+                            background: #313244;
+                            Text { text: "+"; font-size: 16px; color: #cdd6f4; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.zoom-in(); } }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: view_item_4.has-hover ? #313244 : #00000000;
+                view_item_4 := TouchArea {
+                    clicked => {
+                        root.editor-font-italic = !root.editor-font-italic;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/editor.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru"
+                            ? (root.editor-font-italic ? "Стиль: Курсив (Italic)" : "Стиль: Обычный")
+                            : (root.editor-font-italic ? "Style: SemiBold Italic" : "Style: SemiBold Regular");
+                        font-size: 13px;
+                        color: #f9e2af;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: view_item_5.has-hover ? #313244 : #00000000;
+                view_item_5 := TouchArea {
+                    clicked => {
+                        root.toggle-language();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/globe.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru"
+                            ? "Язык: Русский (нажмите для EN)"
+                            : "Language: English (click for RU)";
+                        font-size: 13px;
+                        color: #a6e3a1;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    if root.show-help-menu: Rectangle {
+        x: 284px;
+        y: 58px;
+        width: 320px;
+        height: help_menu_layout.preferred-height;
+        background: #1e1e2e;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #45475a;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000088;
+        z: 100;
+
+        help_menu_layout := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+            Rectangle {
+                height: 34px;
+                border-radius: 4px;
+                background: help_item_1.has-hover ? #313244 : #00000000;
+                help_item_1 := TouchArea {
+                    clicked => {
+                        root.show-help-menu = false;
+                        root.toggle-docs-mode();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/book.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: root.current-language == "ru"
+                            ? "Справочник команд 8080"
+                            : "8080 Instructions Encyclopedia";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 34px;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 10px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/info.svg");
+                            width: 16px;
+                            height: 16px;
+                        }
+                    }
+                    Text {
+                        text: (root.current-language == "ru" ? "Компилятор: " : "Compiler: ") + "C:\\bin\\asmx20.exe";
+                        font-size: 13px;
+                        color: #a6adc8;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Custom Stylized Explorer Context Menu (Catppuccin Mocha Dark Theme)
+    if root.show-explorer-context-menu: Rectangle {
+        x: min(root.explorer-menu-x, root.width - 250px);
+        y: min(root.explorer-menu-y, root.height - 280px);
+        width: 240px;
+        height: exp_menu_layout.preferred-height;
+        background: #1e1e2e;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: #45475a;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #000000bb;
+        z: 110;
+
+        exp_menu_layout := VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+
+            // New File
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_newfile.has-hover ? #313244 : #00000000;
+                exp_m_newfile := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        root.show-new-file-dialog = true;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/plus.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Новый файл..." : "New File...";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // New Folder
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_newfolder.has-hover ? #313244 : #00000000;
+                exp_m_newfolder := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        root.show-new-folder-dialog = true;
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/folder.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Новая папка..." : "New Folder...";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #313244; }
+
+            // Rename
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_rename.has-hover ? #313244 : #00000000;
+                exp_m_rename := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        if root.selected-explorer-name != "" {
+                            root.rename-target-name = root.selected-explorer-name;
+                            root.show-rename-dialog = true;
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/editor.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Переименовать..." : "Rename...";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Delete
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_del.has-hover ? #313244 : #00000000;
+                exp_m_del := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        if root.selected-explorer-path != "" {
+                            root.delete-file-requested(root.selected-explorer-path);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/delete.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Удалить" : "Delete";
+                        font-size: 13px;
+                        color: #f38ba8;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #313244; }
+
+            // Copy Path
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_copy.has-hover ? #313244 : #00000000;
+                exp_m_copy := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        if root.selected-explorer-path != "" {
+                            root.copy-path-requested(root.selected-explorer-path);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/copy.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Копировать путь" : "Copy Path";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Reveal in Windows Explorer
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_rev.has-hover ? #313244 : #00000000;
+                exp_m_rev := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        if root.selected-explorer-path != "" {
+                            root.reveal-in-explorer-requested(root.selected-explorer-path);
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/folder-windows-open.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Показать в проводнике Windows" : "Reveal in Explorer";
+                        font-size: 13px;
+                        color: #cdd6f4;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Refresh
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: exp_m_ref.has-hover ? #313244 : #00000000;
+                exp_m_ref := TouchArea {
+                    clicked => {
+                        root.show-explorer-context-menu = false;
+                        root.refresh-files();
+                    }
+                }
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 8px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image { source: @image-url("icons/refresh.svg"); width: 14px; height: 14px; }
+                    }
+                    Text {
+                        text: root.current-language == "ru" ? "Обновить проводник" : "Refresh";
+                        font-size: 13px;
+                        color: #89b4fa;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}

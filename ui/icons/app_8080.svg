@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect x="6" y="4" width="20" height="24" rx="3" fill="#181825" stroke="#89b4fa" stroke-width="1.5"/>
+  <line x1="2" y1="7" x2="6" y2="7" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="2" y1="11" x2="6" y2="11" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="2" y1="15" x2="6" y2="15" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="2" y1="19" x2="6" y2="19" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="2" y1="23" x2="6" y2="23" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26" y1="7" x2="30" y2="7" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26" y1="11" x2="30" y2="11" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26" y1="15" x2="30" y2="15" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26" y1="19" x2="30" y2="19" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="26" y1="23" x2="30" y2="23" stroke="#f9e2af" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="16" cy="4" r="1.8" fill="#11111b" stroke="#89b4fa" stroke-width="1"/>
+  <text x="16" y="16" font-family="monospace" font-size="7.5" font-weight="bold" fill="#89b4fa" text-anchor="middle">8080</text>
+  <text x="16" y="22" font-family="monospace" font-size="4.5" fill="#a6e3a1" text-anchor="middle">CPU</text>
+</svg>

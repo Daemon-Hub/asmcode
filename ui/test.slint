@@ -1,0 +1,12 @@
+
+import { Button } from "std-widgets.slint";
+export component TestWindow inherits Window {
+    callback do-cut();
+    do-cut => { input.cut(); }
+    VerticalLayout {
+        ScrollView {
+            input := TextInput { text: "hello"; }
+        }
+    }
+    Button { clicked => { root.do-cut(); } }
+}
