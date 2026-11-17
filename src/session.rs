@@ -77,10 +77,12 @@ pub fn load_session() -> AppSession {
                     }
                 }
                 "editor_font_size" => {
-                    if let Ok(sz) = val.parse::<f32>() {
-                        if (10.0..=40.0).contains(&sz) {
-                            session.editor_font_size = sz;
-                        }
+                    if let Some(sz) = val
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|sz| (10.0..=40.0).contains(sz))
+                    {
+                        session.editor_font_size = sz;
                     }
                 }
                 "editor_font_italic" => {
@@ -99,17 +101,21 @@ pub fn load_session() -> AppSession {
                     session.terminal_expanded = val == "true";
                 }
                 "sidebar_width" => {
-                    if let Ok(w) = val.parse::<f32>() {
-                        if (180.0..=700.0).contains(&w) {
-                            session.sidebar_width = w;
-                        }
+                    if let Some(w) = val
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|w| (180.0..=700.0).contains(w))
+                    {
+                        session.sidebar_width = w;
                     }
                 }
                 "terminal_height" => {
-                    if let Ok(h) = val.parse::<f32>() {
-                        if (70.0..=600.0).contains(&h) {
-                            session.terminal_height = h;
-                        }
+                    if let Some(h) = val
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|h| (70.0..=600.0).contains(h))
+                    {
+                        session.terminal_height = h;
                     }
                 }
                 _ => {}

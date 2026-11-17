@@ -1,5 +1,5 @@
-use super::extractor::{extract_user_labels, SymbolKind, UserSymbol};
-use super::intel8080_docs::{InstructionDoc, INTEL_8080_DOCS};
+use super::extractor::{SymbolKind, UserSymbol, extract_user_labels};
+use super::intel8080_docs::{INTEL_8080_DOCS, InstructionDoc};
 use rayon::prelude::*;
 
 #[derive(Clone, Debug)]

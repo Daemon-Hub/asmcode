@@ -521,8 +521,7 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         name: "RLC",
         syntax: "RLC",
         summary: "Rotate accumulator left 1 bit. Bit 7 moves into CY and bit 0.",
-        summary_ru:
-            "Циклический сдвиг аккумулятора A влево на 1 бит (бит 7 переходит в CY и бит 0).",
+        summary_ru: "Циклический сдвиг аккумулятора A влево на 1 бит (бит 7 переходит в CY и бит 0).",
         operands: "None",
         flags: "CY",
         cycles: "4",
@@ -534,8 +533,7 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         name: "RRC",
         syntax: "RRC",
         summary: "Rotate accumulator right 1 bit. Bit 0 moves into CY and bit 7.",
-        summary_ru:
-            "Циклический сдвиг аккумулятора A вправо на 1 бит (бит 0 переходит в CY и бит 7).",
+        summary_ru: "Циклический сдвиг аккумулятора A вправо на 1 бит (бит 0 переходит в CY и бит 7).",
         operands: "None",
         flags: "CY",
         cycles: "4",

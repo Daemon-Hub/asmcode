@@ -72,39 +72,37 @@ pub fn extract_user_labels(source: &str) -> Vec<UserSymbol> {
         } else {
             // Case 2: Statement without colon (e.g. "TPA equ 100h", "BUFFER ds 64", "TABLE dw 1000h")
             let mut words = code_part.split_whitespace();
-            if let Some(first) = words.next() {
-                if let Some(second) = words.next() {
-                    let second_upper = second.to_ascii_uppercase();
-                    if is_valid_identifier(first)
-                        && !symbols
-                            .iter()
-                            .any(|s: &UserSymbol| s.name.eq_ignore_ascii_case(first))
-                    {
-                        match second_upper.as_str() {
-                            "EQU" | "SET" => {
-                                let val = words.collect::<Vec<&str>>().join(" ");
-                                symbols.push(UserSymbol {
-                                    name: first.to_string(),
-                                    line_number: line_idx + 1,
-                                    kind: SymbolKind::Constant,
-                                    detail: if val.is_empty() {
-                                        "EQU".to_string()
-                                    } else {
-                                        val
-                                    },
-                                });
-                            }
-                            "DB" | "DW" | "DS" => {
-                                let val = words.collect::<Vec<&str>>().join(" ");
-                                symbols.push(UserSymbol {
-                                    name: first.to_string(),
-                                    line_number: line_idx + 1,
-                                    kind: SymbolKind::Data,
-                                    detail: format!("{} {}", second_upper, val),
-                                });
-                            }
-                            _ => {}
+            if let (Some(first), Some(second)) = (words.next(), words.next()) {
+                let second_upper = second.to_ascii_uppercase();
+                if is_valid_identifier(first)
+                    && !symbols
+                        .iter()
+                        .any(|s: &UserSymbol| s.name.eq_ignore_ascii_case(first))
+                {
+                    match second_upper.as_str() {
+                        "EQU" | "SET" => {
+                            let val = words.collect::<Vec<&str>>().join(" ");
+                            symbols.push(UserSymbol {
+                                name: first.to_string(),
+                                line_number: line_idx + 1,
+                                kind: SymbolKind::Constant,
+                                detail: if val.is_empty() {
+                                    "EQU".to_string()
+                                } else {
+                                    val
+                                },
+                            });
                         }
+                        "DB" | "DW" | "DS" => {
+                            let val = words.collect::<Vec<&str>>().join(" ");
+                            symbols.push(UserSymbol {
+                                name: first.to_string(),
+                                line_number: line_idx + 1,
+                                kind: SymbolKind::Data,
+                                detail: format!("{} {}", second_upper, val),
+                            });
+                        }
+                        _ => {}
                     }
                 }
             }

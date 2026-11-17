@@ -12,7 +12,7 @@ use slint::ComponentHandle;
 use std::env;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use ui::{setup_ui, AppWindow, IdeController};
+use ui::{AppWindow, IdeController, setup_ui};
 
 fn main() -> Result<(), slint::PlatformError> {
     let saved_session = session::load_session();

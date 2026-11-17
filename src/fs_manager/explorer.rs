@@ -149,10 +149,12 @@ impl FileManager {
         } else if p.is_file() {
             fs::remove_file(p)?;
         }
-        if let Some(ref active) = self.active_file_path {
-            if active == p || active.starts_with(p) {
-                self.active_file_path = None;
-            }
+        if self
+            .active_file_path
+            .as_ref()
+            .is_some_and(|active| active == p || active.starts_with(p))
+        {
+            self.active_file_path = None;
         }
         Ok(())
     }
@@ -170,10 +172,12 @@ impl FileManager {
         let parent = old.parent().unwrap_or(&self.current_dir);
         let target = parent.join(clean);
         fs::rename(old, &target)?;
-        if let Some(ref active) = self.active_file_path {
-            if active == old {
-                self.active_file_path = Some(target.clone());
-            }
+        if self
+            .active_file_path
+            .as_ref()
+            .is_some_and(|active| active == old)
+        {
+            self.active_file_path = Some(target.clone());
         }
         Ok(target)
     }
