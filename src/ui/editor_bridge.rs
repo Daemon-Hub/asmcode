@@ -6,6 +6,24 @@ use slint::{ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
+#[inline]
+fn push_usize(buf: &mut String, mut n: usize) {
+    if n == 0 {
+        buf.push('0');
+        return;
+    }
+    let mut digits = [0u8; 20];
+    let mut pos = 20;
+    while n > 0 {
+        pos -= 1;
+        digits[pos] = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    // SAFETY: digits[pos..20] contains ASCII decimal digits '0'..'9', guaranteed valid UTF-8
+    let s = unsafe { std::str::from_utf8_unchecked(&digits[pos..]) };
+    buf.push_str(s);
+}
+
 pub fn update_highlight_and_labels(
     app: &AppWindow,
     autocomplete: &AutocompleteEngine,
@@ -29,7 +47,7 @@ pub fn update_highlight_and_labels(
     let actual_count = line_count.min(max_numbers);
     let mut numbers_str = String::with_capacity(actual_count * 6);
     for i in 1..=actual_count {
-        numbers_str.push_str(&i.to_string());
+        push_usize(&mut numbers_str, i);
         numbers_str.push('\n');
     }
     app.set_line_numbers_text(SharedString::from(numbers_str));
@@ -49,7 +67,7 @@ pub fn update_highlight_and_labels(
                 .tokens
                 .into_iter()
                 .map(|tok| TokenItem {
-                    text: SharedString::from(tok.text),
+                    text: tok.text,
                     color: tok.color,
                     is_italic: tok.is_italic,
                 })
@@ -108,7 +126,7 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
                         .tokens
                         .into_iter()
                         .map(|t| TokenItem {
-                            text: SharedString::from(t.text),
+                            text: t.text,
                             color: t.color,
                             is_italic: t.is_italic,
                         })
@@ -161,29 +179,29 @@ pub fn refresh_suggestions_ui(
     controller.active_suggestions = suggestions.clone();
 
     if let Some(first) = suggestions.first() {
-        app.set_selected_sugg_name(SharedString::from(&first.name));
-        app.set_selected_sugg_category(SharedString::from(&first.category));
-        app.set_selected_sugg_syntax(SharedString::from(&first.syntax));
-        app.set_selected_sugg_summary(SharedString::from(&first.summary));
-        app.set_selected_sugg_flags(SharedString::from(&first.flags));
-        app.set_selected_sugg_cycles(SharedString::from(&first.cycles));
-        app.set_selected_sugg_insert_text(SharedString::from(&first.insert_text));
-        app.set_selected_sugg_icon_kind(SharedString::from(&first.icon_kind));
-        app.set_selected_sugg_example(SharedString::from(&first.example));
+        app.set_selected_sugg_name(first.name.clone());
+        app.set_selected_sugg_category(first.category.clone());
+        app.set_selected_sugg_syntax(first.syntax.clone());
+        app.set_selected_sugg_summary(first.summary.clone());
+        app.set_selected_sugg_flags(first.flags.clone());
+        app.set_selected_sugg_cycles(first.cycles.clone());
+        app.set_selected_sugg_insert_text(first.insert_text.clone());
+        app.set_selected_sugg_icon_kind(first.icon_kind.clone());
+        app.set_selected_sugg_example(first.example.clone());
     }
 
     let items: Vec<SuggestionItem> = suggestions
         .into_iter()
         .map(|s| SuggestionItem {
-            name: SharedString::from(s.name),
-            category: SharedString::from(s.category),
-            syntax: SharedString::from(s.syntax),
-            summary: SharedString::from(s.summary),
-            flags: SharedString::from(s.flags),
-            cycles: SharedString::from(s.cycles),
-            insert_text: SharedString::from(s.insert_text),
-            icon_kind: SharedString::from(s.icon_kind),
-            example: SharedString::from(s.example),
+            name: s.name,
+            category: s.category,
+            syntax: s.syntax,
+            summary: s.summary,
+            flags: s.flags,
+            cycles: s.cycles,
+            insert_text: s.insert_text,
+            icon_kind: s.icon_kind,
+            example: s.example,
         })
         .collect();
     app.set_suggestion_list(ModelRc::from(Rc::new(VecModel::from(items))));
@@ -231,7 +249,15 @@ pub fn record_editor_mutation(
     ensure_active_file_or_create_draft(app, ctrl);
     ctrl.undo_manager
         .record_edit(new_code, cursor_pos, is_group);
-    if let Some(path) = ctrl.file_manager.active_file_path.clone() {
-        ctrl.tab_buffers.insert(path, new_code.to_string());
+    if let Some(path) = &ctrl.file_manager.active_file_path {
+        match ctrl.tab_buffers.get_mut(path) {
+            Some(buf) => {
+                buf.clear();
+                buf.push_str(new_code);
+            }
+            None => {
+                ctrl.tab_buffers.insert(path.clone(), new_code.to_string());
+            }
+        }
     }
 }

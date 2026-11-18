@@ -26,6 +26,7 @@ pub fn extract_prefix_at_offset(code: &str, byte_offset: usize) -> &str {
     &code[start..end]
 }
 
+#[inline]
 pub fn delete_word_left(code: &str, byte_offset: usize) -> (String, usize) {
     let bytes = code.as_bytes();
     let offset = byte_offset.min(bytes.len());
@@ -80,6 +81,7 @@ pub fn delete_word_left(code: &str, byte_offset: usize) -> (String, usize) {
     (new_code, final_from)
 }
 
+#[inline]
 pub fn toggle_comment_in_code(
     code: &str,
     cursor_offset: usize,
@@ -107,17 +109,17 @@ pub fn toggle_comment_in_code(
     };
 
     let target_section = &code[first_line_start..last_line_end];
-    let lines: Vec<&str> = target_section.split('\n').collect();
 
     let mut all_commented = true;
     let mut has_non_empty = false;
-    for line in &lines {
+    let mut line_count = 0;
+    for line in target_section.split('\n') {
+        line_count += 1;
         let trimmed = line.trim_start();
         if !trimmed.is_empty() {
             has_non_empty = true;
             if !trimmed.starts_with(';') {
                 all_commented = false;
-                break;
             }
         }
     }
@@ -125,8 +127,8 @@ pub fn toggle_comment_in_code(
         all_commented = false;
     }
 
-    let mut result_section = String::with_capacity(target_section.len() + lines.len() * 2);
-    for (idx, line) in lines.iter().enumerate() {
+    let mut result_section = String::with_capacity(target_section.len() + line_count * 2);
+    for (idx, line) in target_section.split('\n').enumerate() {
         if idx > 0 {
             result_section.push('\n');
         }
@@ -153,7 +155,7 @@ pub fn toggle_comment_in_code(
         }
     }
 
-    let mut new_code = String::with_capacity(code.len() + lines.len() * 2);
+    let mut new_code = String::with_capacity(code.len() + line_count * 2);
     new_code.push_str(&code[..first_line_start]);
     new_code.push_str(&result_section);
     let new_cursor_pos = new_code.len();
@@ -162,24 +164,44 @@ pub fn toggle_comment_in_code(
     (new_code, new_cursor_pos as i32)
 }
 
+#[inline]
 pub fn apply_completion_to_code(code: &str, line_idx: usize, insert_text: &str) -> String {
-    let lines: Vec<&str> = code.lines().collect();
-    if line_idx >= lines.len() {
-        return format!("{}\n        {}\n", code, insert_text);
+    let mut target_line = None;
+    for (i, line) in code.lines().enumerate() {
+        if i == line_idx {
+            target_line = Some(line);
+            break;
+        }
     }
-    let current_line = lines[line_idx];
+
+    let Some(current_line) = target_line else {
+        let mut fallback = String::with_capacity(code.len() + insert_text.len() + 12);
+        fallback.push_str(code);
+        fallback.push_str("\n        ");
+        fallback.push_str(insert_text);
+        fallback.push('\n');
+        return fallback;
+    };
+
     let trimmed = current_line.trim_end();
-    let word_start = trimmed
-        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .map(|pos| pos + 1)
-        .unwrap_or(0);
+    let trimmed_b = trimmed.as_bytes();
+    let mut word_start = 0;
+    let mut pos = trimmed_b.len();
+    while pos > 0 {
+        let b = trimmed_b[pos - 1];
+        if !b.is_ascii_alphanumeric() && b != b'_' && b != b'.' {
+            word_start = pos;
+            break;
+        }
+        pos -= 1;
+    }
     let prefix = &current_line[..word_start];
-    let new_line = format!("{}{}", prefix, insert_text);
 
     let mut result = String::with_capacity(code.len() + insert_text.len() + 16);
     for (i, line) in code.lines().enumerate() {
         if i == line_idx {
-            result.push_str(&new_line);
+            result.push_str(prefix);
+            result.push_str(insert_text);
         } else {
             result.push_str(line);
         }

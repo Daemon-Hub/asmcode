@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use slint::Color;
+use slint::{Color, SharedString};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -28,7 +28,7 @@ pub enum TokenType {
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct HighlightToken {
-    pub text: String,
+    pub text: SharedString,
     pub token_type: TokenType,
     pub color: Color,
     pub is_italic: bool,
@@ -181,106 +181,9 @@ pub fn pack_mnemonic_u32(bytes: &[u8]) -> u32 {
     u32::from_le_bytes(buf)
 }
 
-static INSTRUCTION_TABLE: [u32; 78] = [
-    pack4(b"CC\0\0"),
-    pack4(b"JC\0\0"),
-    pack4(b"RC\0\0"),
-    pack4(b"DI\0\0"),
-    pack4(b"EI\0\0"),
-    pack4(b"CM\0\0"),
-    pack4(b"JM\0\0"),
-    pack4(b"RM\0\0"),
-    pack4(b"IN\0\0"),
-    pack4(b"CP\0\0"),
-    pack4(b"JP\0\0"),
-    pack4(b"RP\0\0"),
-    pack4(b"CZ\0\0"),
-    pack4(b"JZ\0\0"),
-    pack4(b"RZ\0\0"),
-    pack4(b"DAA\0"),
-    pack4(b"LDA\0"),
-    pack4(b"CMA\0"),
-    pack4(b"ANA\0"),
-    pack4(b"ORA\0"),
-    pack4(b"XRA\0"),
-    pack4(b"STA\0"),
-    pack4(b"SBB\0"),
-    pack4(b"SUB\0"),
-    pack4(b"ADC\0"),
-    pack4(b"RLC\0"),
-    pack4(b"CMC\0"),
-    pack4(b"CNC\0"),
-    pack4(b"JNC\0"),
-    pack4(b"RNC\0"),
-    pack4(b"RRC\0"),
-    pack4(b"STC\0"),
-    pack4(b"DAD\0"),
-    pack4(b"ADD\0"),
-    pack4(b"CPE\0"),
-    pack4(b"JPE\0"),
-    pack4(b"RPE\0"),
-    pack4(b"SBI\0"),
-    pack4(b"ACI\0"),
-    pack4(b"ADI\0"),
-    pack4(b"ANI\0"),
-    pack4(b"CPI\0"),
-    pack4(b"ORI\0"),
-    pack4(b"XRI\0"),
-    pack4(b"SUI\0"),
-    pack4(b"MVI\0"),
-    pack4(b"LXI\0"),
-    pack4(b"RAL\0"),
-    pack4(b"CPO\0"),
-    pack4(b"JPO\0"),
-    pack4(b"RPO\0"),
-    pack4(b"CMP\0"),
-    pack4(b"JMP\0"),
-    pack4(b"NOP\0"),
-    pack4(b"POP\0"),
-    pack4(b"RAR\0"),
-    pack4(b"DCR\0"),
-    pack4(b"INR\0"),
-    pack4(b"RET\0"),
-    pack4(b"HLT\0"),
-    pack4(b"RST\0"),
-    pack4(b"OUT\0"),
-    pack4(b"MOV\0"),
-    pack4(b"DCX\0"),
-    pack4(b"INX\0"),
-    pack4(b"CNZ\0"),
-    pack4(b"JNZ\0"),
-    pack4(b"RNZ\0"),
-    pack4(b"LHLD"),
-    pack4(b"SHLD"),
-    pack4(b"XCHG"),
-    pack4(b"PUSH"),
-    pack4(b"PCHL"),
-    pack4(b"SPHL"),
-    pack4(b"XTHL"),
-    pack4(b"CALL"),
-    pack4(b"LDAX"),
-    pack4(b"STAX"),
-];
-
-static DIRECTIVE_TABLE: [u32; 7] = [
-    pack4(b"DB\0\0"),
-    pack4(b"DS\0\0"),
-    pack4(b"DW\0\0"),
-    pack4(b"END\0"),
-    pack4(b"ORG\0"),
-    pack4(b"SET\0"),
-    pack4(b"EQU\0"),
-];
-
 #[inline(always)]
 pub fn is_mnemonic(word: &str) -> bool {
-    let bytes = word.as_bytes();
-    let len = bytes.len();
-    if !(2..=4).contains(&len) {
-        return false;
-    }
-    let packed = pack_mnemonic_u32(bytes);
-    INSTRUCTION_TABLE.binary_search(&packed).is_ok()
+    classify_mnemonic(word).is_some()
 }
 
 #[inline(always)]
@@ -291,9 +194,6 @@ pub fn classify_mnemonic(word: &str) -> Option<TokenType> {
         return None;
     }
     let packed = pack_mnemonic_u32(bytes);
-    if INSTRUCTION_TABLE.binary_search(&packed).is_err() {
-        return None;
-    }
 
     match &packed.to_le_bytes() {
         b"JMP\0" | b"JC\0\0" | b"JNC\0" | b"JZ\0\0" | b"JNZ\0" | b"JP\0\0" | b"JM\0\0"
@@ -313,19 +213,16 @@ pub fn classify_mnemonic(word: &str) -> Option<TokenType> {
             Some(TokenType::MnemonicSystem)
         }
 
-        _ => Some(TokenType::MnemonicDataTransfer),
+        b"MOV\0" | b"MVI\0" | b"LXI\0" | b"LDA\0" | b"STA\0" | b"LHLD" | b"SHLD" | b"LDAX"
+        | b"STAX" | b"XCHG" | b"PUSH" | b"POP\0" => Some(TokenType::MnemonicDataTransfer),
+
+        _ => None,
     }
 }
 
 #[inline(always)]
 pub fn is_directive(word: &str) -> bool {
-    let bytes = word.as_bytes();
-    let len = bytes.len();
-    if !(2..=4).contains(&len) {
-        return false;
-    }
-    let packed = pack_mnemonic_u32(bytes);
-    DIRECTIVE_TABLE.binary_search(&packed).is_ok()
+    classify_directive(word).is_some()
 }
 
 #[inline(always)]
@@ -336,15 +233,13 @@ pub fn classify_directive(word: &str) -> Option<TokenType> {
         return None;
     }
     let packed = pack_mnemonic_u32(bytes);
-    if DIRECTIVE_TABLE.binary_search(&packed).is_err() {
-        return None;
-    }
 
     match &packed.to_le_bytes() {
         b"ORG\0" => Some(TokenType::DirectiveOrg),
         b"END\0" => Some(TokenType::DirectiveEnd),
         b"EQU\0" | b"SET\0" => Some(TokenType::DirectiveDef),
-        _ => Some(TokenType::DirectiveData),
+        b"DB\0\0" | b"DW\0\0" | b"DS\0\0" => Some(TokenType::DirectiveData),
+        _ => None,
     }
 }
 
@@ -465,7 +360,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
 
         if b == b';' {
             tokens.push(HighlightToken {
-                text: line[i..].to_string(),
+                text: SharedString::from(&line[i..]),
                 token_type: TokenType::Comment,
                 color: pal.comment,
                 is_italic: false,
@@ -484,7 +379,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 i += 1;
             }
             tokens.push(HighlightToken {
-                text: line[start..i].to_string(),
+                text: SharedString::from(&line[start..i]),
                 token_type: TokenType::StringLiteral,
                 color: pal.string,
                 is_italic: false,
@@ -498,7 +393,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 i += 1;
             }
             tokens.push(HighlightToken {
-                text: line[start..i].to_string(),
+                text: SharedString::from(&line[start..i]),
                 token_type: TokenType::Text,
                 color: pal.text,
                 is_italic: false,
@@ -508,7 +403,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
 
         if (CHAR_MAP[b as usize] & CC_PUNCT) != 0 {
             tokens.push(HighlightToken {
-                text: line[i..=i].to_string(),
+                text: SharedString::from(&line[i..=i]),
                 token_type: TokenType::Punctuation,
                 color: pal.punct,
                 is_italic: false,
@@ -530,13 +425,13 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
 
         if i < len && bytes[i] == b':' {
             tokens.push(HighlightToken {
-                text: word.to_string(),
+                text: SharedString::from(word),
                 token_type: TokenType::Label,
                 color: pal.label,
                 is_italic: false,
             });
             tokens.push(HighlightToken {
-                text: ":".to_string(),
+                text: SharedString::from(":"),
                 token_type: TokenType::Punctuation,
                 color: pal.punct,
                 is_italic: false,
@@ -592,7 +487,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
         };
 
         tokens.push(HighlightToken {
-            text: word.to_string(),
+            text: SharedString::from(word),
             token_type,
             color,
             is_italic,
@@ -601,7 +496,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
 
     HighlightLine {
         line_number,
-        raw_text: line.to_string(),
+        raw_text: String::new(),
         tokens,
     }
 }
@@ -610,10 +505,13 @@ pub fn highlight_document(document: &str, theme_id: i32) -> Vec<HighlightLine> {
     if document.is_empty() {
         return vec![parse_line("", 1, theme_id)];
     }
-    let raw_lines: Vec<&str> = document
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l))
-        .collect();
+    let line_count_est = document.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1;
+    let mut raw_lines = Vec::with_capacity(line_count_est);
+    raw_lines.extend(
+        document
+            .split('\n')
+            .map(|l| l.strip_suffix('\r').unwrap_or(l)),
+    );
 
     if raw_lines.len() > 32 {
         raw_lines
@@ -623,7 +521,7 @@ pub fn highlight_document(document: &str, theme_id: i32) -> Vec<HighlightLine> {
             .collect()
     } else {
         raw_lines
-            .iter()
+            .into_iter()
             .enumerate()
             .map(|(idx, line)| parse_line(line, (idx + 1) as i32, theme_id))
             .collect()

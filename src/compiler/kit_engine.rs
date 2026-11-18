@@ -36,6 +36,7 @@ impl Default for KitMemory {
 }
 
 impl Memory for KitMemory {
+    #[inline(always)]
     fn read_byte(&self, addr: u16) -> u8 {
         let count = self.cycle_count.get() + 1;
         self.cycle_count.set(count);
@@ -46,16 +47,19 @@ impl Memory for KitMemory {
         self.ram[addr as usize]
     }
 
+    #[inline(always)]
     fn read_word(&self, addr: u16) -> u16 {
         let low = self.read_byte(addr) as u16;
         let high = self.read_byte(addr.wrapping_add(1)) as u16;
         (high << 8) | low
     }
 
+    #[inline(always)]
     fn write_byte(&mut self, addr: u16, byte: u8) {
         self.ram[addr as usize] = byte;
     }
 
+    #[inline(always)]
     fn write_word(&mut self, addr: u16, word: u16) {
         self.write_byte(addr, (word & 0xff) as u8);
         self.write_byte(addr.wrapping_add(1), (word >> 8) as u8);
@@ -140,8 +144,8 @@ pub struct KitAssembler {
 impl KitAssembler {
     pub fn new() -> Self {
         Self {
-            equ_symbols: HashMap::new(),
-            labels: HashMap::new(),
+            equ_symbols: HashMap::with_capacity(32),
+            labels: HashMap::with_capacity(64),
             start_org: 0x0100,
             entry_point: None,
         }
@@ -204,10 +208,15 @@ impl KitAssembler {
             }
 
             // Check for EQU: "<NAME> equ <VALUE>" or "<NAME>: equ <VALUE>"
-            let words: Vec<&str> = line.split_whitespace().collect();
-            if words.len() >= 3 && words[1].eq_ignore_ascii_case("equ") {
-                let name = words[0].trim_end_matches(':').to_ascii_uppercase();
-                match self.parse_value(words[2]) {
+            let mut words_iter = line.split_whitespace();
+            let first_word = words_iter.next();
+            let second_word = words_iter.next();
+            let third_word = words_iter.next();
+            if let (Some(w1), Some(w2), Some(w3)) = (first_word, second_word, third_word)
+                && w2.eq_ignore_ascii_case("equ")
+            {
+                let name = w1.trim_end_matches(':').to_ascii_uppercase();
+                match self.parse_value(w3) {
                     Ok(val) => {
                         self.equ_symbols.insert(name, val);
                     }
@@ -236,16 +245,16 @@ impl KitAssembler {
                 continue;
             }
 
-            let tokens: Vec<&str> = stmt.split_whitespace().collect();
-            if tokens.is_empty() {
+            let mut tokens_iter = stmt.split_whitespace();
+            let Some(mnemonic_raw) = tokens_iter.next() else {
                 continue;
-            }
-
-            let mnemonic = tokens[0].to_ascii_uppercase();
+            };
+            let operand1 = tokens_iter.next();
+            let mnemonic = mnemonic_raw.to_ascii_uppercase();
 
             if mnemonic == "ORG" {
-                if tokens.len() >= 2 {
-                    match self.parse_value(tokens[1]) {
+                if let Some(arg) = operand1 {
+                    match self.parse_value(arg) {
                         Ok(addr) => {
                             current_pc = addr;
                             self.start_org = addr;
@@ -263,36 +272,36 @@ impl KitAssembler {
             }
 
             if mnemonic == "END" {
-                if let Some(entry) = tokens.get(1).and_then(|t| self.parse_value(t).ok()) {
+                if let Some(entry) = operand1.and_then(|t| self.parse_value(t).ok()) {
                     self.entry_point = Some(entry);
                 }
                 break;
             }
 
             if mnemonic == "DB" {
-                let rest = stmt[tokens[0].len()..].trim();
+                let rest = stmt[mnemonic_raw.len()..].trim();
                 let byte_count = self.calculate_db_size(rest);
                 current_pc = current_pc.wrapping_add(byte_count as u16);
                 continue;
             }
 
             if mnemonic == "DW" {
-                let rest = stmt[tokens[0].len()..].trim();
+                let rest = stmt[mnemonic_raw.len()..].trim();
                 let word_count = rest.split(',').count();
                 current_pc = current_pc.wrapping_add((word_count * 2) as u16);
                 continue;
             }
 
             if mnemonic == "DS" {
-                if let Some(sz) = tokens.get(1).and_then(|t| self.parse_value(t).ok()) {
+                if let Some(sz) = operand1.and_then(|t| self.parse_value(t).ok()) {
                     current_pc = current_pc.wrapping_add(sz);
                 }
                 continue;
             }
 
             // Normal instruction
-            let operands = if stmt.len() > tokens[0].len() {
-                stmt[tokens[0].len()..].trim()
+            let operands = if stmt.len() > mnemonic_raw.len() {
+                stmt[mnemonic_raw.len()..].trim()
             } else {
                 ""
             };
@@ -313,9 +322,10 @@ impl KitAssembler {
         let mut in_quote = false;
         let mut quote_char = '\'';
         let mut escaped = false;
-        let mut current_item = String::new();
+        let mut has_item = false;
 
-        for ch in rest.chars() {
+        for &b in rest.as_bytes() {
+            let ch = b as char;
             if in_quote {
                 if escaped {
                     escaped = false;
@@ -331,15 +341,15 @@ impl KitAssembler {
                 in_quote = true;
                 quote_char = ch;
             } else if ch == ',' {
-                if !current_item.trim().is_empty() {
+                if has_item {
                     count += 1;
-                    current_item.clear();
+                    has_item = false;
                 }
-            } else {
-                current_item.push(ch);
+            } else if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n' {
+                has_item = true;
             }
         }
-        if !current_item.trim().is_empty() {
+        if has_item {
             count += 1;
         }
         count
@@ -360,6 +370,12 @@ impl KitAssembler {
 
     fn parse_value(&self, s: &str) -> Result<u16, String> {
         let trimmed = s.trim().trim_end_matches(',');
+        if let Some(&val) = self.equ_symbols.get(trimmed) {
+            return Ok(val);
+        }
+        if let Some(&addr) = self.labels.get(trimmed) {
+            return Ok(addr);
+        }
         let upper = trimmed.to_ascii_uppercase();
 
         if let Some(&val) = self.equ_symbols.get(&upper) {
@@ -373,7 +389,7 @@ impl KitAssembler {
     }
 
     fn pass2(&mut self, source: &str) -> Result<(Vec<u8>, usize), Vec<Diagnostic>> {
-        let mut binary = Vec::new();
+        let mut binary = Vec::with_capacity(1024);
         let mut errors = Vec::new();
         let mut instruction_count = 0;
         let mut current_pc = self.start_org;
@@ -386,8 +402,12 @@ impl KitAssembler {
             }
 
             // Skip EQU declarations in pass 2
-            let words: Vec<&str> = line.split_whitespace().collect();
-            if words.len() >= 3 && words[1].eq_ignore_ascii_case("equ") {
+            let mut words_iter = line.split_whitespace();
+            let _ = words_iter.next();
+            if words_iter
+                .next()
+                .is_some_and(|w| w.eq_ignore_ascii_case("equ"))
+            {
                 continue;
             }
 
@@ -402,12 +422,12 @@ impl KitAssembler {
                 continue;
             }
 
-            let tokens: Vec<&str> = stmt.split_whitespace().collect();
-            if tokens.is_empty() {
+            let mut tokens_iter = stmt.split_whitespace();
+            let Some(mnemonic_raw) = tokens_iter.next() else {
                 continue;
-            }
-
-            let mnemonic = tokens[0].to_ascii_uppercase();
+            };
+            let operand1 = tokens_iter.next();
+            let mnemonic = mnemonic_raw.to_ascii_uppercase();
 
             if mnemonic == "ORG" || mnemonic == "EQU" {
                 continue;
@@ -415,7 +435,7 @@ impl KitAssembler {
 
             if mnemonic == "END" {
                 if self.entry_point.is_none()
-                    && let Some(ep) = tokens.get(1).and_then(|t| self.parse_value(t).ok())
+                    && let Some(ep) = operand1.and_then(|t| self.parse_value(t).ok())
                 {
                     self.entry_point = Some(ep);
                 }
@@ -423,7 +443,7 @@ impl KitAssembler {
             }
 
             if mnemonic == "DB" {
-                let rest = stmt[tokens[0].len()..].trim();
+                let rest = stmt[mnemonic_raw.len()..].trim();
                 match self.assemble_db(rest) {
                     Ok(bytes) => {
                         current_pc = current_pc.wrapping_add(bytes.len() as u16);
@@ -441,7 +461,7 @@ impl KitAssembler {
             }
 
             if mnemonic == "DW" {
-                let rest = stmt[tokens[0].len()..].trim();
+                let rest = stmt[mnemonic_raw.len()..].trim();
                 for item in rest.split(',') {
                     let it = item.trim();
                     if it.is_empty() {
@@ -466,8 +486,8 @@ impl KitAssembler {
             }
 
             if mnemonic == "DS" {
-                if tokens.len() >= 2 {
-                    match self.parse_value(tokens[1]) {
+                if let Some(arg) = operand1 {
+                    match self.parse_value(arg) {
                         Ok(sz) => {
                             binary.resize(binary.len() + sz as usize, 0);
                             current_pc = current_pc.wrapping_add(sz);
@@ -485,8 +505,8 @@ impl KitAssembler {
             }
 
             // Instruction assembly
-            let operands = if stmt.len() > tokens[0].len() {
-                stmt[tokens[0].len()..].trim()
+            let operands = if stmt.len() > mnemonic_raw.len() {
+                stmt[mnemonic_raw.len()..].trim()
             } else {
                 ""
             };
@@ -515,11 +535,11 @@ impl KitAssembler {
     }
 
     fn assemble_db(&self, rest: &str) -> Result<Vec<u8>, String> {
-        let mut bytes = Vec::new();
+        let mut bytes = Vec::with_capacity(rest.len());
         let mut in_quote = false;
         let mut quote_char = '\'';
         let mut escaped = false;
-        let mut current_item = String::new();
+        let mut current_item = String::with_capacity(16);
 
         for ch in rest.chars() {
             if in_quote {
@@ -573,11 +593,16 @@ impl KitAssembler {
         operands: &str,
         _pc: u16,
     ) -> Result<Vec<u8>, String> {
-        let ops = operands
-            .split(',')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<&str>>();
+        let mut op_storage = ["", ""];
+        let mut op_count = 0;
+        for part in operands.split(',') {
+            let trimmed = part.trim();
+            if !trimmed.is_empty() && op_count < 2 {
+                op_storage[op_count] = trimmed;
+                op_count += 1;
+            }
+        }
+        let ops = &op_storage[..op_count];
 
         match mnemonic {
             // NOP & HLT

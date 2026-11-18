@@ -50,21 +50,22 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let line_start = pre.rfind('\n').map(|p| p + 1).unwrap_or(0);
         let current_line_so_far = &pre[line_start..];
 
-        let leading_ws: String = current_line_so_far
-            .chars()
-            .take_while(|c| *c == ' ' || *c == '\t')
-            .collect();
+        let ws_len = current_line_so_far
+            .bytes()
+            .take_while(|&b| b == b' ' || b == b'\t')
+            .count();
+        let leading_ws = &current_line_so_far[..ws_len];
 
-        let insert_chunk = format!("\n{}", leading_ws);
-        let mut new_code = String::with_capacity(code.len() + insert_chunk.len());
+        let mut new_code = String::with_capacity(code.len() + 1 + ws_len);
         new_code.push_str(&code[..offset]);
-        new_code.push_str(&insert_chunk);
+        new_code.push('\n');
+        new_code.push_str(leading_ws);
         new_code.push_str(&code[offset..]);
 
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let final_pos = (offset + insert_chunk.len()) as i32;
+        let final_pos = (offset + 1 + ws_len) as i32;
         let mut ctrl = ctrl_clone.lock().unwrap();
         record_editor_mutation(&ui, &mut ctrl, &new_code, final_pos, false);
         sync_tabs_ui(&ui, &ctrl);

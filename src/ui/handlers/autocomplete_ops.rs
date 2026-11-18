@@ -191,7 +191,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         if ctrl.active_suggestions.is_empty() {
             return;
         }
-        let current_name = ui.get_selected_sugg_name().to_string();
+        let current_name = ui.get_selected_sugg_name();
         let current_idx = ctrl
             .active_suggestions
             .iter()
@@ -204,15 +204,15 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             (current_idx + len - 1) % len
         };
         if let Some(sugg) = ctrl.active_suggestions.get(next_idx) {
-            ui.set_selected_sugg_name(SharedString::from(&sugg.name));
-            ui.set_selected_sugg_category(SharedString::from(&sugg.category));
-            ui.set_selected_sugg_syntax(SharedString::from(&sugg.syntax));
-            ui.set_selected_sugg_summary(SharedString::from(&sugg.summary));
-            ui.set_selected_sugg_flags(SharedString::from(&sugg.flags));
-            ui.set_selected_sugg_cycles(SharedString::from(&sugg.cycles));
-            ui.set_selected_sugg_insert_text(SharedString::from(&sugg.insert_text));
-            ui.set_selected_sugg_icon_kind(SharedString::from(&sugg.icon_kind));
-            ui.set_selected_sugg_example(SharedString::from(&sugg.example));
+            ui.set_selected_sugg_name(sugg.name.clone());
+            ui.set_selected_sugg_category(sugg.category.clone());
+            ui.set_selected_sugg_syntax(sugg.syntax.clone());
+            ui.set_selected_sugg_summary(sugg.summary.clone());
+            ui.set_selected_sugg_flags(sugg.flags.clone());
+            ui.set_selected_sugg_cycles(sugg.cycles.clone());
+            ui.set_selected_sugg_insert_text(sugg.insert_text.clone());
+            ui.set_selected_sugg_icon_kind(sugg.icon_kind.clone());
+            ui.set_selected_sugg_example(sugg.example.clone());
         }
     });
 
@@ -249,15 +249,15 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let Some(ui) = app_weak.upgrade() else { return };
         let ctrl = ctrl_clone.lock().unwrap();
         if let Some(sugg) = ctrl.active_suggestions.get(idx as usize) {
-            ui.set_selected_sugg_name(SharedString::from(&sugg.name));
-            ui.set_selected_sugg_category(SharedString::from(&sugg.category));
-            ui.set_selected_sugg_syntax(SharedString::from(&sugg.syntax));
-            ui.set_selected_sugg_summary(SharedString::from(&sugg.summary));
-            ui.set_selected_sugg_flags(SharedString::from(&sugg.flags));
-            ui.set_selected_sugg_cycles(SharedString::from(&sugg.cycles));
-            ui.set_selected_sugg_insert_text(SharedString::from(&sugg.insert_text));
-            ui.set_selected_sugg_icon_kind(SharedString::from(&sugg.icon_kind));
-            ui.set_selected_sugg_example(SharedString::from(&sugg.example));
+            ui.set_selected_sugg_name(sugg.name.clone());
+            ui.set_selected_sugg_category(sugg.category.clone());
+            ui.set_selected_sugg_syntax(sugg.syntax.clone());
+            ui.set_selected_sugg_summary(sugg.summary.clone());
+            ui.set_selected_sugg_flags(sugg.flags.clone());
+            ui.set_selected_sugg_cycles(sugg.cycles.clone());
+            ui.set_selected_sugg_insert_text(sugg.insert_text.clone());
+            ui.set_selected_sugg_icon_kind(sugg.icon_kind.clone());
+            ui.set_selected_sugg_example(sugg.example.clone());
         }
     });
 

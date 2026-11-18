@@ -1,4 +1,5 @@
 // High-performance byte-aware undo/redo manager for editor state
+use std::collections::VecDeque;
 use std::time::Instant;
 
 const MAX_HISTORY: usize = 120;
@@ -11,7 +12,7 @@ pub struct TextSnapshot {
 }
 
 pub struct UndoManager {
-    undo_stack: Vec<TextSnapshot>,
+    undo_stack: VecDeque<TextSnapshot>,
     redo_stack: Vec<TextSnapshot>,
     current_snapshot: TextSnapshot,
     last_record_time: Instant,
@@ -20,7 +21,7 @@ pub struct UndoManager {
 impl UndoManager {
     pub fn new(initial_text: String, initial_cursor: i32) -> Self {
         Self {
-            undo_stack: Vec::with_capacity(64),
+            undo_stack: VecDeque::with_capacity(64),
             redo_stack: Vec::with_capacity(32),
             current_snapshot: TextSnapshot {
                 text: initial_text,
@@ -53,25 +54,29 @@ impl UndoManager {
 
         if should_push {
             if self.undo_stack.len() >= MAX_HISTORY {
-                self.undo_stack.remove(0);
+                self.undo_stack.pop_front();
             }
             let mut snap_to_push = self.current_snapshot.clone();
             if snap_to_push.cursor_offset <= 0 && cursor > 0 {
                 snap_to_push.cursor_offset = cursor.min(snap_to_push.text.len() as i32);
             }
-            self.undo_stack.push(snap_to_push);
+            self.undo_stack.push_back(snap_to_push);
             self.redo_stack.clear();
             self.last_record_time = Instant::now();
-        }
 
-        self.current_snapshot = TextSnapshot {
-            text: new_text.to_string(),
-            cursor_offset: cursor,
-        };
+            self.current_snapshot = TextSnapshot {
+                text: new_text.to_string(),
+                cursor_offset: cursor,
+            };
+        } else {
+            self.current_snapshot.text.clear();
+            self.current_snapshot.text.push_str(new_text);
+            self.current_snapshot.cursor_offset = cursor;
+        }
     }
 
     pub fn undo(&mut self) -> Option<TextSnapshot> {
-        let previous = self.undo_stack.pop()?;
+        let previous = self.undo_stack.pop_back()?;
         if previous.text.is_empty()
             && self.current_snapshot.text.trim().len() > 10
             && self.undo_stack.is_empty()
@@ -86,7 +91,7 @@ impl UndoManager {
 
     pub fn redo(&mut self) -> Option<TextSnapshot> {
         let next = self.redo_stack.pop()?;
-        self.undo_stack.push(self.current_snapshot.clone());
+        self.undo_stack.push_back(self.current_snapshot.clone());
         self.current_snapshot = next.clone();
         self.last_record_time = Instant::now();
         Some(next)

@@ -1,6 +1,8 @@
 use crate::autocomplete::extractor::extract_user_labels;
 use crate::compiler::runner::{CompileReport, Diagnostic};
-use crate::syntax::intel8080::{is_directive, is_hex_literal, is_mnemonic, is_register};
+use crate::syntax::intel8080::{
+    is_directive, is_hex_literal, is_mnemonic, is_register, pack_mnemonic_u32,
+};
 use std::collections::HashSet;
 
 // High-performance Intel 8080 syntax validator with byte-level zero-allocation scanning
@@ -10,10 +12,11 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
     let mut instruction_count = 0;
     let mut estimated_bytes = 0;
 
-    let defined_labels: HashSet<String> = extract_user_labels(source_code)
-        .into_iter()
-        .map(|l| l.name.to_ascii_uppercase())
-        .collect();
+    let user_symbols = extract_user_labels(source_code);
+    let mut defined_labels: HashSet<String> = HashSet::with_capacity(user_symbols.len());
+    for s in user_symbols {
+        defined_labels.insert(s.name.to_ascii_uppercase());
+    }
 
     logs.push(format!(
         "[{}] [CHECK] Analyzing Intel 8080 syntax...",
@@ -48,8 +51,6 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
             continue;
         };
 
-        let upper_first = first.to_ascii_uppercase();
-
         if tokens_iter
             .next()
             .is_some_and(|s| s.eq_ignore_ascii_case("EQU"))
@@ -57,24 +58,20 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
             continue;
         }
 
-        if is_directive(&upper_first) {
-            match upper_first.as_str() {
-                "DB" => {
-                    let operands = statement[2..].trim();
-                    let count = operands.split(',').count().max(1);
-                    estimated_bytes += count;
-                }
-                "DW" => {
-                    let operands = statement[2..].trim();
-                    let count = operands.split(',').count().max(1);
-                    estimated_bytes += count * 2;
-                }
-                _ => {}
+        if is_directive(first) {
+            if first.eq_ignore_ascii_case("DB") {
+                let operands = statement[2..].trim();
+                let count = operands.split(',').count().max(1);
+                estimated_bytes += count;
+            } else if first.eq_ignore_ascii_case("DW") {
+                let operands = statement[2..].trim();
+                let count = operands.split(',').count().max(1);
+                estimated_bytes += count * 2;
             }
             continue;
         }
 
-        if !is_mnemonic(&upper_first) {
+        if !is_mnemonic(first) {
             diagnostics.push(Diagnostic {
                 line: line_number,
                 message: format!("Unknown mnemonic or command '{}'", first),
@@ -84,12 +81,14 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
         }
 
         instruction_count += 1;
-        let (inst_bytes, needs_label_check) = match upper_first.as_str() {
-            "JMP" | "JNZ" | "JZ" | "JNC" | "JC" | "JPO" | "JPE" | "JP" | "JM" | "CALL" | "CNZ"
-            | "CZ" | "CNC" | "CC" | "CPO" | "CPE" | "CP" | "CM" => (3, true),
-            "LXI" | "LDA" | "STA" | "LHLD" | "SHLD" => (3, false),
-            "MVI" | "ADI" | "ACI" | "SUI" | "SBI" | "ANI" | "XRI" | "ORI" | "CPI" | "IN"
-            | "OUT" => (2, false),
+        let packed = pack_mnemonic_u32(first.as_bytes());
+        let (inst_bytes, needs_label_check) = match &packed.to_le_bytes() {
+            b"JMP\0" | b"JNZ\0" | b"JZ\0\0" | b"JNC\0" | b"JC\0\0" | b"JPO\0" | b"JPE\0"
+            | b"JP\0\0" | b"JM\0\0" | b"CALL" | b"CNZ\0" | b"CZ\0\0" | b"CNC\0" | b"CC\0\0"
+            | b"CPO\0" | b"CPE\0" | b"CP\0\0" | b"CM\0\0" => (3, true),
+            b"LXI\0" | b"LDA\0" | b"STA\0" | b"LHLD" | b"SHLD" => (3, false),
+            b"MVI\0" | b"ADI\0" | b"ACI\0" | b"SUI\0" | b"SBI\0" | b"ANI\0" | b"XRI\0"
+            | b"ORI\0" | b"CPI\0" | b"IN\0\0" | b"OUT\0" => (2, false),
             _ => (1, false),
         };
         estimated_bytes += inst_bytes;
@@ -99,22 +98,24 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
             let mut iter = statement.split_whitespace();
             let _ = iter.next(); // skip mnemonic
             if let Some(target) = iter.next() {
-                let target_label = target.trim().trim_matches(',').to_ascii_uppercase();
-                if !is_hex_literal(&target_label)
-                    && !target_label.chars().all(|c| c.is_ascii_digit())
-                    && !defined_labels.contains(&target_label)
+                let clean_target = target.trim().trim_matches(',');
+                if !is_hex_literal(clean_target)
+                    && !clean_target.bytes().all(|b| b.is_ascii_digit())
                 {
-                    diagnostics.push(Diagnostic {
-                        line: line_number,
-                        message: format!("Reference to undefined label '{}'", target_label),
-                        is_error: false,
-                    });
+                    let target_upper = clean_target.to_ascii_uppercase();
+                    if !defined_labels.contains(&target_upper) {
+                        diagnostics.push(Diagnostic {
+                            line: line_number,
+                            message: format!("Reference to undefined label '{}'", target_upper),
+                            is_error: false,
+                        });
+                    }
                 }
             }
         }
 
         // Validate MOV operand registers
-        if upper_first == "MOV" && statement.len() > 3 {
+        if first.eq_ignore_ascii_case("MOV") && statement.len() > 3 {
             let operands_str = statement[3..].trim();
             let mut ops = operands_str.split(',').map(|s| s.trim());
             let op1 = ops.next();
@@ -122,19 +123,17 @@ pub fn validate_syntax(source_code: &str) -> CompileReport {
             let op3 = ops.next();
 
             if let (Some(r1_str), Some(r2_str), None) = (op1, op2, op3) {
-                let r1 = r1_str.to_ascii_uppercase();
-                let r2 = r2_str.to_ascii_uppercase();
-                if !is_register(&r1) {
+                if !is_register(r1_str) {
                     diagnostics.push(Diagnostic {
                         line: line_number,
-                        message: format!("Invalid destination register '{}' for MOV", r1),
+                        message: format!("Invalid destination register '{}' for MOV", r1_str),
                         is_error: true,
                     });
                 }
-                if !is_register(&r2) {
+                if !is_register(r2_str) {
                     diagnostics.push(Diagnostic {
                         line: line_number,
-                        message: format!("Invalid source register '{}' for MOV", r2),
+                        message: format!("Invalid source register '{}' for MOV", r2_str),
                         is_error: true,
                     });
                 }

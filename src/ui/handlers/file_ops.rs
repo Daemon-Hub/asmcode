@@ -47,95 +47,96 @@ fn reveal_in_file_manager(path: &Path) {
 }
 
 pub fn sync_tabs_ui(app: &AppWindow, ctrl: &IdeController) {
-    let active_path_str = app.get_active_file_path().to_string();
+    let active_path_str = app.get_active_file_path();
     let is_dirty = app.get_is_dirty();
 
-    // Count occurrences of each raw file name across open tabs
-    let mut name_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
+    // Count occurrences of each raw file name across open tabs without string allocations
+    let mut name_counts: std::collections::HashMap<&std::ffi::OsStr, usize> =
+        std::collections::HashMap::with_capacity(ctrl.open_tabs.len());
     for p in &ctrl.open_tabs {
+        let os_name = p.file_name().unwrap_or_default();
+        *name_counts.entry(os_name).or_insert(0) += 1;
+    }
+
+    let mut items = Vec::with_capacity(ctrl.open_tabs.len());
+    for p in &ctrl.open_tabs {
+        let p_str = p.to_string_lossy();
+        let os_name = p.file_name().unwrap_or_default();
         let raw_name = p
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "file".to_string());
-        *name_counts.entry(raw_name).or_insert(0) += 1;
-    }
 
-    let items: Vec<FileTabItem> = ctrl
-        .open_tabs
-        .iter()
-        .map(|p| {
-            let p_str = p.to_string_lossy().to_string();
-            let raw_name = p
-                .file_name()
-                .map(|s| s.to_string_lossy().to_string())
-                .unwrap_or_else(|| "file".to_string());
-
-            // Disambiguate duplicate file names with shortened parent/relative path
-            let display_name = if name_counts.get(&raw_name).copied().unwrap_or(0) > 1 {
-                let short_path = if let Ok(rel) = p.strip_prefix(&ctrl.file_manager.current_dir) {
-                    if let Some(parent) = rel.parent() {
-                        let s = parent.to_string_lossy().replace('\\', "/");
-                        if s.is_empty() { "root".to_string() } else { s }
-                    } else {
-                        "root".to_string()
-                    }
-                } else if let Some(parent) = p.parent() {
-                    let parent_name = parent
-                        .file_name()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    if parent_name.is_empty() {
-                        parent.to_string_lossy().to_string()
-                    } else {
-                        parent_name
-                    }
+        // Disambiguate duplicate file names with shortened parent/relative path
+        let display_name = if name_counts.get(os_name).copied().unwrap_or(0) > 1 {
+            let short_path = if let Ok(rel) = p.strip_prefix(&ctrl.file_manager.current_dir) {
+                if let Some(parent) = rel.parent() {
+                    let s = parent.to_string_lossy().replace('\\', "/");
+                    if s.is_empty() { "root".to_string() } else { s }
                 } else {
-                    String::new()
-                };
-
-                if short_path.is_empty() {
-                    raw_name
+                    "root".to_string()
+                }
+            } else if let Some(parent) = p.parent() {
+                let parent_name = parent
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if parent_name.is_empty() {
+                    parent.to_string_lossy().to_string()
                 } else {
-                    format!("{} ({})", raw_name, short_path)
+                    parent_name
                 }
             } else {
-                raw_name
+                String::new()
             };
 
-            let is_active = !p_str.is_empty() && p_str == active_path_str;
-            let ext = p
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
-            let is_pinned = ctrl.pinned_tabs.contains(p);
-            let is_deleted = ctrl.deleted_open_tabs.contains(p);
-            let tab_dirty = if is_active {
-                is_dirty
-            } else if ctrl.untitled_drafts.contains(p) {
-                true
-            } else if let Some(buf) = ctrl.tab_buffers.get(p) {
-                if let Ok(disk) = std::fs::read(p) {
+            if short_path.is_empty() {
+                raw_name
+            } else {
+                format!("{} ({})", raw_name, short_path)
+            }
+        } else {
+            raw_name
+        };
+
+        let is_active = !p_str.is_empty() && p_str.as_ref() == active_path_str.as_str();
+        let ext = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
+        let is_pinned = ctrl.pinned_tabs.contains(p);
+        let is_deleted = ctrl.deleted_open_tabs.contains(p);
+        let tab_dirty = if is_active {
+            is_dirty
+        } else if ctrl.untitled_drafts.contains(p) {
+            true
+        } else if let Some(buf) = ctrl.tab_buffers.get(p) {
+            if let Ok(meta) = std::fs::metadata(p) {
+                if meta.len() as usize != buf.len() {
+                    true
+                } else if let Ok(disk) = std::fs::read(p) {
                     buf.as_bytes() != disk.as_slice()
                 } else {
                     false
                 }
             } else {
                 false
-            };
-            FileTabItem {
-                name: SharedString::from(display_name),
-                path: SharedString::from(p_str),
-                is_active,
-                is_dirty: tab_dirty,
-                is_asm,
-                is_pinned,
-                is_deleted,
             }
-        })
-        .collect();
+        } else {
+            false
+        };
+        items.push(FileTabItem {
+            name: SharedString::from(display_name),
+            path: SharedString::from(p_str.as_ref()),
+            is_active,
+            is_dirty: tab_dirty,
+            is_asm,
+            is_pinned,
+            is_deleted,
+        });
+    }
     app.set_open_tabs(ModelRc::from(Rc::new(VecModel::from(items))));
 }
 

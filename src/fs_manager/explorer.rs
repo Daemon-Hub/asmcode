@@ -12,7 +12,7 @@ pub struct FsEntry {
     pub is_asm: bool,
     pub is_expanded: bool,
     pub depth: i32,
-    pub icon_name: String,
+    pub icon_name: &'static str,
     pub size_formatted: String,
 }
 
@@ -49,7 +49,7 @@ impl FileManager {
     }
 
     pub fn list_directory(&self) -> io::Result<Vec<FsEntry>> {
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(64);
         collect_tree_entries(&self.current_dir, 0, &self.expanded_folders, &mut results)?;
         Ok(results)
     }
@@ -246,13 +246,30 @@ impl FileManager {
     }
 }
 
+#[inline]
+fn compare_ascii_case_insensitive(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_bytes = a.as_bytes();
+    let b_bytes = b.as_bytes();
+    let min_len = a_bytes.len().min(b_bytes.len());
+    let mut i = 0;
+    while i < min_len {
+        let ca = a_bytes[i].to_ascii_lowercase();
+        let cb = b_bytes[i].to_ascii_lowercase();
+        if ca != cb {
+            return ca.cmp(&cb);
+        }
+        i += 1;
+    }
+    a_bytes.len().cmp(&b_bytes.len())
+}
+
 fn collect_tree_entries(
     dir: &Path,
     depth: i32,
     expanded_folders: &HashSet<PathBuf>,
     results: &mut Vec<FsEntry>,
 ) -> io::Result<()> {
-    let mut entries = Vec::new();
+    let mut entries = Vec::with_capacity(32);
     let read_dir = match fs::read_dir(dir) {
         Ok(rd) => rd,
         Err(_) => return Ok(()),
@@ -278,37 +295,37 @@ fn collect_tree_entries(
         entries.push((name, path, is_dir, metadata.len()));
     }
 
-    // Sort: directories first, then alphabetical (parallel acceleration via Rayon for large folders)
+    // Sort: directories first, then alphabetical (case-insensitive without allocating temporary strings)
     if entries.len() > 64 {
         entries.par_sort_by(|a, b| match (a.2, b.2) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+            _ => compare_ascii_case_insensitive(&a.0, &b.0),
         });
     } else {
         entries.sort_by(|a, b| match (a.2, b.2) {
             (true, false) => std::cmp::Ordering::Less,
             (false, true) => std::cmp::Ordering::Greater,
-            _ => a.0.to_lowercase().cmp(&b.0.to_lowercase()),
+            _ => compare_ascii_case_insensitive(&a.0, &b.0),
         });
     }
 
     for (name, path, is_dir, byte_size) in entries {
         let is_expanded = is_dir && expanded_folders.contains(&path);
 
-        let icon_name = if is_dir {
+        let icon_name: &'static str = if is_dir {
             match name.to_ascii_lowercase().as_str() {
-                "src" => "src".to_string(),
-                "ui" => "ui".to_string(),
-                "target" | "build" | "dist" => "target".to_string(),
-                "doc" | "docs" => "docs".to_string(),
-                "test" | "tests" => "test".to_string(),
-                "scripts" => "scripts".to_string(),
-                "tools" => "tools".to_string(),
-                "config" => "config".to_string(),
-                "debug" => "debug".to_string(),
-                "components" => "components".to_string(),
-                _ => "default".to_string(),
+                "src" => "src",
+                "ui" => "ui",
+                "target" | "build" | "dist" => "target",
+                "doc" | "docs" => "docs",
+                "test" | "tests" => "test",
+                "scripts" => "scripts",
+                "tools" => "tools",
+                "config" => "config",
+                "debug" => "debug",
+                "components" => "components",
+                _ => "default",
             }
         } else {
             let ext = path
@@ -317,26 +334,26 @@ fn collect_tree_entries(
                 .unwrap_or("")
                 .to_ascii_lowercase();
             match ext.as_str() {
-                "asm" | "inc" | "mac" | "s" => "asm".to_string(),
-                "rs" => "rust".to_string(),
-                "toml" => "toml".to_string(),
-                "md" => "markdown".to_string(),
-                "json" => "json".to_string(),
-                "lock" => "lock".to_string(),
-                "exe" | "com" | "bin" => "exe".to_string(),
-                "bat" | "cmd" | "ps1" => "powershell".to_string(),
-                "svg" | "png" | "jpg" | "jpeg" => "image".to_string(),
-                "c" | "h" => "c".to_string(),
-                "cpp" | "hpp" => "cpp".to_string(),
-                "cs" => "csharp".to_string(),
-                "xml" => "xml".to_string(),
-                "yaml" | "yml" => "yaml".to_string(),
-                "zip" | "tar" | "gz" | "7z" => "zip".to_string(),
-                "pdf" => "pdf".to_string(),
-                "log" => "log".to_string(),
-                "key" => "key".to_string(),
-                "hex" => "hex".to_string(),
-                _ => "document".to_string(),
+                "asm" | "inc" | "mac" | "s" => "asm",
+                "rs" => "rust",
+                "toml" => "toml",
+                "md" => "markdown",
+                "json" => "json",
+                "lock" => "lock",
+                "exe" | "com" | "bin" => "exe",
+                "bat" | "cmd" | "ps1" => "powershell",
+                "svg" | "png" | "jpg" | "jpeg" => "image",
+                "c" | "h" => "c",
+                "cpp" | "hpp" => "cpp",
+                "cs" => "csharp",
+                "xml" => "xml",
+                "yaml" | "yml" => "yaml",
+                "zip" | "tar" | "gz" | "7z" => "zip",
+                "pdf" => "pdf",
+                "log" => "log",
+                "key" => "key",
+                "hex" => "hex",
+                _ => "document",
             }
         };
 
