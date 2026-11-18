@@ -5,7 +5,7 @@ use crate::ui::terminal::sync_logs;
 use crate::ui::{AppWindow, FileTabItem};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -15,6 +15,35 @@ use std::time::Instant;
 use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn copy_to_clipboard(text: &str) {
+    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+        let _ = clipboard.set_text(text);
+    }
+}
+
+fn reveal_in_file_manager(path: &Path) {
+    #[cfg(windows)]
+    {
+        let path_clean = path.to_string_lossy().replace('/', "\\");
+        let mut cmd = Command::new("explorer");
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.arg(format!("/select,{}", path_clean)).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("open").arg("-R").arg(path).spawn();
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let target = if path.is_file() {
+            path.parent().unwrap_or(path)
+        } else {
+            path
+        };
+        let _ = Command::new("xdg-open").arg(target).spawn();
+    }
+}
 
 pub fn sync_tabs_ui(app: &AppWindow, ctrl: &IdeController) {
     let active_path_str = app.get_active_file_path().to_string();
@@ -432,17 +461,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             .strip_prefix(&ctrl.file_manager.current_dir)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| path_str.to_string());
-        let mut cmd = Command::new("powershell");
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg(format!(
-                "Set-Clipboard -Value '{}'",
-                rel_str.replace('\'', "''")
-            ))
-            .spawn();
+        copy_to_clipboard(&rel_str);
         ctrl.append_log(&format!(
             "[TAB] Copied relative path to clipboard: {}",
             rel_str
@@ -693,17 +712,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     app.on_copy_path_requested(move |path_str| {
         let Some(ui) = app_weak.upgrade() else { return };
         let mut ctrl = ctrl_clone.lock().unwrap();
-        let mut cmd = Command::new("powershell");
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd
-            .arg("-NoProfile")
-            .arg("-Command")
-            .arg(format!(
-                "Set-Clipboard -Value '{}'",
-                path_str.replace('\'', "''")
-            ))
-            .spawn();
+        copy_to_clipboard(&path_str);
         ctrl.append_log(&format!(
             "[EXPLORER] Copied path to clipboard: {}",
             path_str
@@ -711,21 +720,16 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         sync_logs(&ui, &ctrl);
     });
 
-    // Reveal in Windows File Explorer
+    // Reveal in System File Manager
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
     app.on_reveal_in_explorer_requested(move |path_str| {
         let Some(ui) = app_weak.upgrade() else { return };
         let mut ctrl = ctrl_clone.lock().unwrap();
-        let path_clean = path_str.replace('/', "\\");
-        let mut cmd = Command::new("cmd");
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let _ = cmd
-            .args(["/C", "explorer", &format!("/select,\"{}\"", path_clean)])
-            .spawn();
+        let path = PathBuf::from(path_str.as_str());
+        reveal_in_file_manager(&path);
         ctrl.append_log(&format!(
-            "[EXPLORER] Revealed in File Explorer: {}",
+            "[EXPLORER] Revealed in File Manager: {}",
             path_str
         ));
         sync_logs(&ui, &ctrl);
@@ -977,12 +981,18 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let app_weak_inner = app_weak.clone();
         let ctrl_clone_inner = Arc::clone(&ctrl_clone);
         std::thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_title("Select Intel 8080 Compiler Executable")
-                .add_filter("Executable (*.exe, *.com)", &["exe", "com", "bat", "cmd"])
-                .add_filter("All Files (*.*)", &["*"])
-                .pick_file()
+            let mut dialog =
+                rfd::FileDialog::new().set_title("Select Intel 8080 Compiler Executable");
+            #[cfg(windows)]
             {
+                dialog = dialog.add_filter(
+                    "Executable (*.exe, *.com, *.bat)",
+                    &["exe", "com", "bat", "cmd"],
+                );
+            }
+            dialog = dialog.add_filter("All Files (*.*)", &["*"]);
+
+            if let Some(path) = dialog.pick_file() {
                 let path_str = path.to_string_lossy().to_string();
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = app_weak_inner.upgrade() else {
@@ -1005,12 +1015,17 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let app_weak_inner = app_weak.clone();
         let ctrl_clone_inner = Arc::clone(&ctrl_clone);
         std::thread::spawn(move || {
-            if let Some(path) = rfd::FileDialog::new()
-                .set_title("Select CP/M Emulator Executable")
-                .add_filter("Executable (*.exe, *.com)", &["exe", "com", "bat", "cmd"])
-                .add_filter("All Files (*.*)", &["*"])
-                .pick_file()
+            let mut dialog = rfd::FileDialog::new().set_title("Select CP/M Emulator Executable");
+            #[cfg(windows)]
             {
+                dialog = dialog.add_filter(
+                    "Executable (*.exe, *.com, *.bat)",
+                    &["exe", "com", "bat", "cmd"],
+                );
+            }
+            dialog = dialog.add_filter("All Files (*.*)", &["*"]);
+
+            if let Some(path) = dialog.pick_file() {
                 let path_str = path.to_string_lossy().to_string();
                 let _ = slint::invoke_from_event_loop(move || {
                     let Some(ui) = app_weak_inner.upgrade() else {

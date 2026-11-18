@@ -208,7 +208,7 @@ export component ExplorerContextMenu inherits Rectangle {
             }
         }
 
-        // Reveal in Windows Explorer
+        // Reveal in System File Manager
         Rectangle {
             height: 30px;
             border-radius: 4px;
@@ -230,7 +230,7 @@ export component ExplorerContextMenu inherits Rectangle {
                     Image { source: @image-url("../icons/folder-windows-open.svg"); width: 14px; height: 14px; }
                 }
                 Text {
-                    text: root.current_language == "ru" ? "Показать в проводнике Windows" : "Reveal in Explorer";
+                    text: root.current_language == "ru" ? "Показать в проводнике системы" : "Reveal in File Manager";
                     font-size: 13px;
                     color: Theme.text_primary;
                     vertical-alignment: center;

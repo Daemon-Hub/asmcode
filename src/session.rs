@@ -28,6 +28,17 @@ pub struct AppSession {
 
 impl Default for AppSession {
     fn default() -> Self {
+        #[cfg(windows)]
+        let (def_compiler, def_emulator) = (
+            "C:\\bin\\asmx20.exe".to_string(),
+            "C:\\bin\\cpmemu.exe".to_string(),
+        );
+        #[cfg(not(windows))]
+        let (def_compiler, def_emulator) = (
+            "/usr/local/bin/asmx20".to_string(),
+            "/usr/local/bin/cpmemu".to_string(),
+        );
+
         Self {
             last_open_folder: None,
             last_open_file: None,
@@ -42,8 +53,8 @@ impl Default for AppSession {
             active_theme_id: 1, // Cyberpunk 2077 Red by default
             cursor_blink: true,
             tab_size: 4,
-            compiler_path: "C:\\bin\\asmx20.exe".to_string(),
-            emulator_path: "C:\\bin\\cpmemu.exe".to_string(),
+            compiler_path: def_compiler,
+            emulator_path: def_emulator,
             toolchain_type: 0,
             large_file_optimizations: true,
             large_file_soft_limit_mb: 20,
@@ -54,16 +65,43 @@ impl Default for AppSession {
 }
 
 pub fn get_cache_dir() -> PathBuf {
-    if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
-        PathBuf::from(local_app_data).join("ASMCode")
-    } else if let Ok(user_profile) = env::var("USERPROFILE") {
-        PathBuf::from(user_profile)
-            .join("AppData")
-            .join("Local")
-            .join("ASMCode")
-    } else {
-        PathBuf::from(".").join(".asmcode_cache")
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            return PathBuf::from(local_app_data).join("ASMCode");
+        }
+        if let Ok(user_profile) = env::var("USERPROFILE") {
+            return PathBuf::from(user_profile)
+                .join("AppData")
+                .join("Local")
+                .join("ASMCode");
+        }
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(dir) = dirs::data_local_dir() {
+            return dir.join("ASMCode");
+        }
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        if let Some(dir) = dirs::config_dir() {
+            return dir.join("asmcode");
+        }
+        if let Some(dir) = dirs::data_local_dir() {
+            return dir.join("asmcode");
+        }
+    }
+
+    if let Some(dir) = dirs::config_dir() {
+        return dir.join("asmcode");
+    }
+    if let Ok(home) = env::var("HOME") {
+        return PathBuf::from(home).join(".config").join("asmcode");
+    }
+    PathBuf::from(".").join(".asmcode_cache")
 }
 
 pub fn load_session() -> AppSession {
@@ -254,4 +292,35 @@ pub fn save_session(session: &AppSession) {
 
     let file_path = dir.join("session.json");
     let _ = fs::write(file_path, json_text);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_cache_dir_not_empty() {
+        let dir = get_cache_dir();
+        assert!(!dir.as_os_str().is_empty());
+        let path_str = dir.to_string_lossy().to_lowercase();
+        assert!(path_str.contains("asmcode") || path_str.contains(".asmcode_cache"));
+    }
+
+    #[test]
+    fn test_default_session_platform_defaults() {
+        let s = AppSession::default();
+        assert_eq!(s.toolchain_type, 0);
+        assert!(!s.compiler_path.is_empty());
+        assert!(!s.emulator_path.is_empty());
+        #[cfg(windows)]
+        {
+            assert!(s.compiler_path.ends_with(".exe"));
+            assert!(s.emulator_path.ends_with(".exe"));
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(s.compiler_path.starts_with("/"));
+            assert!(s.emulator_path.starts_with("/"));
+        }
+    }
 }

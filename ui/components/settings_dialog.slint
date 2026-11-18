@@ -22,8 +22,8 @@ export component SettingsDialog inherits Rectangle {
 
     // Toolchain
     in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
-    in-out property <string> compiler_path: "C:\\bin\\asmx20.exe";
-    in-out property <string> emulator_path: "C:\\bin\\cpmemu.exe";
+    in-out property <string> compiler_path: "";
+    in-out property <string> emulator_path: "";
 
     callback close_dialog();
     callback save_settings();
@@ -740,7 +740,7 @@ export component SettingsDialog inherits Rectangle {
                                     padding: 6px;
                                     spacing: 4px;
                                     Text {
-                                        text: root.current_language == "ru" ? "Путь к компилятору (asmx20.exe):" : "Compiler Path (asmx20.exe):";
+                                        text: root.current_language == "ru" ? "Путь к компилятору (asmx20):" : "Compiler Path (asmx20):";
                                         font-size: 12px;
                                         color: Theme.text_muted;
                                     }
@@ -789,7 +789,7 @@ export component SettingsDialog inherits Rectangle {
                                     padding: 6px;
                                     spacing: 4px;
                                     Text {
-                                        text: root.current_language == "ru" ? "Путь к эмулятору (cpmemu.exe):" : "Emulator Path (cpmemu.exe):";
+                                        text: root.current_language == "ru" ? "Путь к эмулятору (cpmemu):" : "Emulator Path (cpmemu):";
                                         font-size: 12px;
                                         color: Theme.text_muted;
                                     }

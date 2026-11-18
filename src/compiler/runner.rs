@@ -302,7 +302,7 @@ mod tests {
         std::fs::write(&asm_path, "org 100h\nmvi a, 10h\nret\n").unwrap();
 
         let (report, warning) =
-            CompilerRunner::assemble_file(&asm_path, 1, "C:\\non_existent_folder_xyz\\asmx20.exe");
+            CompilerRunner::assemble_file(&asm_path, 1, "non_existent_folder_xyz/asmx20");
         assert!(warning.is_some());
         let warn_str = warning.unwrap();
         assert!(warn_str.contains("ПРЕДУПРЕЖДЕНИЕ"));
@@ -311,11 +311,8 @@ mod tests {
         assert!(report.com_path.is_some());
 
         let com_path = report.com_path.unwrap();
-        let (emu_logs, emu_warn) = CompilerRunner::run_in_emulator(
-            &com_path,
-            1,
-            "C:\\non_existent_folder_xyz\\cpmemu.exe",
-        );
+        let (emu_logs, emu_warn) =
+            CompilerRunner::run_in_emulator(&com_path, 1, "non_existent_folder_xyz/cpmemu");
         assert!(emu_warn.is_some());
         let emu_warn_str = emu_warn.unwrap();
         assert!(emu_warn_str.contains("ПРЕДУПРЕЖДЕНИЕ"));

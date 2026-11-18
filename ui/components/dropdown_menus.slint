@@ -678,7 +678,7 @@ export component HelpDropdownMenu inherits Rectangle {
                     Image { source: @image-url("../icons/info.svg"); width: 16px; height: 16px; }
                 }
                 Text {
-                    text: (root.current_language == "ru" ? "Компилятор: " : "Compiler: ") + "C:\\bin\\asmx20.exe";
+                    text: (root.current_language == "ru" ? "Тулчейн: " : "Toolchain: ") + (root.current_language == "ru" ? "Встроенный pure-Rust / Внешний" : "Built-in pure-Rust / External");
                     font-size: 13px;
                     color: Theme.text_muted;
                     vertical-alignment: center;

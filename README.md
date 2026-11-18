@@ -46,7 +46,10 @@ ASMCode - это современная, высокопроизводитель�
   - **Большие файлы**: режим `largeFileOptimizations`, порог авто-оптимизации (МБ), порог предупреждения ОЗУ (МБ).
   - **Тулчейн (Сборка)**: переключение режима тулчейна (по умолчанию / внешний бинарник), выбор путей к `asmx20` и `cpmemu`.
 - Кнопки «Сбросить по умолчанию», «Закрыть» и «Сохранить».
-- Полная персистентность: все параметры автоматически сохраняются в `%LOCALAPPDATA%\ASMCode\session.json`.
+- Полная кроссплатформенная персистентность сессии:
+  - Windows: `%LOCALAPPDATA%\ASMCode\session.json`
+  - macOS: `~/Library/Application Support/ASMCode/session.json`
+  - Linux: `~/.config/asmcode/session.json` (или `~/.local/share/asmcode/session.json`)
 
 ### 5. Интеллектуальный справочник и автодополнение
 - **Интерактивная энциклопедия Intel 8080**: 60 документированных инструкций процессора. Для каждой команды указаны синтаксис, флаги (Z, S, P, CY, AC), такты и размер в байтах.
@@ -92,7 +95,7 @@ ASMCode - это современная, высокопроизводитель�
 
 ```text
 D:\Projects\asmcode\
-├── Cargo.toml                  # Конфигурация Cargo и зависимости (Slint 1.19, intel-8080-kit, rfd, winres)
+├── Cargo.toml                  # Конфигурация Cargo и зависимости (Slint 1.19, dirs, arboard, intel-8080-kit, rfd, winres)
 ├── build.rs                    # Сборка .slint ресурсов и встраивание app_8080.ico
 ├── ui\
 │   ├── appwindow.slint         # Корневой каркас приложения и модальные оверлеи
@@ -147,7 +150,7 @@ D:\Projects\asmcode\
 cargo run
 ```
 
-Запуск полного набора из 21 модульного и интеграционного теста:
+Запуск полного набора из 23 модульных и интеграционных тестов:
 ```powershell
 cargo test
 ```
@@ -161,4 +164,4 @@ cargo clippy -- -D warnings
 ```powershell
 cargo build --release
 ```
-Готовый бинарник будет расположен по пути `target/release/asmcode.exe`.
+Готовый бинарник будет расположен по пути `target/release/asmcode` (или `asmcode.exe` на Windows).
