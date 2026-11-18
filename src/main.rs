@@ -14,9 +14,52 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use ui::{AppWindow, IdeController, setup_ui};
 
+fn maximize_window(app: &AppWindow) {
+    #[cfg(windows)]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        app.window().with_winit_window(|winit_win| {
+            if let Ok(handle) = winit_win.window_handle()
+                && let RawWindowHandle::Win32(win32) = handle.as_raw()
+            {
+                let hwnd = win32.hwnd.get();
+                unsafe extern "system" {
+                    fn ShowWindow(hWnd: isize, nCmdShow: i32) -> i32;
+                }
+                const SW_MAXIMIZE: i32 = 3;
+                unsafe {
+                    ShowWindow(hwnd, SW_MAXIMIZE);
+                }
+            }
+            winit_win.set_maximized(true);
+        });
+    }
+    #[cfg(not(windows))]
+    {
+        use slint::winit_030::WinitWindowAccessor;
+        app.window().with_winit_window(|winit_win| {
+            winit_win.set_maximized(true);
+        });
+    }
+}
+
 fn main() -> Result<(), slint::PlatformError> {
+    let mut args = env::args().skip(1);
+    let cli_file_arg = args.next().map(PathBuf::from);
+
     let saved_session = session::load_session();
-    let current_dir = if let Some(ref folder) = saved_session.last_open_folder {
+    let current_dir = if let Some(ref file_path) = cli_file_arg {
+        if let Some(parent) = file_path.parent() {
+            if parent.exists() && parent.is_dir() {
+                parent.to_path_buf()
+            } else {
+                file_path.clone()
+            }
+        } else {
+            PathBuf::from(".")
+        }
+    } else if let Some(ref folder) = saved_session.last_open_folder {
         PathBuf::from(folder)
     } else {
         env::current_dir()
@@ -26,7 +69,27 @@ fn main() -> Result<(), slint::PlatformError> {
     let controller = Arc::new(Mutex::new(IdeController::new(current_dir)));
 
     let app = AppWindow::new()?;
-    setup_ui(&app, controller, saved_session);
+    setup_ui(&app, Arc::clone(&controller), saved_session);
+
+    maximize_window(&app);
+
+    let app_weak1 = app.as_weak();
+    slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+        if let Some(ui) = app_weak1.upgrade() {
+            maximize_window(&ui);
+        }
+    });
+
+    let app_weak2 = app.as_weak();
+    slint::Timer::single_shot(std::time::Duration::from_millis(150), move || {
+        if let Some(ui) = app_weak2.upgrade() {
+            maximize_window(&ui);
+        }
+    });
+
+    if let Some(file_path) = cli_file_arg.filter(|p| p.is_file()) {
+        ui::handlers::open_file_internal(&app, &controller, &file_path, false);
+    }
 
     app.run()
 }

@@ -1,10 +1,11 @@
 use crate::ui::controller::{IdeController, persist_current_session};
-use crate::ui::editor_bridge::update_highlight_and_labels;
+use crate::ui::editor_bridge::{ensure_active_file_or_create_draft, update_highlight_and_labels};
 use crate::ui::explorer_bridge::refresh_files_ui;
 use crate::ui::terminal::sync_logs;
 use crate::ui::{AppWindow, FileTabItem};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -48,15 +49,60 @@ fn reveal_in_file_manager(path: &Path) {
 pub fn sync_tabs_ui(app: &AppWindow, ctrl: &IdeController) {
     let active_path_str = app.get_active_file_path().to_string();
     let is_dirty = app.get_is_dirty();
+
+    // Count occurrences of each raw file name across open tabs
+    let mut name_counts: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for p in &ctrl.open_tabs {
+        let raw_name = p
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "file".to_string());
+        *name_counts.entry(raw_name).or_insert(0) += 1;
+    }
+
     let items: Vec<FileTabItem> = ctrl
         .open_tabs
         .iter()
         .map(|p| {
             let p_str = p.to_string_lossy().to_string();
-            let name = p
+            let raw_name = p
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| "file".to_string());
+
+            // Disambiguate duplicate file names with shortened parent/relative path
+            let display_name = if name_counts.get(&raw_name).copied().unwrap_or(0) > 1 {
+                let short_path = if let Ok(rel) = p.strip_prefix(&ctrl.file_manager.current_dir) {
+                    if let Some(parent) = rel.parent() {
+                        let s = parent.to_string_lossy().replace('\\', "/");
+                        if s.is_empty() { "root".to_string() } else { s }
+                    } else {
+                        "root".to_string()
+                    }
+                } else if let Some(parent) = p.parent() {
+                    let parent_name = parent
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    if parent_name.is_empty() {
+                        parent.to_string_lossy().to_string()
+                    } else {
+                        parent_name
+                    }
+                } else {
+                    String::new()
+                };
+
+                if short_path.is_empty() {
+                    raw_name
+                } else {
+                    format!("{} ({})", raw_name, short_path)
+                }
+            } else {
+                raw_name
+            };
+
             let is_active = !p_str.is_empty() && p_str == active_path_str;
             let ext = p
                 .extension()
@@ -66,11 +112,24 @@ pub fn sync_tabs_ui(app: &AppWindow, ctrl: &IdeController) {
             let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
             let is_pinned = ctrl.pinned_tabs.contains(p);
             let is_deleted = ctrl.deleted_open_tabs.contains(p);
+            let tab_dirty = if is_active {
+                is_dirty
+            } else if ctrl.untitled_drafts.contains(p) {
+                true
+            } else if let Some(buf) = ctrl.tab_buffers.get(p) {
+                if let Ok(disk) = std::fs::read(p) {
+                    buf.as_bytes() != disk.as_slice()
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             FileTabItem {
-                name: SharedString::from(name),
+                name: SharedString::from(display_name),
                 path: SharedString::from(p_str),
                 is_active,
-                is_dirty: if is_active { is_dirty } else { false },
+                is_dirty: tab_dirty,
                 is_asm,
                 is_pinned,
                 is_deleted,
@@ -86,78 +145,137 @@ pub fn open_file_internal(
     path: &PathBuf,
     is_force_load: bool,
 ) {
-    if !path.exists() {
+    // If the exact same file is already open in editor, switch to it without duplicate tabs
+    let existing_tab = {
+        let ctrl = ctrl_rc.lock().unwrap();
+        let canonical_target = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
+        ctrl.open_tabs
+            .iter()
+            .find(|open_p| {
+                *open_p == path
+                    || std::fs::canonicalize(open_p).unwrap_or_else(|_| (*open_p).clone())
+                        == canonical_target
+            })
+            .cloned()
+    };
+
+    let target_path_buf = if let Some(ref matched_path) = existing_tab {
+        let is_already_active = {
+            let ctrl = ctrl_rc.lock().unwrap();
+            ctrl.file_manager.active_file_path.as_ref() == Some(matched_path)
+        };
+        if is_already_active {
+            return;
+        }
+        // Save current active tab buffer before switching
+        {
+            let mut ctrl = ctrl_rc.lock().unwrap();
+            if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
+                let current_code = ui.get_code_text().to_string();
+                ctrl.tab_buffers.insert(curr, current_code);
+            }
+        }
+        matched_path.clone()
+    } else {
+        path.clone()
+    };
+    let path = &target_path_buf;
+
+    let (is_draft, draft_content) = {
+        let ctrl = ctrl_rc.lock().unwrap();
+        let is_draft = ctrl.untitled_drafts.contains(path) || !path.exists();
+        let content = ctrl.tab_buffers.get(path).cloned();
+        (is_draft, content)
+    };
+
+    if !path.exists() && !is_draft {
         return;
     }
 
-    // 1. Inspect metadata prior to RAM buffer allocation
-    let metadata = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(err) => {
-            let mut ctrl = ctrl_rc.lock().unwrap();
-            ctrl.append_log(&format!(
-                "[ERROR] Could not read metadata for '{}': {}",
-                path.display(),
-                err
-            ));
-            sync_logs(ui, &ctrl);
-            return;
-        }
-    };
+    let (content, file_size) = if is_draft {
+        let content = draft_content.unwrap_or_default();
+        let size = content.len() as u64;
+        (content, size)
+    } else {
+        // 1. Inspect metadata prior to RAM buffer allocation
+        let metadata = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(err) => {
+                let mut ctrl = ctrl_rc.lock().unwrap();
+                ctrl.append_log(&format!(
+                    "[ERROR] Could not read metadata for '{}': {}",
+                    path.display(),
+                    err
+                ));
+                sync_logs(ui, &ctrl);
+                return;
+            }
+        };
 
-    let file_size = metadata.len();
-    let (large_opt_enabled, soft_limit_bytes, hard_limit_bytes, soft_limit_lines) = {
-        let ctrl = ctrl_rc.lock().unwrap();
-        (
-            ctrl.session.large_file_optimizations,
-            ctrl.session.large_file_soft_limit_mb * 1024 * 1024,
-            ctrl.session.large_file_hard_limit_mb * 1024 * 1024,
-            ctrl.session.large_file_soft_limit_lines,
-        )
-    };
-
-    // 2. Hard threshold check (500 MB default): Prompt confirmation modal before reading
-    if large_opt_enabled && file_size > hard_limit_bytes && !is_force_load {
-        let file_name = path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "file".to_string());
-        let size_mb = file_size / (1024 * 1024);
-        let msg = if ui.get_current_language() == "ru" {
-            format!(
-                "Файл '{}' имеет размер {} МБ (> 500 МБ). Загрузка в память может замедлить работу системы. Вы уверены, что хотите открыть его?",
-                file_name, size_mb
-            )
-        } else {
-            format!(
-                "File '{}' is {} MB (> 500 MB). Loading into RAM may cause performance drops. Are you sure you want to open it?",
-                file_name, size_mb
+        let file_size = metadata.len();
+        let (large_opt_enabled, _soft_limit_bytes, hard_limit_bytes) = {
+            let ctrl = ctrl_rc.lock().unwrap();
+            (
+                ctrl.session.large_file_optimizations,
+                ctrl.session.large_file_soft_limit_mb * 1024 * 1024,
+                ctrl.session.large_file_hard_limit_mb * 1024 * 1024,
             )
         };
-        ui.set_pending_large_file_path(SharedString::from(path.to_string_lossy().to_string()));
-        ui.set_large_file_modal_text(SharedString::from(msg));
-        ui.set_show_large_file_modal(true);
-        return;
-    }
 
-    // 3. Determine if soft limit exceeded by byte size (> 20 MB)
-    let is_large_by_size = large_opt_enabled && file_size > soft_limit_bytes;
-
-    let mut ctrl = ctrl_rc.lock().unwrap();
-    let content = match ctrl.file_manager.read_file_content(path) {
-        Ok(c) => c,
-        Err(err) => {
-            ctrl.append_log(&format!(
-                "[ERROR] Could not read file '{}': {}",
-                path.display(),
-                err
-            ));
-            sync_logs(ui, &ctrl);
+        // 2. Hard threshold check (500 MB default): Prompt confirmation modal before reading
+        if large_opt_enabled && file_size > hard_limit_bytes && !is_force_load {
+            let file_name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "file".to_string());
+            let size_mb = file_size / (1024 * 1024);
+            let msg = if ui.get_current_language() == "ru" {
+                format!(
+                    "Файл '{}' имеет размер {} МБ (> 500 МБ). Загрузка в память может замедлить работу системы. Вы уверены, что хотите открыть его?",
+                    file_name, size_mb
+                )
+            } else {
+                format!(
+                    "File '{}' is {} MB (> 500 MB). Loading into RAM may cause performance drops. Are you sure you want to open it?",
+                    file_name, size_mb
+                )
+            };
+            ui.set_pending_large_file_path(SharedString::from(path.to_string_lossy().to_string()));
+            ui.set_large_file_modal_text(SharedString::from(msg));
+            ui.set_show_large_file_modal(true);
             return;
         }
+
+        let mut ctrl = ctrl_rc.lock().unwrap();
+        let content = if let Some(buf) = ctrl.tab_buffers.get(path).cloned() {
+            buf
+        } else {
+            match ctrl.file_manager.read_file_content(path) {
+                Ok(c) => c,
+                Err(err) => {
+                    ctrl.append_log(&format!(
+                        "[ERROR] Could not read file '{}': {}",
+                        path.display(),
+                        err
+                    ));
+                    sync_logs(ui, &ctrl);
+                    return;
+                }
+            }
+        };
+        (content, file_size)
     };
 
-    // 4. If not large by size, check line count threshold (> 300,000 lines)
+    let mut ctrl = ctrl_rc.lock().unwrap();
+    ctrl.tab_buffers.insert(path.clone(), content.clone());
+
+    let (large_opt_enabled, soft_limit_bytes, soft_limit_lines) = (
+        ctrl.session.large_file_optimizations,
+        ctrl.session.large_file_soft_limit_mb * 1024 * 1024,
+        ctrl.session.large_file_soft_limit_lines,
+    );
+
+    let is_large_by_size = large_opt_enabled && file_size > soft_limit_bytes;
     let is_large_by_lines = if large_opt_enabled && !is_large_by_size {
         content.as_bytes().iter().filter(|&&b| b == b'\n').count() > soft_limit_lines
     } else {
@@ -172,12 +290,19 @@ pub fn open_file_internal(
     let file_name = path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "file.asm".to_string());
+        .unwrap_or_else(|| "NewFile.asm".to_string());
 
     ui.set_active_file_name(SharedString::from(&file_name));
     ui.set_active_file_path(SharedString::from(path.to_string_lossy().to_string()));
     ui.set_code_text(SharedString::from(&content));
-    ui.set_is_dirty(false);
+    let is_dirty = if is_draft {
+        true
+    } else if let Ok(disk_bytes) = std::fs::read(path) {
+        content.as_bytes() != disk_bytes.as_slice()
+    } else {
+        false
+    };
+    ui.set_is_dirty(is_dirty);
     ctrl.undo_manager.reset(content.clone(), 0);
 
     if !ctrl.open_tabs.contains(path) {
@@ -249,6 +374,10 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let Some(ui) = app_weak.upgrade() else { return };
         let mut ctrl = ctrl_clone.lock().unwrap();
         if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
+            ctrl.pinned_tabs.remove(&curr);
+            ctrl.deleted_open_tabs.remove(&curr);
+            ctrl.untitled_drafts.remove(&curr);
+            ctrl.tab_buffers.remove(&curr);
             ctrl.open_tabs.retain(|p| p != &curr);
         }
         if let Some(next_path) = ctrl.open_tabs.last().cloned() {
@@ -266,6 +395,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ui.set_is_dirty(false);
         ctrl.undo_manager.reset(String::new(), 0);
         sync_tabs_ui(&ui, &ctrl);
+        persist_current_session(&ui, &ctrl);
     });
 
     // Switch Tab (Click on open file tab in tab bar)
@@ -275,9 +405,13 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let Some(ui) = app_weak.upgrade() else { return };
         let path = PathBuf::from(path_str.as_str());
         {
-            let ctrl = ctrl_clone.lock().unwrap();
+            let mut ctrl = ctrl_clone.lock().unwrap();
             if ctrl.file_manager.active_file_path.as_ref() == Some(&path) {
                 return;
+            }
+            if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
+                let current_code = ui.get_code_text().to_string();
+                ctrl.tab_buffers.insert(curr, current_code);
             }
         }
         open_file_internal(&ui, &ctrl_clone, &path, false);
@@ -303,6 +437,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.pinned_tabs.remove(&path);
         ctrl.deleted_open_tabs.remove(&path);
+        ctrl.untitled_drafts.remove(&path);
+        ctrl.tab_buffers.remove(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
 
@@ -336,6 +472,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.deleted_open_tabs.remove(&path);
         ctrl.pinned_tabs.remove(&path);
+        ctrl.untitled_drafts.remove(&path);
+        ctrl.tab_buffers.remove(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
 
@@ -376,6 +514,9 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let mut ctrl = ctrl_clone.lock().unwrap();
         let pinned = ctrl.pinned_tabs.clone();
         ctrl.open_tabs.retain(|p| p == &path || pinned.contains(p));
+        let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
+        ctrl.untitled_drafts.retain(|p| open_set.contains(p));
+        ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         if !was_active {
             drop(ctrl);
@@ -412,6 +553,9 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                 ctrl.undo_manager.reset(String::new(), 0);
             }
         }
+        let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
+        ctrl.untitled_drafts.retain(|p| open_set.contains(p));
+        ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
         sync_tabs_ui(&ui, &ctrl);
         persist_current_session(&ui, &ctrl);
     });
@@ -424,6 +568,9 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let mut ctrl = ctrl_clone.lock().unwrap();
         let pinned = ctrl.pinned_tabs.clone();
         ctrl.open_tabs.retain(|p| pinned.contains(p));
+        let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
+        ctrl.untitled_drafts.retain(|p| open_set.contains(p));
+        ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
         if let Some(_active) = ctrl
             .file_manager
             .active_file_path
@@ -740,12 +887,14 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_save_file(move || {
         let Some(ui) = app_weak.upgrade() else { return };
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        ensure_active_file_or_create_draft(&ui, &mut ctrl);
+
         let active_name = ui.get_active_file_name().to_string();
         if active_name.is_empty() {
             return;
         }
 
-        let mut ctrl = ctrl_clone.lock().unwrap();
         let text = ui.get_code_text().to_string();
 
         let save_path = if let Some(path) = &ctrl.file_manager.active_file_path {
@@ -756,8 +905,18 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
         match ctrl.file_manager.write_file_content(&save_path, &text) {
             Ok(()) => {
+                ctrl.untitled_drafts.remove(&save_path);
+                ctrl.tab_buffers.insert(save_path.clone(), text.clone());
                 ui.set_is_dirty(false);
-                sync_tabs_ui(&ui, &ctrl);
+                let saved_name = save_path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or(active_name);
+                ui.set_active_file_name(SharedString::from(&saved_name));
+                ui.set_active_file_path(SharedString::from(
+                    save_path.to_string_lossy().to_string(),
+                ));
+
                 ctrl.append_log(&format!(
                     "[FILE] Saved '{}' ({} bytes)",
                     save_path.display(),
@@ -766,6 +925,11 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                 ui.set_status_message(SharedString::from("Saved"));
                 ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
                 sync_logs(&ui, &ctrl);
+                sync_tabs_ui(&ui, &ctrl);
+                persist_current_session(&ui, &ctrl);
+
+                drop(ctrl);
+                refresh_files_ui(&ui, &ctrl_clone);
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Save failed: {}", err));
@@ -776,14 +940,19 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         }
     });
 
-    // Save File As (Ctrl + Shift + S: creates a copy without modifying or saving the original)
+    // Save File As (Ctrl + Shift + S)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
     app.on_save_file_as(move || {
         let app_weak_inner = app_weak.clone();
         let ctrl_clone_inner = Arc::clone(&ctrl_clone);
         let Some(ui) = app_weak.upgrade() else { return };
-        let active_name = ui.get_active_file_name().to_string();
+        let (active_name, old_path) = {
+            let ctrl = ctrl_clone.lock().unwrap();
+            let name = ui.get_active_file_name().to_string();
+            let old = ctrl.file_manager.active_file_path.clone();
+            (name, old)
+        };
         let current_text = ui.get_code_text().to_string();
 
         let start_dir = {
@@ -793,44 +962,91 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
         std::thread::spawn(move || {
             let mut dialog = rfd::FileDialog::new()
-                .set_title("Save Copy As (Ctrl+Shift+S)")
+                .set_title("Save As (Ctrl+Shift+S)")
                 .set_directory(&start_dir)
                 .add_filter("Intel 8080 Assembly (*.asm)", &["asm"])
                 .add_filter("All Files (*.*)", &["*"]);
 
             if !active_name.is_empty() {
                 dialog = dialog.set_file_name(&active_name);
+            } else {
+                dialog = dialog.set_file_name("NewFile.asm");
             }
 
             if let Some(target_path) = dialog.save_file() {
                 let write_res = std::fs::write(&target_path, &current_text);
                 let _ = slint::invoke_from_event_loop(move || {
-                    let Some(ui) = app_weak_inner.upgrade() else { return };
-                    let is_inside_project = {
-                        let mut ctrl = ctrl_clone_inner.lock().unwrap();
-                        match write_res {
-                            Ok(()) => {
-                                ctrl.append_log(&format!(
-                                    "[SAVE AS] Copy saved to '{}' ({} bytes). Original file untouched.",
-                                    target_path.display(),
-                                    current_text.len()
-                                ));
-                                ui.set_status_message(SharedString::from("Copy saved"));
-                                ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-                                sync_logs(&ui, &ctrl);
-                                target_path.starts_with(&ctrl.file_manager.current_dir)
-                            }
-                            Err(err) => {
-                                ctrl.append_log(&format!("[ERROR] Save copy failed: {}", err));
-                                ui.set_status_message(SharedString::from("Save copy failed"));
-                                ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                                sync_logs(&ui, &ctrl);
-                                false
-                            }
-                        }
+                    let Some(ui) = app_weak_inner.upgrade() else {
+                        return;
                     };
-                    if is_inside_project {
-                        refresh_files_ui(&ui, &ctrl_clone_inner);
+                    let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                    match write_res {
+                        Ok(()) => {
+                            let new_file_name = target_path
+                                .file_name()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "file.asm".to_string());
+
+                            if let Some(ref old) = old_path {
+                                ctrl.untitled_drafts.remove(old);
+                                ctrl.tab_buffers.remove(old);
+                                if old != &target_path {
+                                    if let Some(idx) = ctrl.open_tabs.iter().position(|p| p == old)
+                                    {
+                                        if ctrl.open_tabs.contains(&target_path) {
+                                            ctrl.open_tabs.remove(idx);
+                                        } else {
+                                            ctrl.open_tabs[idx] = target_path.clone();
+                                        }
+                                    } else if !ctrl.open_tabs.contains(&target_path) {
+                                        ctrl.open_tabs.push(target_path.clone());
+                                    }
+                                }
+                            } else if !ctrl.open_tabs.contains(&target_path) {
+                                ctrl.open_tabs.push(target_path.clone());
+                            }
+
+                            ctrl.file_manager.active_file_path = Some(target_path.clone());
+                            ctrl.tab_buffers
+                                .insert(target_path.clone(), current_text.clone());
+                            ctrl.undo_manager.reset(current_text.clone(), 0);
+
+                            ui.set_active_file_name(SharedString::from(&new_file_name));
+                            ui.set_active_file_path(SharedString::from(
+                                target_path.to_string_lossy().to_string(),
+                            ));
+                            ui.set_is_dirty(false);
+
+                            let ext = target_path
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .unwrap_or("")
+                                .to_ascii_lowercase();
+                            let is_asm = matches!(ext.as_str(), "asm" | "inc" | "s" | "mac");
+                            ui.set_is_active_asm(is_asm);
+
+                            ctrl.append_log(&format!(
+                                "[SAVE AS] Saved to '{}' ({} bytes)",
+                                target_path.display(),
+                                current_text.len()
+                            ));
+                            ui.set_status_message(SharedString::from("Saved"));
+                            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                            sync_logs(&ui, &ctrl);
+                            sync_tabs_ui(&ui, &ctrl);
+                            persist_current_session(&ui, &ctrl);
+
+                            let auto = ctrl.autocomplete.clone();
+                            drop(ctrl);
+                            update_highlight_and_labels(&ui, &auto, &current_text, is_asm);
+                            refresh_files_ui(&ui, &ctrl_clone_inner);
+                        }
+                        Err(err) => {
+                            ctrl.append_log(&format!("[ERROR] Save As failed: {}", err));
+                            ui.set_status_message(SharedString::from("Save As failed"));
+                            ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
+                            sync_logs(&ui, &ctrl);
+                        }
                     }
                 });
             }
@@ -1039,5 +1255,33 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                 });
             }
         });
+    });
+
+    // Toggle File Association for .asm
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_toggle_associate_asm(move || {
+        let Some(ui) = app_weak.upgrade() else { return };
+        let new_state = ui.get_associate_asm_files();
+        match crate::fs_manager::associations::set_asm_association(new_state) {
+            Ok(()) => {
+                let mut ctrl = ctrl_clone.lock().unwrap();
+                ctrl.session.associate_asm_files = new_state;
+                let msg = if new_state {
+                    "[SYSTEM] Registered .asm file association with ASM Code in OS"
+                } else {
+                    "[SYSTEM] Removed .asm file association in OS"
+                };
+                ctrl.append_log(msg);
+                sync_logs(&ui, &ctrl);
+                persist_current_session(&ui, &ctrl);
+            }
+            Err(e) => {
+                ui.set_associate_asm_files(!new_state);
+                let mut ctrl = ctrl_clone.lock().unwrap();
+                ctrl.append_log(&format!("[ERROR] File association failed: {}", e));
+                sync_logs(&ui, &ctrl);
+            }
+        }
     });
 }

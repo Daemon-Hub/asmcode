@@ -1,7 +1,8 @@
 use crate::editor::{delete_word_left, toggle_comment_in_code};
 use crate::ui::AppWindow;
 use crate::ui::controller::IdeController;
-use crate::ui::editor_bridge::update_highlight_and_labels;
+use crate::ui::editor_bridge::{record_editor_mutation, update_highlight_and_labels};
+use crate::ui::handlers::file_ops::sync_tabs_ui;
 use slint::{ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
 
@@ -25,11 +26,14 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.lock().unwrap();
+        let final_pos = (offset + tab_spaces.len()) as i32;
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        record_editor_mutation(&ui, &mut ctrl, &new_code, final_pos, false);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
-        (offset + tab_spaces.len()) as i32
+        final_pos
     });
 
     // Insert Newline (Preserving leading indentation / Auto-indent)
@@ -60,11 +64,14 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let ctrl = ctrl_clone.lock().unwrap();
+        let final_pos = (offset + insert_chunk.len()) as i32;
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        record_editor_mutation(&ui, &mut ctrl, &new_code, final_pos, false);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
-        (offset + insert_chunk.len()) as i32
+        final_pos
     });
 
     // Delete Word Left (Ctrl + Backspace)
@@ -81,8 +88,8 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_is_dirty(true);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.undo_manager
-            .record_edit(&new_code, final_from as i32, false);
+        record_editor_mutation(&ui, &mut ctrl, &new_code, final_from as i32, false);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -100,6 +107,10 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         if let Some(snap) = ctrl.undo_manager.undo() {
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
+            if let Some(path) = ctrl.file_manager.active_file_path.clone() {
+                ctrl.tab_buffers.insert(path, snap.text.clone());
+            }
+            sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, &snap.text, is_asm);
             if snap.cursor_offset > 0 {
@@ -123,6 +134,10 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         if let Some(snap) = ctrl.undo_manager.redo() {
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
+            if let Some(path) = ctrl.file_manager.active_file_path.clone() {
+                ctrl.tab_buffers.insert(path, snap.text.clone());
+            }
+            sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, &snap.text, is_asm);
             if snap.cursor_offset > 0 {
@@ -150,7 +165,8 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_is_dirty(true);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.undo_manager.record_edit(&new_code, new_pos, true);
+        record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -172,7 +188,8 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_is_dirty(true);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.undo_manager.record_edit(&new_code, new_pos, true);
+        record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -209,7 +226,8 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         ui.set_is_dirty(true);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.undo_manager.record_edit(&new_code, new_pos, true);
+        record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 

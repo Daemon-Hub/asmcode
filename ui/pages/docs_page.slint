@@ -5,93 +5,625 @@ import { ListView } from "std-widgets.slint";
 export component DocsPage inherits VerticalLayout {
     in property <string> current_language: "ru";
     in property <[DocItem]> docs_list: [];
+    in property <int> docs_total_count: 67;
+    in-out property <string> selected_category: root.current_language == "ru" ? "Все" : "All";
+    in-out property <string> expanded_cmd: "";
+
+    callback filter_category(string);
+    callback insert_snippet(string);
 
     padding: 16px;
     spacing: 12px;
 
+    // Header Title and Counter
     HorizontalLayout {
         alignment: space-between;
         Text {
             text: root.current_language == "ru"
                 ? "ИНТЕРАКТИВНЫЙ СПРАВОЧНИК КОМАНД INTEL 8080"
                 : "INTEL 8080 INSTRUCTION SET ENCYCLOPEDIA";
-            font-size: 16px;
+            font-size: 18px;
             font-weight: 700;
             color: Theme.accent_blue;
+            vertical-alignment: center;
         }
         Text {
-            text: root.current_language == "ru" ? "Всего команд: 60" : "Total entries: 60 instructions";
+            text: (root.current_language == "ru" ? "Показано команд: " : "Showing: ")
+                + root.docs_list.length
+                + (root.current_language == "ru" ? " из " : " of ")
+                + root.docs_total_count;
             font-size: 14px;
             color: Theme.text_muted;
+            vertical-alignment: center;
         }
     }
 
+    // Category Filter Bar
+    Rectangle {
+        height: 42px;
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            spacing: 6px;
+            alignment: start;
+
+            // 0. All / Все
+            Rectangle {
+                width: 54px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Все" || root.selected_category == "All") ? Theme.accent_blue : (c0.has-hover ? Theme.bg_surface2 : #00000000);
+                c0 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Все" : "All";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Все" : "All";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Все" || root.selected_category == "All") ? 700 : 500;
+                    color: (root.selected_category == "Все" || root.selected_category == "All") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 1. Data Transfer / Пересылка
+            Rectangle {
+                width: root.current_language == "ru" ? 144px : 106px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Пересылка данных" || root.selected_category == "Data Transfer") ? Theme.accent_blue : (c1.has-hover ? Theme.bg_surface2 : #00000000);
+                c1 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Пересылка данных" : "Data Transfer";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Пересылка данных" : "Data Transfer";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Пересылка данных" || root.selected_category == "Data Transfer") ? 700 : 500;
+                    color: (root.selected_category == "Пересылка данных" || root.selected_category == "Data Transfer") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 2. Arithmetic / Арифметика
+            Rectangle {
+                width: root.current_language == "ru" ? 102px : 90px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Арифметика" || root.selected_category == "Arithmetic") ? Theme.accent_blue : (c2.has-hover ? Theme.bg_surface2 : #00000000);
+                c2 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Арифметика" : "Arithmetic";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Арифметика" : "Arithmetic";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Арифметика" || root.selected_category == "Arithmetic") ? 700 : 500;
+                    color: (root.selected_category == "Арифметика" || root.selected_category == "Arithmetic") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 3. Logical / Логика
+            Rectangle {
+                width: root.current_language == "ru" ? 154px : 76px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Логические операции" || root.selected_category == "Logical") ? Theme.accent_blue : (c3.has-hover ? Theme.bg_surface2 : #00000000);
+                c3 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Логические операции" : "Logical";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Логические операции" : "Logical";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Логические операции" || root.selected_category == "Logical") ? 700 : 500;
+                    color: (root.selected_category == "Логические операции" || root.selected_category == "Logical") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 4. Rotate / Сдвиги
+            Rectangle {
+                width: root.current_language == "ru" ? 74px : 70px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Сдвиги" || root.selected_category == "Rotate") ? Theme.accent_blue : (c4.has-hover ? Theme.bg_surface2 : #00000000);
+                c4 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Сдвиги" : "Rotate";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Сдвиги" : "Rotate";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Сдвиги" || root.selected_category == "Rotate") ? 700 : 500;
+                    color: (root.selected_category == "Сдвиги" || root.selected_category == "Rotate") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 5. Branch / Переходы
+            Rectangle {
+                width: root.current_language == "ru" ? 90px : 70px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Переходы" || root.selected_category == "Branch") ? Theme.accent_blue : (c5.has-hover ? Theme.bg_surface2 : #00000000);
+                c5 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Переходы" : "Branch";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Переходы" : "Branch";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Переходы" || root.selected_category == "Branch") ? 700 : 500;
+                    color: (root.selected_category == "Переходы" || root.selected_category == "Branch") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 6. Stack / Стек
+            Rectangle {
+                width: 62px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Стек" || root.selected_category == "Stack") ? Theme.accent_blue : (c6.has-hover ? Theme.bg_surface2 : #00000000);
+                c6 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Стек" : "Stack";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Стек" : "Stack";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Стек" || root.selected_category == "Stack") ? 700 : 500;
+                    color: (root.selected_category == "Стек" || root.selected_category == "Stack") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 7. I/O / Ввод-вывод
+            Rectangle {
+                width: root.current_language == "ru" ? 104px : 54px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? Theme.accent_blue : (c7.has-hover ? Theme.bg_surface2 : #00000000);
+                c7 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Ввод-вывод" : "I/O";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Ввод-вывод" : "I/O";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? 700 : 500;
+                    color: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 8. Control / Управление
+            Rectangle {
+                width: root.current_language == "ru" ? 172px : 72px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Управление процессором" || root.selected_category == "Control") ? Theme.accent_blue : (c8.has-hover ? Theme.bg_surface2 : #00000000);
+                c8 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Управление процессором" : "Control";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Управление процессором" : "Control";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Управление процессором" || root.selected_category == "Control") ? 700 : 500;
+                    color: (root.selected_category == "Управление процессором" || root.selected_category == "Control") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 9. Directives / Директивы
+            Rectangle {
+                width: root.current_language == "ru" ? 166px : 86px;
+                height: 32px;
+                border-radius: 4px;
+                background: (root.selected_category == "Директивы ассемблера" || root.selected_category == "Directives") ? Theme.accent_blue : (c9.has-hover ? Theme.bg_surface2 : #00000000);
+                c9 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.selected_category = root.current_language == "ru" ? "Директивы ассемблера" : "Directives";
+                        root.filter_category(root.selected_category);
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Директивы ассемблера" : "Directives";
+                    font-size: 13px;
+                    font-weight: (root.selected_category == "Директивы ассемблера" || root.selected_category == "Directives") ? 700 : 500;
+                    color: (root.selected_category == "Директивы ассемблера" || root.selected_category == "Directives") ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Command Cards List
     ListView {
         vertical-stretch: 1;
         for doc in root.docs_list: Rectangle {
-            height: 72px;
+            height: root.expanded_cmd == doc.name ? (540px + doc.example_lines.length * 27px) : 68px;
+            animate height { duration: 180ms; easing: ease-out; }
 
             Rectangle {
                 x: 0px;
-                y: 4px;
+                y: 3px;
                 width: parent.width;
-                height: 64px;
-                background: Theme.sidebar_bg;
-                border-radius: 5px;
+                height: parent.height - 6px;
+                background: card_touch.has-hover ? Theme.menu_hover : Theme.sidebar_bg;
+                border-radius: 6px;
                 border-width: 1px;
-                border-color: Theme.border_normal;
+                border-color: root.expanded_cmd == doc.name ? Theme.accent_blue : Theme.border_normal;
+                clip: true;
 
-                HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 14px;
-                    spacing: 14px;
+                // Card Toggle TouchArea (Only active on the top header region)
+                card_touch := TouchArea {
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: 52px;
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.expanded_cmd = (root.expanded_cmd == doc.name ? "" : doc.name);
+                    }
+                }
 
-                    VerticalLayout {
-                        width: 130px;
-                        alignment: center;
-                        Text {
-                            text: doc.name;
-                            font-size: 17px;
-                            font-weight: 700;
-                            color: Theme.accent_blue;
+                VerticalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 12px;
+                    padding-bottom: 20px;
+                    spacing: 12px;
+
+                    // Header Row (Always visible)
+                    HorizontalLayout {
+                        height: 40px;
+                        spacing: 14px;
+
+                        // Category Icon
+                        VerticalLayout {
+                            alignment: center;
+                            width: 26px;
+                            if doc.icon_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 24px; height: 24px; }
+                            if doc.icon_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 24px; height: 24px; }
+                            if doc.icon_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 24px; height: 24px; }
+                            if doc.icon_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 24px; height: 24px; }
+                            if doc.icon_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 24px; height: 24px; }
+                            if doc.icon_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 24px; height: 24px; }
                         }
-                        Text {
-                            text: doc.category;
-                            font-size: 12px;
-                            color: Theme.text_muted;
+
+                        // Name and Category Label
+                        VerticalLayout {
+                            width: 150px;
+                            alignment: center;
+                            Text {
+                                text: doc.name;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 20px;
+                                font-weight: 700;
+                                color: Theme.accent_blue;
+                            }
+                            Text {
+                                text: doc.category;
+                                font-size: 13px;
+                                color: Theme.text_muted;
+                            }
+                        }
+
+                        // Preview Syntax & Short Summary (Visible ONLY when collapsed!)
+                        if root.expanded_cmd != doc.name: VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: doc.syntax;
+                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-size: 15px;
+                                font-weight: 600;
+                                color: Theme.accent_green;
+                            }
+                            Text {
+                                text: doc.summary;
+                                font-size: 13px;
+                                color: Theme.text_primary;
+                                overflow: elide;
+                            }
+                        }
+
+                        Rectangle { }
+
+                        // Meta Badges: Flags & Cycles
+                        VerticalLayout {
+                            width: 210px;
+                            alignment: center;
+                            Text {
+                                text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + doc.flags;
+                                font-size: 13px;
+                                color: Theme.accent_yellow;
+                                horizontal-alignment: right;
+                            }
+                            Text {
+                                text: (root.current_language == "ru" ? "Такты: " : "Cycles: ") + doc.cycles + " | " + doc.bytes + " Б";
+                                font-size: 13px;
+                                color: Theme.text_muted;
+                                horizontal-alignment: right;
+                            }
+                        }
+
+                        // Expand/Collapse Chevron Indicator
+                        VerticalLayout {
+                            alignment: center;
+                            width: 26px;
+                            Text {
+                                text: root.expanded_cmd == doc.name ? "▲" : "▼";
+                                font-size: 14px;
+                                color: root.expanded_cmd == doc.name ? Theme.accent_blue : Theme.text_muted;
+                                horizontal-alignment: center;
+                            }
                         }
                     }
 
-                    VerticalLayout {
-                        alignment: center;
-                        Text {
-                            text: doc.syntax;
-                            font-family: "CaskaydiaCove NF SemiBold";
+                    // Expanded Comprehensive Encyclopedia Section
+                    if root.expanded_cmd == doc.name: VerticalLayout {
+                        spacing: 12px;
+
+                        // Divider
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.border_normal;
+                        }
+
+                        // Syntax Format Block inside expanded card
+                        HorizontalLayout {
+                            spacing: 12px;
+                            alignment: start;
+                            Text {
+                                text: root.current_language == "ru" ? "Формат команды:" : "Command Syntax:";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: Theme.text_muted;
+                                vertical-alignment: center;
+                            }
+                            Rectangle {
+                                height: 32px;
+                                background: Theme.bg_dark;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: Theme.border_light;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    Text {
+                                        text: doc.syntax;
+                                        font-family: "CaskaydiaCove NF SemiBold";
+                                        font-size: 16px;
+                                        font-weight: 700;
+                                        color: Theme.accent_green;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section 1: Detailed Mechanics & Description
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: root.current_language == "ru" ? "НАЗНАЧЕНИЕ И МЕХАНИЗМ РАБОТЫ:" : "DESCRIPTION & MECHANICS:";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: Theme.accent_blue;
+                            }
+                            Text {
+                                text: doc.description;
+                                font-size: 16px;
+                                color: Theme.text_primary;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        // Section 2: Use Cases & Scenarios Callout Box
+                        Rectangle {
+                            border-radius: 4px;
+                            background: Theme.bg_surface1;
+                            clip: true;
+
+                            HorizontalLayout {
+                                Rectangle {
+                                    width: 4px;
+                                    background: Theme.accent_yellow;
+                                }
+
+                                VerticalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 4px;
+
+                                    Text {
+                                        text: root.current_language == "ru" ? "ТИПИЧНЫЕ СЦЕНАРИИ И ПРИМЕНЕНИЕ:" : "USE CASES & SCENARIOS:";
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        color: Theme.accent_yellow;
+                                    }
+                                    Text {
+                                        text: doc.when_to_use;
+                                        font-size: 15px;
+                                        color: Theme.text_primary;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section 3: Operands & Flags Grid
+                        HorizontalLayout {
+                            spacing: 12px;
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 34px;
+                                border-radius: 4px;
+                                background: Theme.bg_surface1;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    Text {
+                                        text: (root.current_language == "ru" ? "Операнды: " : "Operands: ") + doc.operands;
+                                        font-size: 14px;
+                                        color: Theme.accent_green;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                height: 34px;
+                                border-radius: 4px;
+                                background: Theme.bg_surface1;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    Text {
+                                        text: (root.current_language == "ru" ? "Влияние на флаги: " : "Flags affected: ") + doc.flags;
+                                        font-size: 14px;
+                                        color: Theme.accent_yellow;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Architectural Note / Pitfall
+                        if doc.notes != "": Text {
+                            text: (root.current_language == "ru" ? "Особенность: " : "Note: ") + doc.notes;
                             font-size: 14px;
-                            color: Theme.accent_green;
-                        }
-                        Text {
-                            text: doc.summary;
-                            font-size: 13px;
-                            color: Theme.text_primary;
-                            overflow: elide;
-                        }
-                    }
-
-                    Rectangle { }
-
-                    VerticalLayout {
-                        width: 170px;
-                        alignment: center;
-                        Text {
-                            text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + doc.flags;
-                            font-size: 12px;
-                            color: Theme.accent_yellow;
-                        }
-                        Text {
-                            text: (root.current_language == "ru" ? "Такты: " : "Cycles: ") + doc.cycles + " | " + doc.bytes + " Б";
-                            font-size: 12px;
                             color: Theme.text_muted;
+                            font-italic: true;
+                            wrap: word-wrap;
+                        }
+
+                        // Section 4: Practical Code Examples with Full Syntax Highlighting
+                        VerticalLayout {
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+
+                                Text {
+                                    text: root.current_language == "ru" ? "ПРАКТИЧЕСКИЙ ПРИМЕР ИСПОЛЬЗОВАНИЯ:" : "PRACTICAL CODE EXAMPLE:";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: Theme.accent_blue;
+                                    vertical-alignment: center;
+                                }
+
+                                // Button to Insert snippet into editor
+                                Rectangle {
+                                    width: 210px;
+                                    height: 32px;
+                                    border-radius: 4px;
+                                    background: ins_btn.has-hover ? Theme.accent_green : Theme.bg_surface2;
+
+                                    ins_btn := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.insert_snippet(doc.raw_snippet);
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.current_language == "ru" ? "Вставить пример в код" : "Insert Example into Code";
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        color: ins_btn.has-hover ? #151518 : Theme.text_primary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            // Token-by-Token Syntax Highlighted Code Box (Full Height, No Bottom Clipping!)
+                            Rectangle {
+                                background: Theme.bg_dark;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: Theme.border_light;
+
+                                VerticalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 14px;
+                                    padding-top: 10px;
+                                    padding-bottom: 10px;
+                                    spacing: 3px;
+
+                                    for eline in doc.example_lines: HorizontalLayout {
+                                        height: 24px;
+                                        alignment: start;
+                                        spacing: 0px;
+
+                                        for tok in eline.tokens: Text {
+                                            text: tok.text;
+                                            color: tok.color;
+                                            font-family: "CaskaydiaCove NF SemiBold";
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            font-italic: tok.is_italic;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

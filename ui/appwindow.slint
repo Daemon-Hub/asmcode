@@ -17,7 +17,7 @@ import { TabBar } from "./components/tab_bar.slint";
 import { SettingsDialog } from "./components/settings_dialog.slint";
 
 export component AppWindow inherits Window {
-    title: "ASMCode - Intel 8080 IDE";
+    title: "ASM Code - Intel 8080 IDE";
     icon: @image-url("icons/app_8080.svg");
     preferred-width: 1600px;
     preferred-height: 1000px;
@@ -60,8 +60,16 @@ export component AppWindow inherits Window {
     in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
     in-out property <bool> cursor_blink: true;
     in-out property <int> tab_size: 4;
+    in-out property <bool> associate_asm_files: false;
     in-out property <bool> show_deleted_tab_modal: false;
     in-out property <string> pending_deleted_tab_path: "";
+
+    // Drag & Drop File Exists Conflict Modal
+    in-out property <bool> show_dnd_conflict_modal: false;
+    in-out property <string> dnd_conflict_source_path: "";
+    in-out property <string> dnd_conflict_dest_dir: "";
+    in-out property <string> dnd_conflict_filename: "";
+    in-out property <string> dnd_conflict_new_name: "";
 
     public function close_all_context_menus() {
         root.show_file_menu = false;
@@ -122,7 +130,7 @@ export component AppWindow inherits Window {
     in-out property <string> status_message: "Ready";
     in-out property <color> status_color: #a6e3a1;
     in-out property <string> search_filter: "";
-    in-out property <string> output_log_text: "[SYSTEM] ASMCode Intel 8080 IDE initialized.";
+    in-out property <string> output_log_text: "[SYSTEM] ASM Code Intel 8080 IDE initialized.";
     in property <[TerminalLineItem]> terminal_lines: [];
 
     // Menu dropdown toggles
@@ -150,6 +158,7 @@ export component AppWindow inherits Window {
     in property <[LabelItem]> label_list: [];
     in property <[SuggestionItem]> suggestion_list: [];
     in property <[DocItem]> docs_list: [];
+    in-out property <int> docs_total_count: 67;
     in-out property <[FileTabItem]> open_tabs: [];
 
     // Large File Optimizations
@@ -168,6 +177,15 @@ export component AppWindow inherits Window {
     in-out property <string> selected_sugg_insert_text: "mov";
     in-out property <string> selected_sugg_icon_kind: "transfer";
     in-out property <string> selected_sugg_example: "mov a, b        ; Копировать B в A";
+
+    // Drag and Drop (DnD) Visual State & Callbacks
+    in-out property <string> dnd_hover_target: "";
+    in-out property <string> dnd_target_folder_path: "";
+    in-out property <string> dnd_hover_filename: "";
+
+    callback file_dropped_in_editor(data-transfer);
+    callback file_dropped_in_folder(string, data-transfer);
+    pure callback make_file_transfer(string) -> data-transfer;
 
     // Callbacks
     callback file_clicked(string, bool);
@@ -224,11 +242,17 @@ export component AppWindow inherits Window {
     callback reset_settings_defaults();
     callback browse_compiler();
     callback browse_emulator();
+    callback toggle_associate_asm();
     callback force_enable_large_file_features();
     callback confirm_open_large_file(string);
     callback cancel_open_large_file();
     callback confirm_close_deleted_tab(string);
     callback cancel_close_deleted_tab();
+    callback filter_docs_category(string);
+    callback insert_doc_snippet(string);
+    callback dnd_conflict_replace(string, string);
+    callback dnd_conflict_rename(string, string, string);
+    callback dnd_conflict_cancel();
 
     zoom_in => {
         if root.editor_font_size < 38px {
@@ -295,10 +319,13 @@ export component AppWindow inherits Window {
 
         // Main Center Workspace (Sidebar + Central Page)
         HorizontalLayout {
+            vertical-stretch: 1;
             spacing: 0px;
 
             // Left Sidebar: File Explorer Tree & Labels
             Sidebar {
+                vertical-stretch: 1;
+                horizontal-stretch: 0;
                 sidebar_width: root.sidebar_width;
                 current_language: root.current_language;
                 current_dir_path: root.current_dir_path;
@@ -333,6 +360,11 @@ export component AppWindow inherits Window {
                 }
                 label_clicked(line_num) => { root.label_clicked(line_num); }
                 explorer_undo => { root.explorer_undo(); }
+                dnd_hover_target: root.dnd_hover_target;
+                dnd_target_folder_path: root.dnd_target_folder_path;
+                dnd_hover_filename: root.dnd_hover_filename;
+                file_dropped_in_folder(folder, dt) => { root.file_dropped_in_folder(folder, dt); }
+                make_file_transfer(path) => { root.make_file_transfer(path) }
             }
 
             // Resizable Splitter Handle between Explorer and Central Area
@@ -350,6 +382,8 @@ export component AppWindow inherits Window {
 
             // Central Area: Mode 0 (Editor) or Mode 2 (Docs)
             if root.editor_mode != 2: EditorPage {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
                 open_tabs: root.open_tabs;
                 active_file_path: root.active_file_path;
                 line_numbers_text: root.line_numbers_text;
@@ -420,11 +454,19 @@ export component AppWindow inherits Window {
                 zoom_reset => { root.zoom_reset(); }
                 filter_changed(q) => { root.filter_changed(q); }
                 insert_suggestion(s) => { root.insert_suggestion(s); }
+                dnd_hover_target: root.dnd_hover_target;
+                dnd_hover_filename: root.dnd_hover_filename;
+                file_dropped_in_editor(dt) => { root.file_dropped_in_editor(dt); }
             }
 
             if root.editor_mode == 2: DocsPage {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
                 current_language: root.current_language;
                 docs_list: root.docs_list;
+                docs_total_count: root.docs_total_count;
+                filter_category(cat) => { root.filter_docs_category(cat); }
+                insert_snippet(snip) => { root.insert_doc_snippet(snip); }
             }
         }
 
@@ -444,6 +486,7 @@ export component AppWindow inherits Window {
 
         // Bottom Panel: Output / Terminal Console
         TerminalPanel {
+            vertical-stretch: 0;
             current_language: root.current_language;
             terminal_expanded <=> root.terminal_expanded;
             terminal_height: root.terminal_height;
@@ -742,6 +785,7 @@ export component AppWindow inherits Window {
         compiler_path <=> root.compiler_path;
         emulator_path <=> root.emulator_path;
         toolchain_type <=> root.toolchain_type;
+        associate_asm_files <=> root.associate_asm_files;
         close_dialog => { root.show_settings_dialog = false; }
         save_settings => {
             root.show_settings_dialog = false;
@@ -752,6 +796,7 @@ export component AppWindow inherits Window {
         }
         browse_compiler => { root.browse_compiler(); }
         browse_emulator => { root.browse_emulator(); }
+        toggle_associate_asm => { root.toggle_associate_asm(); }
     }
 
     // Deleted File Tab Close Confirmation Modal Dialog
@@ -862,6 +907,177 @@ export component AppWindow inherits Window {
                             clicked => {
                                 root.show_deleted_tab_modal = false;
                                 root.confirm_close_deleted_tab(root.pending_deleted_tab_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Drag & Drop File Exists Conflict Modal Dialog
+    if root.show_dnd_conflict_modal: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: #000000aa;
+        z: 350;
+
+        TouchArea {
+            // consume clicks outside modal
+        }
+
+        Rectangle {
+            width: 530px;
+            height: conflict_modal_col.preferred-height;
+            background: Theme.menu_bg;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.accent_yellow;
+            drop-shadow-blur: 24px;
+            drop-shadow-color: #000000cc;
+
+            conflict_modal_col := VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    VerticalLayout {
+                        alignment: center;
+                        Image {
+                            source: @image-url("icons/info.svg");
+                            width: 22px;
+                            height: 22px;
+                            colorize: Theme.accent_yellow;
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Файл уже существует" : "File Already Exists";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.accent_yellow;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "В папке назначения уже есть файл с именем \"" + root.dnd_conflict_filename + "\". Выберите действие:"
+                        : "The target folder already contains a file named \"" + root.dnd_conflict_filename + "\". Choose an action:";
+                    font-size: 13px;
+                    color: Theme.text_primary;
+                    wrap: word-wrap;
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: root.current_language == "ru" ? "Новое имя (для сохранения с другим названием):" : "New name (to save with a different name):";
+                        font-size: 12px;
+                        color: Theme.text_dim;
+                    }
+                    Rectangle {
+                        height: 34px;
+                        background: Theme.editor_bg;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: rename_input.has-focus ? Theme.accent_blue : Theme.border_normal;
+
+                        rename_input := TextInput {
+                            x: 8px;
+                            y: 0px;
+                            width: parent.width - 16px;
+                            height: 100%;
+                            vertical-alignment: center;
+                            text <=> root.dnd_conflict_new_name;
+                            color: Theme.text_primary;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    // 3) Cancel Button
+                    Rectangle {
+                        width: 90px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: conflict_cancel_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Отмена" : "Cancel";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Theme.text_primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        conflict_cancel_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_dnd_conflict_modal = false;
+                                root.dnd_conflict_cancel();
+                            }
+                        }
+                    }
+
+                    // 1) Replace Button
+                    Rectangle {
+                        width: 105px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: conflict_replace_touch.has-hover ? #ff4d6d : Theme.accent_red;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Заменить" : "Replace";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        conflict_replace_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.show_dnd_conflict_modal = false;
+                                root.dnd_conflict_replace(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir);
+                            }
+                        }
+                    }
+
+                    // 2) Save with New Name Button
+                    Rectangle {
+                        width: 220px;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: conflict_save_as_touch.has-hover ? #a6e3a1 : #85c980;
+
+                        Text {
+                            text: root.current_language == "ru" ? "Сохранить под новым именем" : "Save with new name";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: #151518;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        conflict_save_as_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if root.dnd_conflict_new_name != "" {
+                                    root.show_dnd_conflict_modal = false;
+                                    root.dnd_conflict_rename(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir, root.dnd_conflict_new_name);
+                                }
                             }
                         }
                     }

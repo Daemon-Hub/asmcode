@@ -13,9 +13,9 @@ export component TabBar inherits Rectangle {
     background: Theme.terminal_bg;
     clip: true;
 
-    // Fixed tab geometry to prevent squashing and alignment shifts
-    out property <length> tab_width: 155px;
-    out property <length> total_width: root.open_tabs.length * root.tab_width;
+    // Tab geometry: minimum 155px, expands dynamically for longer filenames and paths
+    out property <length> min_tab_width: 155px;
+    out property <length> total_width: tabs_strip.preferred-width;
     out property <bool> is_overflowing: root.total_width > root.width;
     out property <length> max_scroll: root.is_overflowing ? root.total_width - root.width + (root.is_overflowing ? 46px : 0px) : 0px;
 
@@ -47,16 +47,15 @@ export component TabBar inherits Rectangle {
     }
 
     // Scrollable Tabs Strip
-    tabs_strip := Rectangle {
+    tabs_strip := HorizontalLayout {
+        alignment: start;
         x: max(-root.max_scroll, min(0px, root.scroll_offset));
         y: 0px;
-        width: root.total_width;
         height: 35px;
+        spacing: 0px;
 
-        for tab[idx] in root.open_tabs: Rectangle {
-            x: idx * root.tab_width;
-            y: 0px;
-            width: root.tab_width;
+        for tab[idx] in root.open_tabs: tab_rect := Rectangle {
+            width: max(155px, tab_title.preferred-width + 68px);
             height: 35px;
             background: tab.is_deleted ? #ff004422 : (tab.is_active ? Theme.editor_bg : (tab_touch.has-hover ? Theme.bg_surface1 : Theme.sidebar_bg));
 
@@ -87,8 +86,8 @@ export component TabBar inherits Rectangle {
                 height: 15px;
             }
 
-            // Tab Title Text (strictly elided so it never collides with close button)
-            Text {
+            // Tab Title Text
+            tab_title := Text {
                 x: 30px;
                 y: 0px;
                 width: parent.width - 58px;
@@ -121,7 +120,7 @@ export component TabBar inherits Rectangle {
                 mouse-cursor: pointer;
                 pointer-event(e) => {
                     if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
-                        root.tab_context_menu(tab.path, self.mouse-x + idx * root.tab_width + root.scroll_offset, self.mouse-y + 36px);
+                        root.tab_context_menu(tab.path, self.mouse-x + tab_rect.x + root.scroll_offset, self.mouse-y + 36px);
                     }
                 }
                 clicked => {
@@ -154,6 +153,7 @@ export component TabBar inherits Rectangle {
                 height: 18px;
                 border-radius: 9px;
                 background: close_touch.has-hover ? Theme.bg_surface2 : #00000000;
+                z: 10;
 
                 Image {
                     source: @image-url("../icons/close.svg");
@@ -237,7 +237,7 @@ export component TabBar inherits Rectangle {
                 scroll_l_touch := TouchArea {
                     mouse-cursor: pointer;
                     clicked => {
-                        root.scroll_offset = min(0px, root.scroll_offset + root.tab_width);
+                        root.scroll_offset = min(0px, root.scroll_offset + root.min_tab_width);
                     }
                 }
             }
@@ -261,7 +261,7 @@ export component TabBar inherits Rectangle {
                 scroll_r_touch := TouchArea {
                     mouse-cursor: pointer;
                     clicked => {
-                        root.scroll_offset = max(-root.max_scroll, root.scroll_offset - root.tab_width);
+                        root.scroll_offset = max(-root.max_scroll, root.scroll_offset - root.min_tab_width);
                     }
                 }
             }

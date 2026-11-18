@@ -27,7 +27,10 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <length> tab_context_x: 0px;
     in-out property <length> tab_context_y: 0px;
     in property <bool> is_tab_pinned: false;
+    in property <string> dnd_hover_target: "";
+    in property <string> dnd_hover_filename: "";
 
+    callback file_dropped_in_editor(data-transfer);
     callback switch_tab(string);
     callback close_tab(string);
     callback close_other_tabs(string);
@@ -103,6 +106,20 @@ export component EditorPage inherits HorizontalLayout {
 
     // Central Editor Column (TabBar on top, Large File Banner, Code Area underneath)
     central_area := Rectangle {
+        horizontal-stretch: 1;
+        vertical-stretch: 1;
+
+        // DropArea covering the editor area
+        editor_drop := DropArea {
+            width: 100%;
+            height: 100%;
+            can-drop(event) => { DragAction.copy }
+            dropped(event) => {
+                root.file_dropped_in_editor(event.data);
+                return DragAction.copy;
+            }
+        }
+
         VerticalLayout {
             width: 100%;
             height: 100%;
@@ -194,6 +211,8 @@ export component EditorPage inherits HorizontalLayout {
             background: Theme.editor_bg;
 
             HorizontalLayout {
+                width: 100%;
+                height: 100%;
                 spacing: 0px;
 
                 // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
@@ -261,10 +280,10 @@ export component EditorPage inherits HorizontalLayout {
 
                         cursor-position-changed(cpos) => {
                             root.cursor_x = cpos.x + 8px;
+                            root.cursor_y = cpos.y;
                             if root.editor_line_height > 0 {
-                                root.cursor_line = ((cpos.y + 2px) / root.editor_line_height);
+                                root.cursor_line = round(cpos.y / root.editor_line_height);
                             }
-                            root.cursor_y = root.cursor_line * root.editor_line_height;
                             root.cursor_visible = true;
                             root.cursor_idle_ticks = 0;
 
@@ -638,12 +657,61 @@ export component EditorPage inherits HorizontalLayout {
                 root.toggle_pin_tab(p);
             }
         }
+
+        // Visual Drag & Drop Overlay
+        if editor_drop.has-drag || root.dnd_hover_target == "editor": Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #181825ee;
+            border-width: 2px;
+            border-color: Theme.accent_blue;
+            border-radius: 6px;
+            clip: true;
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 12px;
+
+                HorizontalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../icons/document.svg");
+                        width: 56px;
+                        height: 56px;
+                        colorize: Theme.accent_blue;
+                    }
+                }
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Отпустите файл для открытия в редакторе"
+                        : "Drop file to open in editor";
+                    font-size: 19px;
+                    font-weight: 700;
+                    color: Theme.text_primary;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: root.dnd_hover_filename != ""
+                        ? root.dnd_hover_filename
+                        : (root.current_language == "ru"
+                            ? "Файл будет загружен в новую вкладку редактора"
+                            : "File will open in a new editor tab");
+                    font-size: 14px;
+                    color: Theme.accent_green;
+                    horizontal-alignment: center;
+                }
+            }
+        }
     }
 
     Rectangle { width: 1px; background: #313244; }
 
     // Autocomplete / Intellisense Drawer
     drawer := RightDrawer {
+        horizontal-stretch: 0;
+        vertical-stretch: 1;
         current_language: root.current_language;
         right_drawer_expanded <=> root.right_drawer_expanded;
         suggestion_list: root.suggestion_list;

@@ -81,6 +81,9 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
     let app_weak = app.as_weak();
     app.on_run_emulator(move || {
         let Some(ui) = app_weak.upgrade() else { return };
+        if !ui.get_terminal_expanded() {
+            ui.set_terminal_expanded(true);
+        }
         let mut ctrl = ctrl_clone.lock().unwrap();
 
         // 1. Check if file is open

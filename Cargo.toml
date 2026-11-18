@@ -5,7 +5,7 @@ edition = "2024"
 description = "ASMCode is a cross-platform, open-source IDE for Intel8080 Assembler built with Rust and Slint."
 
 [dependencies]
-slint = "1.19"
+slint = { version = "1.19", features = ["unstable-winit-030"] }
 rayon = "1.12"
 rfd = "0.18.0"
 intel-8080-kit = "0.1.1"

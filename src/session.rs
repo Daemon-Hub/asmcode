@@ -24,6 +24,7 @@ pub struct AppSession {
     pub large_file_soft_limit_mb: u64,
     pub large_file_soft_limit_lines: usize,
     pub large_file_hard_limit_mb: u64,
+    pub associate_asm_files: bool,
 }
 
 impl Default for AppSession {
@@ -60,6 +61,7 @@ impl Default for AppSession {
             large_file_soft_limit_mb: 20,
             large_file_soft_limit_lines: 300_000,
             large_file_hard_limit_mb: 500,
+            associate_asm_files: crate::fs_manager::associations::is_asm_associated(),
         }
     }
 }
@@ -237,6 +239,9 @@ pub fn load_session() -> AppSession {
                         session.large_file_hard_limit_mb = v;
                     }
                 }
+                "associate_asm_files" => {
+                    session.associate_asm_files = val == "true";
+                }
                 _ => {}
             }
         }
@@ -267,7 +272,7 @@ pub fn save_session(session: &AppSession) {
         .join(", ");
 
     let json_text = format!(
-        "{{\n  \"last_open_folder\": {},\n  \"last_open_file\": {},\n  \"open_tabs\": [{}],\n  \"editor_font_size\": {},\n  \"editor_font_italic\": {},\n  \"current_language\": \"{}\",\n  \"labels_expanded\": {},\n  \"terminal_expanded\": {},\n  \"sidebar_width\": {},\n  \"terminal_height\": {},\n  \"active_theme_id\": {},\n  \"cursor_blink\": {},\n  \"tab_size\": {},\n  \"compiler_path\": \"{}\",\n  \"emulator_path\": \"{}\",\n  \"toolchain_type\": {},\n  \"large_file_optimizations\": {},\n  \"large_file_soft_limit_mb\": {},\n  \"large_file_soft_limit_lines\": {},\n  \"large_file_hard_limit_mb\": {}\n}}\n",
+        "{{\n  \"last_open_folder\": {},\n  \"last_open_file\": {},\n  \"open_tabs\": [{}],\n  \"editor_font_size\": {},\n  \"editor_font_italic\": {},\n  \"current_language\": \"{}\",\n  \"labels_expanded\": {},\n  \"terminal_expanded\": {},\n  \"sidebar_width\": {},\n  \"terminal_height\": {},\n  \"active_theme_id\": {},\n  \"cursor_blink\": {},\n  \"tab_size\": {},\n  \"compiler_path\": \"{}\",\n  \"emulator_path\": \"{}\",\n  \"toolchain_type\": {},\n  \"large_file_optimizations\": {},\n  \"large_file_soft_limit_mb\": {},\n  \"large_file_soft_limit_lines\": {},\n  \"large_file_hard_limit_mb\": {},\n  \"associate_asm_files\": {}\n}}\n",
         folder_str,
         file_str,
         tabs_str,
@@ -287,7 +292,8 @@ pub fn save_session(session: &AppSession) {
         session.large_file_optimizations,
         session.large_file_soft_limit_mb,
         session.large_file_soft_limit_lines,
-        session.large_file_hard_limit_mb
+        session.large_file_hard_limit_mb,
+        session.associate_asm_files
     );
 
     let file_path = dir.join("session.json");

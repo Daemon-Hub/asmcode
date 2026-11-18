@@ -2,7 +2,7 @@ use crate::editor::{apply_completion_to_code, extract_prefix_at_offset};
 use crate::ui::AppWindow;
 use crate::ui::controller::IdeController;
 use crate::ui::editor_bridge::{
-    populate_docs_ui, refresh_suggestions_ui, update_highlight_and_labels,
+    populate_docs_ui, record_editor_mutation, refresh_suggestions_ui, update_highlight_and_labels,
 };
 use crate::ui::handlers::file_ops::sync_tabs_ui;
 use slint::{ComponentHandle, Model, SharedString};
@@ -68,8 +68,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
 
         {
             let mut ctrl = ctrl_clone.lock().unwrap();
-            ctrl.undo_manager
-                .record_edit(new_code.as_str(), cursor_offset, false);
+            record_editor_mutation(&ui, &mut ctrl, new_code.as_str(), cursor_offset, false);
             sync_tabs_ui(&ui, &ctrl);
         }
 

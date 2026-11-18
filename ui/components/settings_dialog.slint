@@ -25,11 +25,15 @@ export component SettingsDialog inherits Rectangle {
     in-out property <string> compiler_path: "";
     in-out property <string> emulator_path: "";
 
+    // File association
+    in-out property <bool> associate_asm_files: false;
+
     callback close_dialog();
     callback save_settings();
     callback reset_defaults();
     callback browse_compiler();
     callback browse_emulator();
+    callback toggle_associate_asm();
 
     width: 780px;
     height: 520px;
@@ -224,12 +228,12 @@ export component SettingsDialog inherits Rectangle {
                 VerticalLayout {
                     padding: 20px;
                     spacing: 16px;
-                    alignment: center;
+                    alignment: start;
 
                     // TAB 0: EDITOR SETTINGS
                     if root.active_tab == 0: VerticalLayout {
                         spacing: 14px;
-                        alignment: center;
+                        alignment: start;
 
                         // Font size
                         Rectangle {
@@ -390,6 +394,48 @@ export component SettingsDialog inherits Rectangle {
                                 }
                             }
                         }
+
+                        // File association for .asm
+                        Rectangle {
+                            height: 40px;
+                            border-radius: 4px;
+                            background: Theme.bg_surface1;
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                alignment: space-between;
+                                Text {
+                                    text: root.current_language == "ru" ? "Открывать файлы .asm в ASM Code по умолчанию" : "Open .asm files in ASM Code by default";
+                                    font-size: 13px;
+                                    color: Theme.text_primary;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    Rectangle {
+                                        width: 44px;
+                                        height: 24px;
+                                        border-radius: 12px;
+                                        background: root.associate_asm_files ? Theme.accent_blue : Theme.bg_surface2;
+                                        Rectangle {
+                                            x: root.associate_asm_files ? 22px : 2px;
+                                            y: 2px;
+                                            width: 20px;
+                                            height: 20px;
+                                            border-radius: 10px;
+                                            background: #ffffff;
+                                        }
+                                        TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.associate_asm_files = !root.associate_asm_files;
+                                                root.toggle_associate_asm();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // TAB 1: APPEARANCE
@@ -494,7 +540,7 @@ export component SettingsDialog inherits Rectangle {
                     // TAB 2: LARGE FILE OPTIMIZATIONS
                     if root.active_tab == 2: VerticalLayout {
                         spacing: 14px;
-                        alignment: center;
+                        alignment: start;
 
                         // Enabled toggle
                         Rectangle {
@@ -604,7 +650,7 @@ export component SettingsDialog inherits Rectangle {
                     // TAB 3: TOOLCHAIN SETTINGS
                     if root.active_tab == 3: VerticalLayout {
                         spacing: 12px;
-                        alignment: center;
+                        alignment: start;
 
                         Text {
                             text: root.current_language == "ru" ? "Режим тулчейна (компилятор и эмулятор):" : "Toolchain Mode (Compiler & Emulator):";

@@ -73,21 +73,78 @@ pub fn update_highlight_and_labels(
     app.set_label_list(ModelRc::from(Rc::new(VecModel::from(label_items))));
 }
 
-pub fn populate_docs_ui(app: &AppWindow, lang: &str) {
-    let doc_items: Vec<DocItem> = crate::autocomplete::intel8080_docs::INTEL_8080_DOCS
+pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
+    let docs = crate::autocomplete::intel8080_docs::INTEL_8080_DOCS;
+    let theme_id = app.get_active_theme_id();
+    let doc_items: Vec<DocItem> = docs
         .iter()
-        .map(|doc| DocItem {
-            name: SharedString::from(doc.name),
-            syntax: SharedString::from(doc.syntax),
-            summary: SharedString::from(doc.get_summary(lang)),
-            operands: SharedString::from(doc.operands),
-            flags: SharedString::from(doc.flags),
-            cycles: SharedString::from(doc.cycles),
-            bytes: doc.bytes as i32,
-            category: SharedString::from(doc.get_category(lang)),
+        .filter(|doc| {
+            if category.is_empty() || category == "Все" || category == "All" {
+                return true;
+            }
+            let cat_ru = doc.get_category("ru");
+            let cat_en = doc.get_category("en");
+            let cat_lower = category.to_lowercase();
+            cat_ru.to_lowercase().contains(&cat_lower)
+                || cat_en.to_lowercase().contains(&cat_lower)
+                || doc.category.to_lowercase().contains(&cat_lower)
+                || doc.category_ru.to_lowercase().contains(&cat_lower)
+        })
+        .map(|doc| {
+            let detailed_desc =
+                crate::autocomplete::intel8080_details::get_detailed_description(doc.name, lang);
+            let when_to_use =
+                crate::autocomplete::intel8080_details::get_when_to_use(doc.name, lang);
+            let notes = crate::autocomplete::intel8080_details::get_notes(doc.name, lang);
+            let code_example =
+                crate::autocomplete::intel8080_details::get_detailed_code_example(doc.name);
+
+            // True syntax highlighting using active theme!
+            let highlighted = crate::syntax::intel8080::highlight_document(code_example, theme_id);
+            let example_lines: Vec<HighlightLineItem> = highlighted
+                .into_iter()
+                .map(|hl| {
+                    let tokens: Vec<TokenItem> = hl
+                        .tokens
+                        .into_iter()
+                        .map(|t| TokenItem {
+                            text: SharedString::from(t.text),
+                            color: t.color,
+                            is_italic: t.is_italic,
+                        })
+                        .collect();
+                    HighlightLineItem {
+                        line_number: hl.line_number,
+                        tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
+                    }
+                })
+                .collect();
+
+            DocItem {
+                name: SharedString::from(doc.name),
+                syntax: SharedString::from(doc.syntax),
+                summary: SharedString::from(doc.get_summary(lang)),
+                operands: SharedString::from(doc.operands),
+                flags: SharedString::from(doc.flags),
+                cycles: SharedString::from(doc.cycles),
+                bytes: doc.bytes as i32,
+                category: SharedString::from(doc.get_category(lang)),
+                description: SharedString::from(detailed_desc),
+                when_to_use: SharedString::from(when_to_use),
+                notes: SharedString::from(notes),
+                raw_snippet: SharedString::from(code_example),
+                example_lines: ModelRc::from(Rc::new(VecModel::from(example_lines))),
+                icon_kind: SharedString::from(doc.get_icon_kind()),
+            }
         })
         .collect();
+    let total_count = docs.len() as i32;
     app.set_docs_list(ModelRc::from(Rc::new(VecModel::from(doc_items))));
+    app.set_docs_total_count(total_count);
+}
+
+pub fn populate_docs_ui(app: &AppWindow, lang: &str) {
+    populate_filtered_docs_ui(app, lang, "Все");
 }
 
 pub fn refresh_suggestions_ui(
@@ -130,4 +187,51 @@ pub fn refresh_suggestions_ui(
         })
         .collect();
     app.set_suggestion_list(ModelRc::from(Rc::new(VecModel::from(items))));
+}
+
+pub fn ensure_active_file_or_create_draft(app: &AppWindow, ctrl: &mut IdeController) {
+    if ctrl.file_manager.active_file_path.is_some() && !app.get_active_file_name().is_empty() {
+        return;
+    }
+
+    let mut idx = 1;
+    let draft_name = loop {
+        let name = if idx == 1 {
+            "NewFile.asm".to_string()
+        } else {
+            format!("NewFile_{}.asm", idx)
+        };
+        let path = ctrl.file_manager.current_dir.join(&name);
+        if !path.exists() && !ctrl.open_tabs.contains(&path) {
+            break name;
+        }
+        idx += 1;
+    };
+
+    let draft_path = ctrl.file_manager.current_dir.join(&draft_name);
+    ctrl.untitled_drafts.insert(draft_path.clone());
+    if !ctrl.open_tabs.contains(&draft_path) {
+        ctrl.open_tabs.push(draft_path.clone());
+    }
+    ctrl.file_manager.active_file_path = Some(draft_path.clone());
+
+    app.set_active_file_name(SharedString::from(&draft_name));
+    app.set_active_file_path(SharedString::from(draft_path.to_string_lossy().to_string()));
+    app.set_is_dirty(true);
+    app.set_is_active_asm(true);
+}
+
+pub fn record_editor_mutation(
+    app: &AppWindow,
+    ctrl: &mut IdeController,
+    new_code: &str,
+    cursor_pos: i32,
+    is_group: bool,
+) {
+    ensure_active_file_or_create_draft(app, ctrl);
+    ctrl.undo_manager
+        .record_edit(new_code, cursor_pos, is_group);
+    if let Some(path) = ctrl.file_manager.active_file_path.clone() {
+        ctrl.tab_buffers.insert(path, new_code.to_string());
+    }
 }

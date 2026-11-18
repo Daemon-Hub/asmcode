@@ -4,8 +4,8 @@ use crate::ui::controller::IdeController;
 use crate::ui::editor_bridge::{populate_docs_ui, refresh_suggestions_ui};
 use crate::ui::explorer_bridge::refresh_files_ui;
 use crate::ui::handlers::{
-    attach_autocomplete_handlers, attach_editor_handlers, attach_file_handlers,
-    attach_toolchain_handlers, attach_view_handlers, open_file_internal,
+    attach_autocomplete_handlers, attach_dnd_handlers, attach_editor_handlers,
+    attach_file_handlers, attach_toolchain_handlers, attach_view_handlers, open_file_internal,
 };
 use crate::ui::terminal::update_terminal_lines;
 use slint::SharedString;
@@ -36,6 +36,7 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
         app.set_emulator_path(SharedString::from(&session.emulator_path));
     }
     app.set_toolchain_type(session.toolchain_type);
+    app.set_associate_asm_files(crate::fs_manager::associations::is_asm_associated());
 
     {
         let mut ctrl = controller_rc.lock().unwrap();
@@ -88,4 +89,5 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
     attach_autocomplete_handlers(app, &controller_rc);
     attach_toolchain_handlers(app, &controller_rc);
     attach_view_handlers(app, &controller_rc);
+    attach_dnd_handlers(app, &controller_rc);
 }
