@@ -74,8 +74,29 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
 
         let is_asm = ui.get_is_active_asm();
         {
-            let ctrl = ctrl_clone.lock().unwrap();
+            let mut ctrl = ctrl_clone.lock().unwrap();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, new_code.as_str(), is_asm);
+
+            if ui.get_show_find_replace() {
+                let query = ctrl.find_state.query.clone();
+                if !query.is_empty() {
+                    let match_case = ctrl.find_state.match_case;
+                    let whole_word = ctrl.find_state.whole_word;
+                    let matches = crate::editor::find_all_matches(new_code.as_str(), &query, match_case, whole_word);
+                    let count = matches.len();
+                    ctrl.find_state.matches = matches;
+                    if count > 0 {
+                        ctrl.find_state.current_idx = ctrl.find_state.current_idx.min(count - 1);
+                        ui.set_find_match_count(count as i32);
+                        ui.set_find_match_index((ctrl.find_state.current_idx + 1) as i32);
+                    } else {
+                        ctrl.find_state.current_idx = 0;
+                        ui.set_find_match_count(0);
+                        ui.set_find_match_index(0);
+                    }
+                    crate::ui::handlers::editor_ops::sync_find_matches_to_ui(&ui, &ctrl, new_code.as_str());
+                }
+            }
         }
 
         let is_large_file = ui.get_is_large_file_mode();

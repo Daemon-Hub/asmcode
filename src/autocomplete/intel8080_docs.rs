@@ -29,6 +29,55 @@ impl InstructionDoc {
         }
     }
 
+    pub fn get_operands(&self, lang: &str) -> &'static str {
+        if lang == "ru" {
+            match self.operands {
+                "16-bit addresses, numbers, or labels" => "16-битные адреса, числа или метки",
+                "addr: 16-bit address or label" => "addr: 16-битный адрес или метка",
+                "addr: 16-bit memory address" => "addr: 16-битный адрес в памяти",
+                "addr: 16-bit memory address (loads L from addr, H from addr+1)" => {
+                    "addr: 16-битный адрес памяти (L из addr, H из addr+1)"
+                }
+                "addr: 16-bit memory address (stores L to addr, H to addr+1)" => {
+                    "addr: 16-битный адрес памяти (L в addr, H в addr+1)"
+                }
+                "address: 16-bit address (e.g. 100H, 0000H)" => {
+                    "address: 16-битный адрес (например, 100H, 0000H)"
+                }
+                "byte values, characters, or string literals" => {
+                    "байтовые значения, символы или строки"
+                }
+                "data8: 8-bit literal" => "data8: 8-битный литерал",
+                "label, numeric value or expression" => "метка, числовое значение или выражение",
+                "None" => "Нет",
+                "optional start execution address label" => {
+                    "необязательная метка начального адреса выполнения"
+                }
+                "port: 8-bit port number (00H - FFH)" => "port: 8-битный номер порта (00H - FFH)",
+                "r: A, B, C, D, E, H, L, M" => "r: A, B, C, D, E, H, L, M",
+                "r: A, B, C, D, E, H, L, M; data8: 8-bit literal" => {
+                    "r: A, B, C, D, E, H, L, M; data8: 8-битный литерал"
+                }
+                "r1 (dst), r2 (src): A, B, C, D, E, H, L, M" => {
+                    "r1 (приёмник), r2 (источник): A, B, C, D, E, H, L, M"
+                }
+                "rp: B (BC), D (DE)" => "rp: B (BC), D (DE)",
+                "rp: B (BC), D (DE), H (HL), PSW (A & flags)" => {
+                    "rp: B (BC), D (DE), H (HL), PSW (A и флаги)"
+                }
+                "rp: B (BC), D (DE), H (HL), SP" => "rp: B (BC), D (DE), H (HL), SP",
+                "rp: B (BC), D (DE), H (HL), SP; data16: 16-bit address or value" => {
+                    "rp: B (BC), D (DE), H (HL), SP; data16: 16-битный адрес или значение"
+                }
+                "size: number of bytes to reserve" => "size: количество резервируемых байт",
+                "exp: 3-bit restart number (0 - 7)" => "exp: 3-битный номер рестарта (0 - 7)",
+                other => other,
+            }
+        } else {
+            self.operands
+        }
+    }
+
     pub fn get_icon_kind(&self) -> &'static str {
         match self.category {
             "Data Transfer" => "transfer",
@@ -123,6 +172,7 @@ impl InstructionDoc {
             "NOP" => "nop             ; Холостая операция (задержка 4 такта)",
             "ORG" => "org 100h        ; Точка входа программы CP/M (TPA)",
             "EQU" => "BDOS equ 0005h  ; Константа точки входа в BDOS",
+            "SET" => "COUNT set 10    ; Переопределяемая константа",
             "DB" => "db 'Hello$', 0   ; Определение байтов или строки",
             "DW" => "dw 1234h, table  ; Определение 16-битных слов/адресов",
             "DS" => "ds 64            ; Резервирование 64 байт буфера",
@@ -662,6 +712,54 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         category_ru: "Переходы",
     },
     InstructionDoc {
+        name: "JPO",
+        syntax: "JPO addr",
+        summary: "Jump if Parity Odd (P = 0).",
+        summary_ru: "Условный переход, если паритет нечётный (P = 0).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "10",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "JPE",
+        syntax: "JPE addr",
+        summary: "Jump if Parity Even (P = 1).",
+        summary_ru: "Условный переход, если паритет чётный (P = 1).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "10",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "JP",
+        syntax: "JP addr",
+        summary: "Jump if Positive (S = 0).",
+        summary_ru: "Условный переход, если результат положительный или ноль (S = 0).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "10",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "JM",
+        syntax: "JM addr",
+        summary: "Jump if Minus (S = 1).",
+        summary_ru: "Условный переход, если результат отрицательный (S = 1).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "10",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
         name: "CALL",
         syntax: "CALL addr",
         summary: "Call subroutine at memory address. Pushes PC onto stack.",
@@ -698,6 +796,78 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         category_ru: "Переходы",
     },
     InstructionDoc {
+        name: "CNC",
+        syntax: "CNC addr",
+        summary: "Call if No Carry (CY = 0).",
+        summary_ru: "Вызов подпрограммы, если нет переноса (CY = 0).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "CC",
+        syntax: "CC addr",
+        summary: "Call if Carry (CY = 1).",
+        summary_ru: "Вызов подпрограммы, если есть перенос (CY = 1).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "CPO",
+        syntax: "CPO addr",
+        summary: "Call if Parity Odd (P = 0).",
+        summary_ru: "Вызов подпрограммы, если паритет нечётный (P = 0).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "CPE",
+        syntax: "CPE addr",
+        summary: "Call if Parity Even (P = 1).",
+        summary_ru: "Вызов подпрограммы, если паритет чётный (P = 1).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "CP",
+        syntax: "CP addr",
+        summary: "Call if Positive (S = 0).",
+        summary_ru: "Вызов подпрограммы, если результат положительный или ноль (S = 0).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "CM",
+        syntax: "CM addr",
+        summary: "Call if Minus (S = 1).",
+        summary_ru: "Вызов подпрограммы, если результат отрицательный (S = 1).",
+        operands: "addr: 16-bit address or label",
+        flags: "None",
+        cycles: "11 (false) / 17 (true)",
+        bytes: 3,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
         name: "RET",
         syntax: "RET",
         summary: "Return from subroutine. Pops return address from stack into PC.",
@@ -726,6 +896,78 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         syntax: "RZ",
         summary: "Return if Zero (Z = 1).",
         summary_ru: "Возврат из подпрограммы, если результат ноль (Z = 1).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RNC",
+        syntax: "RNC",
+        summary: "Return if No Carry (CY = 0).",
+        summary_ru: "Возврат из подпрограммы, если нет переноса (CY = 0).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RC",
+        syntax: "RC",
+        summary: "Return if Carry (CY = 1).",
+        summary_ru: "Возврат из подпрограммы, если есть перенос (CY = 1).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RPO",
+        syntax: "RPO",
+        summary: "Return if Parity Odd (P = 0).",
+        summary_ru: "Возврат из подпрограммы, если паритет нечётный (P = 0).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RPE",
+        syntax: "RPE",
+        summary: "Return if Parity Even (P = 1).",
+        summary_ru: "Возврат из подпрограммы, если паритет чётный (P = 1).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RP",
+        syntax: "RP",
+        summary: "Return if Positive (S = 0).",
+        summary_ru: "Возврат из подпрограммы, если результат положительный или ноль (S = 0).",
+        operands: "None",
+        flags: "None",
+        cycles: "5 (false) / 11 (true)",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RM",
+        syntax: "RM",
+        summary: "Return if Minus (S = 1).",
+        summary_ru: "Возврат из подпрограммы, если результат отрицательный (S = 1).",
         operands: "None",
         flags: "None",
         cycles: "5 (false) / 11 (true)",
@@ -789,6 +1031,18 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         operands: "None",
         flags: "None",
         cycles: "5",
+        bytes: 1,
+        category: "Branch",
+        category_ru: "Переходы",
+    },
+    InstructionDoc {
+        name: "RST",
+        syntax: "RST exp",
+        summary: "Restart / software interrupt (calls location exp * 8).",
+        summary_ru: "Программное прерывание (вызов подпрограммы по адресу exp * 8).",
+        operands: "exp: 3-bit restart number (0 - 7)",
+        flags: "None",
+        cycles: "11",
         bytes: 1,
         category: "Branch",
         category_ru: "Переходы",
@@ -882,6 +1136,18 @@ pub static INTEL_8080_DOCS: &[InstructionDoc] = &[
         syntax: "label EQU expression",
         summary: "Define constant symbol value.",
         summary_ru: "Директива: определение именованной константы или выражения.",
+        operands: "label, numeric value or expression",
+        flags: "None",
+        cycles: "-",
+        bytes: 0,
+        category: "Directive",
+        category_ru: "Директивы ассемблера",
+    },
+    InstructionDoc {
+        name: "SET",
+        syntax: "label SET expression",
+        summary: "Define redefinable assembly variable / constant.",
+        summary_ru: "Директива: определение переопределяемой числовой переменной или константы.",
         operands: "label, numeric value or expression",
         flags: "None",
         cycles: "-",

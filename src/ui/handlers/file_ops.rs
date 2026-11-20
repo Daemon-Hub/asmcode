@@ -110,22 +110,8 @@ pub fn sync_tabs_ui(app: &AppWindow, ctrl: &IdeController) {
         let is_deleted = ctrl.deleted_open_tabs.contains(p);
         let tab_dirty = if is_active {
             is_dirty
-        } else if ctrl.untitled_drafts.contains(p) {
-            true
-        } else if let Some(buf) = ctrl.tab_buffers.get(p) {
-            if let Ok(meta) = std::fs::metadata(p) {
-                if meta.len() as usize != buf.len() {
-                    true
-                } else if let Ok(disk) = std::fs::read(p) {
-                    buf.as_bytes() != disk.as_slice()
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
         } else {
-            false
+            ctrl.dirty_tabs.contains(p)
         };
         items.push(FileTabItem {
             name: SharedString::from(display_name),
@@ -173,7 +159,12 @@ pub fn open_file_internal(
             let mut ctrl = ctrl_rc.lock().unwrap();
             if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
                 let current_code = ui.get_code_text().to_string();
-                ctrl.tab_buffers.insert(curr, current_code);
+                ctrl.tab_buffers.insert(curr.clone(), current_code);
+                if ui.get_is_dirty() {
+                    ctrl.dirty_tabs.insert(curr);
+                } else {
+                    ctrl.dirty_tabs.remove(&curr);
+                }
             }
         }
         matched_path.clone()
@@ -270,20 +261,12 @@ pub fn open_file_internal(
     let mut ctrl = ctrl_rc.lock().unwrap();
     ctrl.tab_buffers.insert(path.clone(), content.clone());
 
-    let (large_opt_enabled, soft_limit_bytes, soft_limit_lines) = (
+    let (large_opt_enabled, soft_limit_bytes) = (
         ctrl.session.large_file_optimizations,
         ctrl.session.large_file_soft_limit_mb * 1024 * 1024,
-        ctrl.session.large_file_soft_limit_lines,
     );
 
-    let is_large_by_size = large_opt_enabled && file_size > soft_limit_bytes;
-    let is_large_by_lines = if large_opt_enabled && !is_large_by_size {
-        content.as_bytes().iter().filter(|&&b| b == b'\n').count() > soft_limit_lines
-    } else {
-        false
-    };
-
-    let is_large_file = is_large_by_size || is_large_by_lines;
+    let is_large_file = large_opt_enabled && file_size > soft_limit_bytes;
     ctrl.is_large_file_mode = is_large_file;
     ctrl.force_full_features = false;
     ui.set_is_large_file_mode(is_large_file);
@@ -296,13 +279,7 @@ pub fn open_file_internal(
     ui.set_active_file_name(SharedString::from(&file_name));
     ui.set_active_file_path(SharedString::from(path.to_string_lossy().to_string()));
     ui.set_code_text(SharedString::from(&content));
-    let is_dirty = if is_draft {
-        true
-    } else if let Ok(disk_bytes) = std::fs::read(path) {
-        content.as_bytes() != disk_bytes.as_slice()
-    } else {
-        false
-    };
+    let is_dirty = ctrl.dirty_tabs.contains(path);
     ui.set_is_dirty(is_dirty);
     ctrl.undo_manager.reset(content.clone(), 0);
 
@@ -378,6 +355,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             ctrl.pinned_tabs.remove(&curr);
             ctrl.deleted_open_tabs.remove(&curr);
             ctrl.untitled_drafts.remove(&curr);
+            ctrl.dirty_tabs.remove(&curr);
             ctrl.tab_buffers.remove(&curr);
             ctrl.open_tabs.retain(|p| p != &curr);
         }
@@ -412,7 +390,12 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             }
             if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
                 let current_code = ui.get_code_text().to_string();
-                ctrl.tab_buffers.insert(curr, current_code);
+                ctrl.tab_buffers.insert(curr.clone(), current_code);
+                if ui.get_is_dirty() {
+                    ctrl.dirty_tabs.insert(curr);
+                } else {
+                    ctrl.dirty_tabs.remove(&curr);
+                }
             }
         }
         open_file_internal(&ui, &ctrl_clone, &path, false);
@@ -439,6 +422,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ctrl.pinned_tabs.remove(&path);
         ctrl.deleted_open_tabs.remove(&path);
         ctrl.untitled_drafts.remove(&path);
+        ctrl.dirty_tabs.remove(&path);
         ctrl.tab_buffers.remove(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
@@ -474,6 +458,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ctrl.deleted_open_tabs.remove(&path);
         ctrl.pinned_tabs.remove(&path);
         ctrl.untitled_drafts.remove(&path);
+        ctrl.dirty_tabs.remove(&path);
         ctrl.tab_buffers.remove(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
@@ -907,6 +892,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         match ctrl.file_manager.write_file_content(&save_path, &text) {
             Ok(()) => {
                 ctrl.untitled_drafts.remove(&save_path);
+                ctrl.dirty_tabs.remove(&save_path);
                 ctrl.tab_buffers.insert(save_path.clone(), text.clone());
                 ui.set_is_dirty(false);
                 let saved_name = save_path
@@ -990,6 +976,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
                             if let Some(ref old) = old_path {
                                 ctrl.untitled_drafts.remove(old);
+                                ctrl.dirty_tabs.remove(old);
                                 ctrl.tab_buffers.remove(old);
                                 if old != &target_path {
                                     if let Some(idx) = ctrl.open_tabs.iter().position(|p| p == old)
@@ -1008,6 +995,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                             }
 
                             ctrl.file_manager.active_file_path = Some(target_path.clone());
+                            ctrl.dirty_tabs.remove(&target_path);
                             ctrl.tab_buffers
                                 .insert(target_path.clone(), current_text.clone());
                             ctrl.undo_manager.reset(current_text.clone(), 0);
@@ -1169,7 +1157,14 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let Some(ui) = app_weak.upgrade() else { return };
         let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.append_log("[SETTINGS] Configuration updated and persisted");
-        ui.set_status_message(SharedString::from("Settings saved"));
+        let lang = ui.get_current_language().to_string();
+        crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
+        let msg = if lang == "ru" {
+            "Настройки сохранены"
+        } else {
+            "Settings saved"
+        };
+        ui.set_status_message(SharedString::from(msg));
         ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
         sync_logs(&ui, &ctrl);
         persist_current_session(&ui, &ctrl);

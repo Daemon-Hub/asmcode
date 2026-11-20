@@ -1,0 +1,383 @@
+import { RegisterItem, FlagItem, FlagRuleItem } from "../../models.slint";
+import { Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export component RegistersView inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in property <[RegisterItem]> registers_list: [];
+    in property <[FlagItem]> flags_list: [];
+    in property <[FlagRuleItem]> flag_rules_list: [];
+    in-out property <string> selected_flag_name: "Z";
+    in-out property <int> selected_flag_index: 1;
+
+    spacing: 12px;
+
+    // Registers Matrix Header
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            Text {
+                text: root.current_language == "ru" ? "РЕГИСТРОВАЯ МОДЕЛЬ INTEL 8080:" : "INTEL 8080 REGISTER MODEL:";
+                font-size: 14px;
+                font-weight: 700;
+                color: Theme.accent_blue;
+            }
+
+            // Grid of 8-bit and 16-bit registers
+            HorizontalLayout {
+                spacing: 8px;
+
+                // Accumulator A
+                Rectangle {
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Theme.accent_yellow;
+                    horizontal-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text { text: "A (Аккумулятор)"; font-size: 15px; font-weight: 700; color: Theme.accent_yellow; }
+                        Text { text: "8 бит | Вычисления и I/O"; font-size: 13px; color: Theme.text_muted; }
+                    }
+                }
+
+                // BC pair
+                Rectangle {
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    horizontal-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text { text: "B | C (Пара BC)"; font-size: 15px; font-weight: 700; color: Theme.accent_blue; }
+                        Text { text: "16 бит | C = счетчик/BDOS"; font-size: 13px; color: Theme.text_muted; }
+                    }
+                }
+
+                // DE pair
+                Rectangle {
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    horizontal-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text { text: "D | E (Пара DE)"; font-size: 15px; font-weight: 700; color: Theme.accent_blue; }
+                        Text { text: "16 бит | Указатель/Строки"; font-size: 13px; color: Theme.text_muted; }
+                    }
+                }
+
+                // HL pair
+                Rectangle {
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Theme.accent_green;
+                    horizontal-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text { text: "H | L (Пара HL / M)"; font-size: 15px; font-weight: 700; color: Theme.accent_green; }
+                        Text { text: "16 бит | База адресации M"; font-size: 13px; color: Theme.text_muted; }
+                    }
+                }
+
+                // SP and PC
+                Rectangle {
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    horizontal-stretch: 1;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
+                        Text { text: "SP / PC"; font-size: 15px; font-weight: 700; color: #bd93f9; }
+                        Text { text: "16 бит | Стек и счетчик команд"; font-size: 13px; color: Theme.text_muted; }
+                    }
+                }
+            }
+        }
+    }
+
+    // PSW (Flags Byte) Interactive Panel
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.accent_yellow;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 10px;
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "БАЙТ СОСТОЯНИЯ ПРОЦЕССОРА PSW (ФЛАГИ РЕГИСТРА F):"
+                        : "PROGRAM STATUS WORD (PSW FLAGS BYTE F):";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.accent_yellow;
+                }
+
+                Text {
+                    text: root.current_language == "ru" ? "Нажмите на флаг для просмотра правил" : "Click flag to view rules";
+                    font-size: 13px;
+                    color: Theme.text_muted;
+                }
+            }
+
+            // Interactive Byte Strip: Bit 7 to 0
+            HorizontalLayout {
+                height: 56px;
+                spacing: 6px;
+
+                // Bit 7: S
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: root.selected_flag_index == 0 ? Theme.accent_yellow : Theme.bg_surface2;
+                    ts := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 0; } }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "S (Бит 7)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 0 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
+                        Text { text: "Sign (Знак)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 0 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 6: Z
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: root.selected_flag_index == 1 ? Theme.accent_yellow : Theme.bg_surface2;
+                    tz := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 1; } }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "Z (Бит 6)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 1 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
+                        Text { text: "Zero (Ноль)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 1 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 5: 0
+                Rectangle {
+                    width: 76px;
+                    border-radius: 4px;
+                    background: #252528;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "0 (Бит 5)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text { text: "Всегда 0"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 4: AC
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: root.selected_flag_index == 2 ? Theme.accent_yellow : Theme.bg_surface2;
+                    tac := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 2; } }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "AC (Бит 4)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 2 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
+                        Text { text: "Aux Carry"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 2 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 3: 0
+                Rectangle {
+                    width: 76px;
+                    border-radius: 4px;
+                    background: #252528;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "0 (Бит 3)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text { text: "Всегда 0"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 2: P
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: root.selected_flag_index == 3 ? Theme.accent_yellow : Theme.bg_surface2;
+                    tp := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 3; } }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "P (Бит 2)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 3 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
+                        Text { text: "Parity (Четность)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 3 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 1: 1
+                Rectangle {
+                    width: 76px;
+                    border-radius: 4px;
+                    background: #252528;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "1 (Бит 1)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text { text: "Всегда 1"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+
+                // Bit 0: CY
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 4px;
+                    background: root.selected_flag_index == 4 ? Theme.accent_yellow : Theme.bg_surface2;
+                    tcy := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 4; } }
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        Text { text: "CY (Бит 0)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 4 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
+                        Text { text: "Carry (Перенос)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 4 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                    }
+                }
+            }
+
+            // Selected Flag Details (single stable container with no shifting)
+            Rectangle {
+                background: Theme.bg_surface;
+                border-radius: 6px;
+
+                if root.flags_list.length > root.selected_flag_index: VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: root.flags_list[root.selected_flag_index].title + " [Бит " + root.flags_list[root.selected_flag_index].bit_index + "]";
+                            font-size: 16px;
+                            font-weight: 700;
+                            color: Theme.accent_yellow;
+                        }
+                    }
+
+                    Text {
+                        text: root.flags_list[root.selected_flag_index].description;
+                        font-size: 15px;
+                        color: Theme.text_primary;
+                        wrap: word-wrap;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Rectangle {
+                            background: Theme.bg_surface2;
+                            border-radius: 4px;
+                            horizontal-stretch: 1;
+                            HorizontalLayout {
+                                padding: 10px;
+                                Text {
+                                    text: root.flags_list[root.selected_flag_index].when_set;
+                                    font-size: 14px;
+                                    color: Theme.accent_green;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            background: Theme.bg_surface2;
+                            border-radius: 4px;
+                            horizontal-stretch: 1;
+                            HorizontalLayout {
+                                padding: 10px;
+                                Text {
+                                    text: root.flags_list[root.selected_flag_index].when_cleared;
+                                    font-size: 14px;
+                                    color: Theme.accent_red;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: (root.current_language == "ru" ? "Изменяется командами: " : "Modified by instructions: ") + root.flags_list[root.selected_flag_index].affected_by;
+                        font-size: 14px;
+                        color: Theme.text_muted;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+
+    // Flag Rules Summary Table
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            Text {
+                text: root.current_language == "ru" ? "СВОДНЫЕ ПРАВИЛА ВЛИЯНИЯ КОМАНД НА ФЛАГИ:" : "SUMMARY RULES OF INSTRUCTION FLAG MODIFICATION:";
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.accent_blue;
+            }
+
+            ListView {
+                for r in root.flag_rules_list: HorizontalLayout {
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+                    spacing: 10px;
+
+                    Rectangle {
+                        width: 200px;
+                        min-height: 28px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface2;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text { text: r.op_group; font-size: 14px; font-weight: 700; color: Theme.accent_yellow; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 440px;
+                        min-height: 28px;
+                        border-radius: 3px;
+                        background: Theme.editor_bg;
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text { text: r.commands; font-size: 14px; font-weight: 600; color: Theme.accent_blue; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                        }
+                    }
+
+                    Text { text: r.effect; font-size: 14px; color: Theme.text_primary; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+}

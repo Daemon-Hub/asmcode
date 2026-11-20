@@ -71,7 +71,7 @@ export component AutocompletePopup inherits Rectangle {
 
                             Text {
                                 text: sugg.name;
-                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-family: "CaskaydiaCove Nerd Font Propo";
                                 font-size: 13px;
                                 font-weight: 700;
                                 color: (sugg.icon_kind == "label") ? Theme.accent_yellow : Theme.accent_blue;
@@ -131,7 +131,7 @@ export component AutocompletePopup inherits Rectangle {
 
                         Text {
                             text: root.selected_sugg_name;
-                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-family: "CaskaydiaCove Nerd Font Propo";
                             font-size: 16px;
                             font-weight: 700;
                             color: Theme.accent_blue;
@@ -177,7 +177,7 @@ export component AutocompletePopup inherits Rectangle {
                     spacing: 10px;
                     Text {
                         text: (root.current_language == "ru" ? "Формат: " : "Syntax: ") + root.selected_sugg_syntax;
-                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-family: "CaskaydiaCove Nerd Font Propo";
                         font-size: 12px;
                         color: Theme.accent_green;
                         vertical-alignment: center;
@@ -220,7 +220,7 @@ export component AutocompletePopup inherits Rectangle {
                         alignment: start;
                         Text {
                             text: root.selected_sugg_example;
-                            font-family: "CaskaydiaCove NF SemiBold";
+                            font-family: "CaskaydiaCove Nerd Font Propo";
                             font-size: 12px;
                             color: Theme.accent_blue;
                             vertical-alignment: center;

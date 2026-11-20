@@ -1,0 +1,708 @@
+import { BdosItem, FcbFieldItem, BufferFieldItem } from "../../models.slint";
+import { Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export component BdosView inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in property <[BdosItem]> bdos_list: [];
+    in property <int> bdos_total_count: 37;
+    in property <[FcbFieldItem]> fcb_fields_list: [];
+    in property <[BufferFieldItem]> buffer_fields_list: [];
+    in-out property <string> selected_category: root.current_language == "ru" ? "Все" : "All";
+    in-out property <int> expanded_func_num: -1;
+    in-out property <int> sub_tab: 0; // 0 = Functions (0-36), 1 = FCB Structure, 2 = Buffer 0Ah
+
+    callback filter_category(string);
+    callback insert_snippet(string);
+
+    spacing: 12px;
+
+    // Sub-Navigation: Functions | FCB Structure | Buffer 0Ah
+    Rectangle {
+        height: 40px;
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            spacing: 8px;
+            alignment: start;
+
+            // Tab 0: Functions
+            Rectangle {
+                width: root.current_language == "ru" ? 190px : 160px;
+                height: 32px;
+                border-radius: 4px;
+                background: root.sub_tab == 0 ? Theme.accent_blue : (t0.has-hover ? Theme.bg_surface2 : #00000000);
+                t0 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.sub_tab = 0; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Функции BDOS (0-36)" : "BDOS Calls (0-36)";
+                    font-size: 14px;
+                    font-weight: root.sub_tab == 0 ? 700 : 500;
+                    color: root.sub_tab == 0 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Tab 1: FCB Structure
+            Rectangle {
+                width: root.current_language == "ru" ? 200px : 170px;
+                height: 32px;
+                border-radius: 4px;
+                background: root.sub_tab == 1 ? Theme.accent_blue : (t1.has-hover ? Theme.bg_surface2 : #00000000);
+                t1 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.sub_tab = 1; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Структура FCB (36 Б)" : "FCB Structure (36 B)";
+                    font-size: 14px;
+                    font-weight: root.sub_tab == 1 ? 700 : 500;
+                    color: root.sub_tab == 1 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Tab 2: Buffer 0Ah Structure
+            Rectangle {
+                width: root.current_language == "ru" ? 190px : 160px;
+                height: 32px;
+                border-radius: 4px;
+                background: root.sub_tab == 2 ? Theme.accent_blue : (t2.has-hover ? Theme.bg_surface2 : #00000000);
+                t2 := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.sub_tab = 2; }
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Буфер ввода 0Ah" : "Buffer Layout (0Ah)";
+                    font-size: 14px;
+                    font-weight: root.sub_tab == 2 ? 700 : 500;
+                    color: root.sub_tab == 2 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Pattern Description Banner
+    Rectangle {
+        background: Theme.bg_surface;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        HorizontalLayout {
+            padding: 10px;
+            spacing: 12px;
+            alignment: space-between;
+
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Паттерн системного вызова: Номер функции в C  |  Аргументы в DE/E  |  Вызов: CALL 0005h  |  Результат в A/HL"
+                        : "System Call Pattern: Function Number in C  |  Arguments in DE/E  |  Call: CALL 0005h  |  Result in A/HL";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: Theme.accent_yellow;
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Стандартные коды ошибок: 00h = Успешно, FFh = Ошибка (файл не найден, диск переполнен или защищен от записи)."
+                        : "Standard return error codes: 00h = Success, FFh = Error (file not found, disk full, or write-protected).";
+                    font-size: 13px;
+                    color: Theme.text_muted;
+                }
+            }
+        }
+    }
+
+    // SUB-TAB 0: FUNCTIONS LIST (0-36)
+    if root.sub_tab == 0: VerticalLayout {
+        spacing: 10px;
+
+        // Categories Bar
+        Rectangle {
+            height: 38px;
+            background: Theme.terminal_bg;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                padding-top: 3px;
+                padding-bottom: 3px;
+                spacing: 6px;
+                alignment: start;
+
+                // 0. All
+                Rectangle {
+                    width: 56px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Все" || root.selected_category == "All") ? Theme.accent_blue : (c0.has-hover ? Theme.bg_surface2 : #00000000);
+                    c0 := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Все" : "All";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Все" : "All";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Все" || root.selected_category == "All") ? 700 : 500;
+                        color: (root.selected_category == "Все" || root.selected_category == "All") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 1. Console
+                Rectangle {
+                    width: root.current_language == "ru" ? 92px : 80px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Консоль" || root.selected_category == "Console") ? Theme.accent_blue : (c1.has-hover ? Theme.bg_surface2 : #00000000);
+                    c1 := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Консоль" : "Console";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Консоль" : "Console";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Консоль" || root.selected_category == "Console") ? 700 : 500;
+                        color: (root.selected_category == "Консоль" || root.selected_category == "Console") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 2. I/O (Ввод-вывод: AUX, LST)
+                Rectangle {
+                    width: root.current_language == "ru" ? 110px : 76px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? Theme.accent_blue : (c_io.has-hover ? Theme.bg_surface2 : #00000000);
+                    c_io := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Ввод-вывод" : "I/O";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Ввод-вывод" : "I/O";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? 700 : 500;
+                        color: (root.selected_category == "Ввод-вывод" || root.selected_category == "I/O") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 2. Files
+                Rectangle {
+                    width: root.current_language == "ru" ? 82px : 66px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Файлы" || root.selected_category == "Files") ? Theme.accent_blue : (c2.has-hover ? Theme.bg_surface2 : #00000000);
+                    c2 := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Файлы" : "Files";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Файлы" : "Files";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Файлы" || root.selected_category == "Files") ? 700 : 500;
+                        color: (root.selected_category == "Файлы" || root.selected_category == "Files") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 3. Disk
+                Rectangle {
+                    width: root.current_language == "ru" ? 70px : 60px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Диск" || root.selected_category == "Disk") ? Theme.accent_blue : (c3.has-hover ? Theme.bg_surface2 : #00000000);
+                    c3 := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Диск" : "Disk";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Диск" : "Disk";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Диск" || root.selected_category == "Disk") ? 700 : 500;
+                        color: (root.selected_category == "Диск" || root.selected_category == "Disk") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // 4. System
+                Rectangle {
+                    width: root.current_language == "ru" ? 88px : 76px;
+                    height: 30px;
+                    border-radius: 4px;
+                    background: (root.selected_category == "Система" || root.selected_category == "System") ? Theme.accent_blue : (c4.has-hover ? Theme.bg_surface2 : #00000000);
+                    c4 := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_category = root.current_language == "ru" ? "Система" : "System";
+                            root.filter_category(root.selected_category);
+                        }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Система" : "System";
+                        font-size: 13px;
+                        font-weight: (root.selected_category == "Система" || root.selected_category == "System") ? 700 : 500;
+                        color: (root.selected_category == "Система" || root.selected_category == "System") ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // List of Cards
+        ListView {
+            for func in root.bdos_list: VerticalLayout {
+                padding-bottom: 8px;
+
+                Rectangle {
+                    background: Theme.terminal_bg;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: root.expanded_func_num == func.func_num ? Theme.accent_blue : Theme.border_normal;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+
+                        // Clickable Header Bar
+                        header_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if root.expanded_func_num == func.func_num {
+                                    root.expanded_func_num = -1;
+                                } else {
+                                    root.expanded_func_num = func.func_num;
+                                }
+                            }
+
+                            HorizontalLayout {
+                                alignment: space-between;
+
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    alignment: start;
+
+                                    // Function Code Badge
+                                    Rectangle {
+                                        width: 80px;
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: Theme.accent_blue;
+                                        Text {
+                                            text: func.func_hex + " (" + func.func_num + ")";
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            color: #151518;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    // Mnemonic Name
+                                    Text {
+                                        text: func.name;
+                                        font-size: 16px;
+                                        font-weight: 700;
+                                        color: Theme.accent_yellow;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Category Pill
+                                    Rectangle {
+                                        height: 24px;
+                                        border-radius: 3px;
+                                        background: Theme.bg_surface2;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            Text {
+                                                text: func.category;
+                                                font-size: 12px;
+                                                color: Theme.text_muted;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    // Title
+                                    Text {
+                                        text: func.title;
+                                        font-size: 15px;
+                                        font-weight: 600;
+                                        color: Theme.text_primary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.expanded_func_num == func.func_num ? "▲ Свернуть" : "▼ Подробнее";
+                                    font-size: 13px;
+                                    color: Theme.accent_blue;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Expanded Details
+                        if root.expanded_func_num == func.func_num: VerticalLayout {
+                            spacing: 10px;
+                            padding-top: 6px;
+
+                            Rectangle { height: 1px; background: Theme.gutter_border; }
+
+                            // Register Grid: Entry & Exit
+                            HorizontalLayout {
+                                spacing: 16px;
+
+                                // Entry Registers
+                                Rectangle {
+                                    background: Theme.bg_surface;
+                                    border-radius: 4px;
+                                    horizontal-stretch: 1;
+
+                                    VerticalLayout {
+                                        padding: 10px;
+                                        spacing: 4px;
+                                        Text {
+                                            text: root.current_language == "ru" ? "ВХОДНЫЕ РЕГИСТРЫ:" : "ENTRY REGISTERS:";
+                                            font-size: 14px;
+                                            font-weight: 700;
+                                            color: Theme.accent_blue;
+                                        }
+                                        Text {
+                                            text: func.entry_c;
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            color: Theme.accent_yellow;
+                                        }
+                                        Text {
+                                            text: func.entry_de;
+                                            font-size: 15px;
+                                            color: Theme.text_primary;
+                                        }
+                                    }
+                                }
+
+                                // Exit Registers
+                                Rectangle {
+                                    background: Theme.bg_surface;
+                                    border-radius: 4px;
+                                    horizontal-stretch: 1;
+
+                                    VerticalLayout {
+                                        padding: 10px;
+                                        spacing: 4px;
+                                        Text {
+                                            text: root.current_language == "ru" ? "ВОЗВРАЩАЕМЫЕ ЗНАЧЕНИЯ:" : "RETURN VALUES:";
+                                            font-size: 14px;
+                                            font-weight: 700;
+                                            color: Theme.accent_green;
+                                        }
+                                        Text {
+                                            text: func.exit_a;
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            color: Theme.accent_yellow;
+                                        }
+                                        Text {
+                                            text: func.exit_hl;
+                                            font-size: 15px;
+                                            color: Theme.text_primary;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Description
+                            VerticalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: root.current_language == "ru" ? "ОПИСАНИЕ И МЕХАНИКА:" : "DESCRIPTION & MECHANICS:";
+                                    font-size: 14px;
+                                    font-weight: 700;
+                                    color: Theme.accent_blue;
+                                }
+                                Text {
+                                    text: func.description;
+                                    font-size: 15px;
+                                    color: Theme.text_primary;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // Notes
+                            if func.notes != "": Rectangle {
+                                background: #2b2818;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: Theme.accent_yellow;
+
+                                VerticalLayout {
+                                    padding: 8px;
+                                    Text {
+                                        text: (root.current_language == "ru" ? "Особенность: " : "Note: ") + func.notes;
+                                        font-size: 13px;
+                                        color: Theme.accent_yellow;
+                                        wrap: word-wrap;
+                                    }
+                                }
+                            }
+
+                            // Code Example
+                            VerticalLayout {
+                                spacing: 6px;
+
+                                HorizontalLayout {
+                                    alignment: space-between;
+                                    Text {
+                                        text: root.current_language == "ru" ? "ПРИМЕР ИСПОЛЬЗОВАНИЯ:" : "CODE EXAMPLE:";
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        color: Theme.accent_green;
+                                    }
+
+                                    // Insert Example Button
+                                    Rectangle {
+                                        height: 28px;
+                                        border-radius: 4px;
+                                        background: ins_touch.has-hover ? Theme.accent_blue : Theme.accent_green;
+
+                                        HorizontalLayout {
+                                            padding-left: 10px;
+                                            padding-right: 10px;
+                                            Text {
+                                                text: root.current_language == "ru" ? "Вставить пример в код" : "Insert Example";
+                                                font-size: 13px;
+                                                font-weight: 700;
+                                                color: #151518;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        ins_touch := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => { root.insert_snippet(func.raw_snippet); }
+                                        }
+                                    }
+                                }
+
+                                // Syntax Highlighted Box
+                                Rectangle {
+                                    background: Theme.editor_bg;
+                                    border-radius: 4px;
+                                    border-width: 1px;
+                                    border-color: Theme.border_normal;
+
+                                    VerticalLayout {
+                                        padding: 8px;
+                                        spacing: 2px;
+                                        for line in func.example_lines: HorizontalLayout {
+                                            alignment: start;
+                                            spacing: 0px;
+                                            for tok in line.tokens: Text {
+                                                text: tok.text;
+                                                color: tok.color;
+                                                font-family: "CaskaydiaCove Nerd Font Propo";
+                                                font-size: 15px;
+                                                font-weight: 600;
+                                                font-italic: tok.is_italic;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SUB-TAB 1: FCB STRUCTURE TABLE
+    if root.sub_tab == 1: VerticalLayout {
+        spacing: 10px;
+
+        Rectangle {
+            background: Theme.terminal_bg;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "СТРУКТУРА БЛОКА УПРАВЛЕНИЯ ФАЙЛОМ (FILE CONTROL BLOCK - 36 БАЙТ):"
+                        : "FILE CONTROL BLOCK STRUCTURE (FCB - 36 BYTES):";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.accent_blue;
+                }
+
+                ListView {
+                    for f in root.fcb_fields_list: HorizontalLayout {
+                        padding-top: 4px;
+                        padding-bottom: 4px;
+                        spacing: 12px;
+
+                        Rectangle {
+                            width: 86px;
+                            height: 28px;
+                            border-radius: 3px;
+                            background: Theme.bg_surface2;
+                            Text {
+                                text: f.offset;
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: Theme.accent_yellow;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 96px;
+                            height: 28px;
+                            border-radius: 3px;
+                            background: Theme.accent_blue;
+                            Text {
+                                text: f.name;
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: #151518;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Text {
+                            text: f.size_str;
+                            width: 90px;
+                            font-size: 14px;
+                            color: Theme.accent_green;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: f.desc;
+                            font-size: 15px;
+                            color: Theme.text_primary;
+                            vertical-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SUB-TAB 2: BUFFER 0Ah STRUCTURE TABLE
+    if root.sub_tab == 2: VerticalLayout {
+        spacing: 10px;
+
+        Rectangle {
+            background: Theme.terminal_bg;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: root.current_language == "ru"
+                        ? "СТРУКТУРА БУФЕРА СТРОКОВОГО ВВОДА ДЛЯ ФУНКЦИИ 0Ah (C_READSTR):"
+                        : "LINE INPUT BUFFER STRUCTURE FOR FUNCTION 0Ah (C_READSTR):";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.accent_blue;
+                }
+
+                ListView {
+                    for b in root.buffer_fields_list: VerticalLayout {
+                        padding-top: 6px;
+                        padding-bottom: 6px;
+
+                        Rectangle {
+                            background: Theme.bg_surface;
+                            border-radius: 4px;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 4px;
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    Text {
+                                        text: b.byte_idx;
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        color: Theme.accent_yellow;
+                                    }
+                                    Text {
+                                        text: b.name;
+                                        font-size: 15px;
+                                        font-weight: 700;
+                                        color: Theme.accent_blue;
+                                    }
+                                    Text {
+                                        text: "(" + b.set_by + ")";
+                                        font-size: 14px;
+                                        color: Theme.text_muted;
+                                    }
+                                }
+                                Text {
+                                    text: b.desc;
+                                    font-size: 15px;
+                                    color: Theme.text_primary;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

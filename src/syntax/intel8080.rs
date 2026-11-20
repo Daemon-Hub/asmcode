@@ -32,6 +32,8 @@ pub struct HighlightToken {
     pub token_type: TokenType,
     pub color: Color,
     pub is_italic: bool,
+    pub char_count: i32,
+    pub is_whitespace: bool,
 }
 
 #[allow(dead_code)]
@@ -264,6 +266,7 @@ pub fn classify_register(word: &str) -> Option<TokenType> {
             || packed == pack4(b"BC\0\0")
             || packed == pack4(b"DE\0\0")
             || packed == pack4(b"HL\0\0")
+            || packed == pack4(b"PC\0\0")
         {
             Some(TokenType::Register16)
         } else {
@@ -359,11 +362,14 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
         let b = bytes[i];
 
         if b == b';' {
+            let comment_text = &line[i..];
             tokens.push(HighlightToken {
-                text: SharedString::from(&line[i..]),
+                text: SharedString::from(comment_text),
                 token_type: TokenType::Comment,
                 color: pal.comment,
                 is_italic: false,
+                char_count: comment_text.chars().count() as i32,
+                is_whitespace: false,
             });
             break;
         }
@@ -378,18 +384,27 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
             if i < len {
                 i += 1;
             }
+            let str_val = &line[start..i];
             tokens.push(HighlightToken {
-                text: SharedString::from(&line[start..i]),
+                text: SharedString::from(str_val),
                 token_type: TokenType::StringLiteral,
                 color: pal.string,
                 is_italic: false,
+                char_count: str_val.chars().count() as i32,
+                is_whitespace: false,
             });
             continue;
         }
 
         if (CHAR_MAP[b as usize] & CC_SPACE) != 0 {
             let start = i;
+            let mut char_count = 0;
             while i < len && (CHAR_MAP[bytes[i] as usize] & CC_SPACE) != 0 {
+                if bytes[i] == b'\t' {
+                    char_count += 4;
+                } else {
+                    char_count += 1;
+                }
                 i += 1;
             }
             tokens.push(HighlightToken {
@@ -397,6 +412,8 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 token_type: TokenType::Text,
                 color: pal.text,
                 is_italic: false,
+                char_count,
+                is_whitespace: true,
             });
             continue;
         }
@@ -407,6 +424,8 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 token_type: TokenType::Punctuation,
                 color: pal.punct,
                 is_italic: false,
+                char_count: 1,
+                is_whitespace: false,
             });
             i += 1;
             continue;
@@ -429,12 +448,16 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 token_type: TokenType::Label,
                 color: pal.label,
                 is_italic: false,
+                char_count: word.chars().count() as i32,
+                is_whitespace: false,
             });
             tokens.push(HighlightToken {
                 text: SharedString::from(":"),
                 token_type: TokenType::Punctuation,
                 color: pal.punct,
                 is_italic: false,
+                char_count: 1,
+                is_whitespace: false,
             });
             i += 1;
             continue;
@@ -461,7 +484,7 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
                 TokenType::Register8 => pal.register_8,
                 _ => pal.register_16,
             };
-            (r_type, color, false)
+            (r_type, color, true)
         } else if is_hex_literal(word) {
             (TokenType::NumberHex, pal.number_hex, false)
         } else if is_dec_literal(word) {
@@ -491,6 +514,8 @@ pub fn parse_line(line: &str, line_number: i32, theme_id: i32) -> HighlightLine 
             token_type,
             color,
             is_italic,
+            char_count: word.chars().count() as i32,
+            is_whitespace: false,
         });
     }
 
@@ -526,6 +551,31 @@ pub fn highlight_document(document: &str, theme_id: i32) -> Vec<HighlightLine> {
             .map(|(idx, line)| parse_line(line, (idx + 1) as i32, theme_id))
             .collect()
     }
+}
+
+pub fn highlight_document_range(
+    document: &str,
+    theme_id: i32,
+    start_line: usize,
+    count: usize,
+) -> Vec<HighlightLine> {
+    if document.is_empty() {
+        return vec![parse_line("", 1, theme_id)];
+    }
+    let mut lines = Vec::with_capacity(count.min(128));
+    for (current_idx, raw_line) in document.split('\n').enumerate() {
+        if current_idx >= start_line {
+            let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+            lines.push(parse_line(clean, (current_idx + 1) as i32, theme_id));
+            if lines.len() >= count {
+                break;
+            }
+        }
+    }
+    if lines.is_empty() {
+        lines.push(parse_line("", (start_line + 1) as i32, theme_id));
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -569,5 +619,20 @@ mod tests {
         assert_eq!(parsed.tokens[0].token_type, TokenType::ConstantDef);
         assert_eq!(parsed.tokens[0].text, "TPA");
         assert_eq!(parsed.tokens[2].token_type, TokenType::DirectiveDef);
+        assert!(parsed.tokens[2].is_italic, "EQU directive should be italic");
+    }
+
+    #[test]
+    fn test_mnemonic_directive_register_italic() {
+        let doc = "org 100h\n mvi c, 09h\n lxi d, msg\n call 0005h\n ret\n end";
+        let lines = highlight_document(doc, 1);
+        let italic_words = ["org", "mvi", "c", "lxi", "d", "call", "ret", "end"];
+        for l in lines {
+            for tok in l.tokens {
+                if italic_words.contains(&tok.text.as_str()) {
+                    assert!(tok.is_italic, "Token {} should be italic", tok.text);
+                }
+            }
+        }
     }
 }

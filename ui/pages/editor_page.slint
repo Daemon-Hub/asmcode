@@ -1,8 +1,9 @@
-import { FileTabItem, HighlightLineItem, SuggestionItem } from "../models.slint";
+import { FileTabItem, HighlightLineItem, SuggestionItem, FindMatchItem } from "../models.slint";
 import { TabBar } from "../components/tab_bar.slint";
 import { TabContextMenu } from "../components/tab_context_menu.slint";
 import { RightDrawer } from "../components/right_drawer.slint";
 import { AutocompletePopup } from "../components/autocomplete_popup.slint";
+import { FindReplaceBar } from "../components/find_replace_bar.slint";
 import { EditorContextMenu } from "../components/editor_context_menu.slint";
 import { Theme } from "../components/theme.slint";
 import { ScrollView } from "std-widgets.slint";
@@ -11,11 +12,55 @@ export component EditorPage inherits HorizontalLayout {
     in property <string> current_language: "ru";
     in property <length> editor_font_size: 18px;
     in property <bool> editor_font_italic: true;
-    in property <length> editor_line_height: 22px;
+    in property <length> editor_line_height: 24px;
+    in property <length> char_advance: 9.8px;
     in-out property <bool> cursor_visible: true;
     in-out property <length> cursor_x: 8px;
     in-out property <length> cursor_y: 0px;
     in-out property <int> cursor_line: 0;
+
+    // Find and Replace in Editor
+    in-out property <bool> show_find_replace: false;
+    in-out property <bool> show_replace_row: false;
+    in-out property <string> find_text: "";
+    in-out property <string> replace_text: "";
+    in-out property <bool> find_match_case: false;
+    in-out property <bool> find_whole_word: false;
+    in property <int> find_match_count: 0;
+    in property <int> find_match_index: 0;
+    in property <[FindMatchItem]> find_matches: [];
+
+    callback request_open_find(int, int, bool);
+    callback editor_find(string, bool, bool);
+    callback editor_find_next();
+    callback editor_find_prev();
+    callback editor_replace(string);
+    callback editor_replace_all(string);
+
+    in property <int> select_range_start: -1;
+    in property <int> select_range_end: -1;
+
+    changed select_range_end => {
+        if root.select_range_start >= 0 && root.select_range_end >= 0 {
+            code_input.set-selection-offsets(root.select_range_start, root.select_range_end);
+            code_input.focus();
+        }
+    }
+
+    public function select_range(start: int, end: int) {
+        code_input.set-selection-offsets(start, end);
+        code_input.focus();
+    }
+
+    public function open_find() {
+        root.show_find_replace = true;
+        root.show_replace_row = false;
+    }
+
+    public function open_replace() {
+        root.show_find_replace = true;
+        root.show_replace_row = true;
+    }
 
     // Tabs & Large File Support
     in property <[FileTabItem]> open_tabs: [];
@@ -51,6 +96,14 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <string> code_text <=> code_input.text;
     in property <bool> is_active_asm: true;
     in property <[HighlightLineItem]> highlight_lines: [];
+    in property <int> highlight_start_line: 0;
+
+    in-out property <int> visible_scroll_line: root.editor_line_height > 0px ? max(0, floor((-editor_scroll.content-y) / root.editor_line_height)) : 0;
+    in-out property <int> visible_line_count: root.editor_line_height > 0px ? ceil(editor_scroll.visible-height / root.editor_line_height) + 15 : 60;
+
+    changed visible_scroll_line => {
+        root.editor_viewport_scrolled(self.visible_scroll_line, self.visible_line_count);
+    }
 
     in property <[SuggestionItem]> suggestion_list: [];
     in-out property <string> selected_sugg_name: "MOV";
@@ -78,6 +131,7 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <int> cursor_idle_ticks: 0;
 
     callback code_edited(string, int);
+    callback editor_viewport_scrolled(int, int);
     callback editor_undo(int) -> int;
     callback editor_redo(int) -> int;
     callback delete_word_left(int) -> int;
@@ -227,7 +281,7 @@ export component EditorPage inherits HorizontalLayout {
                         y: editor_scroll.content-y;
                         width: 52px;
                         text: root.line_numbers_text;
-                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-family: Theme.font_mono;
                         font-size: root.editor_font_size;
                         font-weight: 600;
                         color: Theme.line_number_color;
@@ -244,7 +298,7 @@ export component EditorPage inherits HorizontalLayout {
 
                     editor_scroll := ScrollView {
                     content-width: max(self.visible-width, 1600px);
-                    content-height: max(self.visible-height, max(code_input.preferred-height, code_rows.preferred-height));
+                    content-height: max(self.visible-height, code_input.preferred-height);
 
                     // Background Right-Click Detector
                     editor_touch := TouchArea {
@@ -267,8 +321,8 @@ export component EditorPage inherits HorizontalLayout {
                         x: 8px;
                         y: 0px;
                         width: parent.content-width - 8px;
-                        height: max(parent.content-height, code_rows.preferred-height);
-                        font-family: "CaskaydiaCove NF SemiBold";
+                        height: max(parent.visible-height, self.preferred-height);
+                        font-family: Theme.font_mono;
                         font-size: root.editor_font_size;
                         font-weight: 600;
                         font-italic: false;
@@ -305,8 +359,12 @@ export component EditorPage inherits HorizontalLayout {
                             root.cursor_visible = true;
                             root.cursor_idle_ticks = 0;
 
-                            // Escape: dismiss popups
+                            // Escape: dismiss popups & find bar
                             if (e.text == Key.Escape) {
+                                if root.show_find_replace {
+                                    root.show_find_replace = false;
+                                    return EventResult.accept;
+                                }
                                 if root.show_context_menu {
                                     root.show_context_menu = false;
                                     return EventResult.accept;
@@ -315,6 +373,22 @@ export component EditorPage inherits HorizontalLayout {
                                     root.show_autocomplete_popup = false;
                                     return EventResult.accept;
                                 }
+                            }
+
+                            // Ctrl + F: Open Find (Pre-populates with selection if active)
+                            if (e.modifiers.control && (e.text == "f" || e.text == "F" || e.text == "а" || e.text == "А" || e.text == "\u{0006}")) {
+                                let s = min(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
+                                let e_pos = max(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
+                                root.request_open_find(s, e_pos, false);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + R / Ctrl + H: Open Replace (Pre-populates with selection if active)
+                            if (e.modifiers.control && (e.text == "r" || e.text == "R" || e.text == "к" || e.text == "К" || e.text == "\u{0012}" || e.text == "h" || e.text == "H" || e.text == "р" || e.text == "Р" || e.text == "\u{0008}")) {
+                                let s = min(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
+                                let e_pos = max(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
+                                root.request_open_find(s, e_pos, true);
+                                return EventResult.accept;
                             }
 
                             // Autocomplete arrow navigation
@@ -471,22 +545,47 @@ export component EditorPage inherits HorizontalLayout {
                         }
                     }
 
+                    // Layer 2.5: Find & Replace Match Highlights Layer
+                    if root.show_find_replace && root.find_matches.length > 0: Rectangle {
+                        x: 0px;
+                        y: 0px;
+                        width: parent.content-width;
+                        height: parent.content-height;
+
+                        for match in root.find_matches: Rectangle {
+                            x: 8px + match.char_offset * root.char_advance;
+                            y: match.line_number * root.editor_line_height;
+                            width: max(match.char_length * root.char_advance, 4px);
+                            height: root.editor_line_height;
+                            background: match.is_current ? #ffa71c88 : #7feef244;
+                            border-width: match.is_current ? 1.5px : 1px;
+                            border-color: match.is_current ? #ffa71c : #7feef288;
+                            border-radius: 2px;
+                        }
+                    }
+
                     // Layer 3: Syntax-Highlighted Code Lines Layer (Rendered ON TOP OF selection background)
                     code_rows := VerticalLayout {
                         x: 0px;
-                        y: 0px;
+                        y: root.highlight_start_line * root.editor_line_height;
+                        padding: 0px;
+                        padding-top: 0px;
+                        padding-bottom: 0px;
                         alignment: start;
                         spacing: 0px;
 
                         for line in root.highlight_lines: HorizontalLayout {
                             alignment: start;
                             spacing: 0px;
+                            padding: 0px;
+                            padding-top: 0px;
+                            padding-bottom: 0px;
                             height: root.editor_line_height;
                             padding-left: 8px;
 
                             if line.tokens.length == 0: Text {
                                 text: " ";
-                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-family: Theme.font_mono;
                                 font-size: root.editor_font_size;
                                 font-weight: 600;
                                 font-italic: false;
@@ -496,7 +595,7 @@ export component EditorPage inherits HorizontalLayout {
                             for tok in line.tokens: Text {
                                 text: tok.text;
                                 color: tok.color;
-                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-family: Theme.font_mono;
                                 font-size: root.editor_font_size;
                                 font-weight: 600;
                                 font-italic: tok.is_italic;
@@ -533,6 +632,41 @@ export component EditorPage inherits HorizontalLayout {
                             root.apply_completion(text);
                             root.show_autocomplete_popup = false;
                         }
+                    }
+                }
+
+                // Floating Find & Replace Toolbar (VS Code standard, fixed in viewport top-right)
+                if root.show_find_replace: find_bar := FindReplaceBar {
+                    x: parent.width - self.width - 24px;
+                    y: 10px;
+                    z: 100;
+                    current_language: root.current_language;
+                    show_replace <=> root.show_replace_row;
+                    find_text <=> root.find_text;
+                    replace_text <=> root.replace_text;
+                    match_case <=> root.find_match_case;
+                    whole_word <=> root.find_whole_word;
+                    match_count: root.find_match_count;
+                    match_index: root.find_match_index;
+
+                    find_changed(text, mc, ww) => {
+                        root.editor_find(text, mc, ww);
+                    }
+                    find_next => {
+                        root.editor_find_next();
+                    }
+                    find_prev => {
+                        root.editor_find_prev();
+                    }
+                    replace_current(rep) => {
+                        root.editor_replace(rep);
+                    }
+                    replace_all(rep) => {
+                        root.editor_replace_all(rep);
+                    }
+                    close => {
+                        root.show_find_replace = false;
+                        code_input.focus();
                     }
                 }
 

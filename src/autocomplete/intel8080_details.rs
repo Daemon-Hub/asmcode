@@ -472,6 +472,132 @@ pub fn get_detailed_description(name: &str, lang: &str) -> &'static str {
                 "End of assembly source. Optionally specifies entry point label."
             }
         }
+        "JPO" => {
+            if lang == "ru" {
+                "Условный переход по паритету: если флаг четности P равен 0 (нечетное количество единиц в байте), управление передается по адресу addr. Флаги процессора не изменяются."
+            } else {
+                "Jump if Parity Odd: jumps to target address if parity flag P is 0. Flags are unaffected."
+            }
+        }
+        "JPE" => {
+            if lang == "ru" {
+                "Условный переход по паритету: если флаг четности P равен 1 (четное количество единиц в байте), управление передается по адресу addr. Флаги процессора не изменяются."
+            } else {
+                "Jump if Parity Even: jumps to target address if parity flag P is 1. Flags are unaffected."
+            }
+        }
+        "JP" => {
+            if lang == "ru" {
+                "Условный переход по знаку: если флаг знака S равен 0 (число неотрицательное, старший бит равен 0), управление передается по адресу addr. Флаги процессора не изменяются."
+            } else {
+                "Jump if Positive: branches to target address if sign flag S is 0. Flags are unaffected."
+            }
+        }
+        "JM" => {
+            if lang == "ru" {
+                "Условный переход по знаку: если флаг знака S равен 1 (число отрицательное в дополнительном коде, старший бит равен 1), управление передается по адресу addr."
+            } else {
+                "Jump if Minus: branches to target address if sign flag S is 1. Flags are unaffected."
+            }
+        }
+        "CNC" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг переноса CY равен 0 (перенос отсутствует), текущий адрес PC сохраняется в стек, и управление передается по адресу addr."
+            } else {
+                "Call if No Carry: calls subroutine at target address if carry flag CY is 0."
+            }
+        }
+        "CC" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг переноса CY равен 1 (возник перенос или заем), адрес возврата помещается в стек, и выполняется переход на подпрограмму."
+            } else {
+                "Call if Carry: pushes return address and calls subroutine if carry flag CY is 1."
+            }
+        }
+        "CPO" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг четности P равен 0 (нечетный паритет), адрес возврата сохраняется в стек и вызывается подпрограмма."
+            } else {
+                "Call if Parity Odd: calls subroutine if parity flag P is 0."
+            }
+        }
+        "CPE" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг четности P равен 1 (четный паритет), адрес возврата сохраняется в стек и вызывается подпрограмма."
+            } else {
+                "Call if Parity Even: calls subroutine if parity flag P is 1."
+            }
+        }
+        "CP" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг знака S равен 0 (результат положительный или ноль), адрес возврата помещается в стек и вызывается подпрограмма."
+            } else {
+                "Call if Positive: calls subroutine if sign flag S is 0."
+            }
+        }
+        "CM" => {
+            if lang == "ru" {
+                "Условный вызов подпрограммы: если флаг знака S равен 1 (результат отрицательный), адрес возврата помещается в стек и вызывается подпрограмма."
+            } else {
+                "Call if Minus: calls subroutine if sign flag S is 1."
+            }
+        }
+        "RNC" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг переноса CY равен 0, из вершины стека извлекается адрес возврата и помещается в PC. Флаги не меняются."
+            } else {
+                "Return if No Carry: pops return address from stack into PC if carry flag CY is 0."
+            }
+        }
+        "RC" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг переноса CY равен 1, из вершины стека извлекается адрес возврата и помещается в PC. Флаги не меняются."
+            } else {
+                "Return if Carry: pops return address from stack into PC if carry flag CY is 1."
+            }
+        }
+        "RPO" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг четности P равен 0 (нечетный паритет), извлекает адрес возврата из стека и возвращает управление."
+            } else {
+                "Return if Parity Odd: pops return address from stack into PC if parity flag P is 0."
+            }
+        }
+        "RPE" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг четности P равен 1 (четный паритет), извлекает адрес возврата из стека и возвращает управление."
+            } else {
+                "Return if Parity Even: pops return address from stack into PC if parity flag P is 1."
+            }
+        }
+        "RP" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг знака S равен 0 (результат неотрицательный), извлекает адрес возврата из стека и передает управление."
+            } else {
+                "Return if Positive: pops return address from stack into PC if sign flag S is 0."
+            }
+        }
+        "RM" => {
+            if lang == "ru" {
+                "Условный возврат из подпрограммы: если флаг знака S равен 1 (результат отрицательный), извлекает адрес возврата из стека и передает управление."
+            } else {
+                "Return if Minus: pops return address from stack into PC if sign flag S is 1."
+            }
+        }
+        "RST" => {
+            if lang == "ru" {
+                "Однобайтная команда программного прерывания (Restart). Сохраняет текущий счетчик команд PC в стек и выполняет вызов фиксированного адреса памяти (exp * 8): 00h, 08h, 10h, 18h, 20h, 28h, 30h, 38h."
+            } else {
+                "Restart instruction: pushes PC to stack and jumps to fixed address (exp * 8)."
+            }
+        }
+        "SET" => {
+            if lang == "ru" {
+                "Директива ассемблера: определение переопределяемой символической константы или переменной. В отличие от EQU, символ, заданный через SET, может быть повторно переопределен новым значением далее по тексту программы."
+            } else {
+                "Assembler directive: defines a redefinable numeric symbol. Unlike EQU, symbols defined with SET can be redefined later."
+            }
+        }
         _ => {
             if lang == "ru" {
                 "Команда процессора Intel 8080."
@@ -925,6 +1051,132 @@ pub fn get_when_to_use(name: &str, lang: &str) -> &'static str {
                 "At the final line of source code to terminate compiler pass."
             }
         }
+        "JPO" => {
+            if lang == "ru" {
+                "Для проверки четности принятых данных по последовательному каналу UART или проверки целостности байта."
+            } else {
+                "For serial transmission parity check or verifying integrity of received bytes."
+            }
+        }
+        "JPE" => {
+            if lang == "ru" {
+                "При обработке четного паритета в протоколах связи или криптографических алгоритмах."
+            } else {
+                "For handling even-parity verification in communication protocols or crypto hashing."
+            }
+        }
+        "JP" => {
+            if lang == "ru" {
+                "При анализе знаковых чисел для перехода при неотрицательном результате (A >= 0)."
+            } else {
+                "For signed comparisons when result is positive or zero (A >= 0)."
+            }
+        }
+        "JM" => {
+            if lang == "ru" {
+                "При анализе знаковых чисел для перехода при строго отрицательном результате (A < 0)."
+            } else {
+                "For signed comparisons when result is negative (A < 0)."
+            }
+        }
+        "CNC" => {
+            if lang == "ru" {
+                "Для вызова процедуры обработки нормального потока данных, когда сложение не вызвало переполнения."
+            } else {
+                "To call a subroutine only when an arithmetic operation did not overflow."
+            }
+        }
+        "CC" => {
+            if lang == "ru" {
+                "Для вызова обработчика переполнения или ошибки заема при арифметических операциях."
+            } else {
+                "To invoke error or overflow handling procedures when Carry flag is set."
+            }
+        }
+        "CPO" => {
+            if lang == "ru" {
+                "Для вызова процедуры обработки ошибок паритета при нечетном числе единичных битов."
+            } else {
+                "To invoke odd-parity handlers during data transmission validation."
+            }
+        }
+        "CPE" => {
+            if lang == "ru" {
+                "Для вызова подпрограммы при четном паритете байта данных."
+            } else {
+                "To call a procedure when byte data exhibits even parity."
+            }
+        }
+        "CP" => {
+            if lang == "ru" {
+                "Для вызова специализированной процедуры обработки положительных чисел."
+            } else {
+                "To invoke subroutines specifically handling positive signed values."
+            }
+        }
+        "CM" => {
+            if lang == "ru" {
+                "Для вызова процедуры обработки отрицательных величин или кодов ошибок со знаком."
+            } else {
+                "To invoke subroutines handling negative signed values or error states."
+            }
+        }
+        "RNC" => {
+            if lang == "ru" {
+                "Для быстрого досрочного выхода из процедуры при успешном выполнении без переполнения."
+            } else {
+                "For fast early exit from subroutine when no carry/borrow was generated."
+            }
+        }
+        "RC" => {
+            if lang == "ru" {
+                "Для быстрого возврата из процедуры при обнаружении ошибки или переноса."
+            } else {
+                "For early return from subroutine when carry indicates error or overflow."
+            }
+        }
+        "RPO" => {
+            if lang == "ru" {
+                "Для раннего возврата из процедуры контроля четности при нечетном паритете."
+            } else {
+                "For early return when odd parity is detected."
+            }
+        }
+        "RPE" => {
+            if lang == "ru" {
+                "Для раннего возврата из процедуры контроля четности при четном паритете."
+            } else {
+                "For early return when even parity is detected."
+            }
+        }
+        "RP" => {
+            if lang == "ru" {
+                "Для раннего выхода из процедуры, если знаковый результат положителен или равен нулю."
+            } else {
+                "For early return when signed calculation yields a positive or zero value."
+            }
+        }
+        "RM" => {
+            if lang == "ru" {
+                "Для раннего выхода из процедуры, если знаковый результат отрицателен."
+            } else {
+                "For early return when signed calculation yields a negative value."
+            }
+        }
+        "RST" => {
+            if lang == "ru" {
+                "Для сверхбыстрого вызова критических сервисов ОС или создания точек останова отладчика (RST 7 = 38h)."
+            } else {
+                "For high-speed interrupt service entry or debugger breakpoints (RST 7 at 38h)."
+            }
+        }
+        "SET" => {
+            if lang == "ru" {
+                "В макросах и условной компиляции, когда переменная счетчика или адреса должна менять свое значение."
+            } else {
+                "In assembly macros or sequential calculation where counter symbols require reassignment."
+            }
+        }
         _ => {
             if lang == "ru" {
                 "Стандартная инструкция архитектуры Intel 8080."
@@ -1075,6 +1327,41 @@ pub fn get_notes(name: &str, lang: &str) -> &'static str {
                 "Не занимает памяти. Значение константы подставляется компилятором во время сборки."
             } else {
                 "Consumes zero bytes. Substituted at compile time."
+            }
+        }
+        "JPO" | "JPE" | "JP" | "JM" => {
+            if lang == "ru" {
+                "Все условные переходы в Intel 8080 выполняются строго за 10 тактов вне зависимости от условия."
+            } else {
+                "All conditional jumps on Intel 8080 consume exactly 10 cycles regardless of condition outcome."
+            }
+        }
+        "CNC" | "CC" | "CPO" | "CPE" | "CP" | "CM" => {
+            if lang == "ru" {
+                "Выполняется за 11 тактов при ложном условии (переход не совершен) и за 17 тактов при истинном условии."
+            } else {
+                "Consumes 11 cycles when false (no call) and 17 cycles when condition is true."
+            }
+        }
+        "RNC" | "RC" | "RPO" | "RPE" | "RP" | "RM" => {
+            if lang == "ru" {
+                "Выполняется за 5 тактов, если условие ложно, и за 11 тактов при истинном условии возврата."
+            } else {
+                "Consumes 5 cycles when condition is false and 11 cycles when true."
+            }
+        }
+        "RST" => {
+            if lang == "ru" {
+                "Занимает всего 1 байт и выполняется за 11 тактов. Вектор 38h зарезервирован под отладчик DDT."
+            } else {
+                "Occupies only 1 byte and executes in 11 cycles. Vector 38h (RST 7) is reserved for DDT debugger."
+            }
+        }
+        "SET" => {
+            if lang == "ru" {
+                "Не генерирует машинного кода. Допускает многократное переопределение одного и того же символа."
+            } else {
+                "Generates no machine code. Permits repeated redefinition of the same symbol in source code."
             }
         }
         _ => {
@@ -1381,8 +1668,9 @@ SCAN:   mov a, m         ; Читаем символ из памяти
         "RAL" => {
             "\
 ; Сдвиг 16-битной пары HL влево через Carry
+        ora a            ; Сбрасываем флаг Carry в 0
         mov a, l
-        ral              ; Сдвигаем младший байт L в Carry
+        ral              ; Сдвигаем младший байт L (бит 7 уходит в Carry)
         mov l, a
         mov a, h
         ral              ; Сдвигаем старший байт H с занесением бита из L
@@ -1616,6 +1904,136 @@ STACK_TOP: equ $         ; Вершина стека"
             "\
 ; Завершение исходного кода с указанием точки входа
         end START        ; Конец программы, старт с метки START"
+        }
+
+        "JPO" => {
+            "\
+; Проверка четности после приема байта из порта
+        in  00h          ; Читаем байт данных
+        ora a            ; Вычисляем флаги четности P и нуля Z
+        jpo parity_err   ; Переход, если паритет нечетный (P = 0)"
+        }
+
+        "JPE" => {
+            "\
+; Переход при четном паритете (Parity Even)
+        mov a, b         ; Байт данных в A
+        ora a            ; Обновляем флаг P
+        jpe on_even      ; Переход, если число единиц четное (P = 1)"
+        }
+
+        "JP" => {
+            "\
+; Ветвление по знаку: число неотрицательное (S = 0)
+        sub b            ; Вычитаем B из A
+        jp  is_positive  ; Переход, если результат >= 0 (бит 7 равен 0)"
+        }
+
+        "JM" => {
+            "\
+; Ветвление по знаку: число отрицательное (S = 1)
+        dcr a            ; Уменьшаем A на 1
+        jm  is_negative  ; Переход, если результат < 0 (бит 7 равен 1)"
+        }
+
+        "CNC" => {
+            "\
+; Вызов подпрограммы только при отсутствии переноса
+        add b            ; Складываем значения
+        cnc process_ok   ; Вызов, если переполнения не возникло (CY = 0)"
+        }
+
+        "CC" => {
+            "\
+; Вызов обработчика переполнения при переносе
+        add b            ; Складываем числа
+        cc  handle_overflow ; Вызов процедуры, если CY = 1"
+        }
+
+        "CPO" => {
+            "\
+; Вызов подпрограммы обработки нечетного паритета
+        ora a            ; Обновляем флаг P
+        cpo on_odd_parity ; Вызов, если количество единиц нечетное (P = 0)"
+        }
+
+        "CPE" => {
+            "\
+; Вызов подпрограммы обработки четного паритета
+        ora a            ; Обновляем флаг P
+        cpe on_even_parity ; Вызов, если количество единиц четное (P = 1)"
+        }
+
+        "CP" => {
+            "\
+; Вызов подпрограммы для положительного результата
+        ora a            ; Проверяем знак числа в A
+        cp  handle_plus  ; Вызов, если число неотрицательное (S = 0)"
+        }
+
+        "CM" => {
+            "\
+; Вызов подпрограммы для отрицательного результата
+        ora a            ; Проверяем знак числа в A
+        cm  handle_minus ; Вызов, если число отрицательное (S = 1)"
+        }
+
+        "RNC" => {
+            "\
+; Досрочный возврат из подпрограммы, если нет переноса
+        sub b            ; Проверяем разность
+        rnc              ; Возврат, если заема не было (CY = 0)"
+        }
+
+        "RC" => {
+            "\
+; Досрочный возврат из подпрограммы при наличии переноса
+        cmp b            ; Сравниваем A с пределом
+        rc               ; Возврат, если A < B (CY = 1)"
+        }
+
+        "RPO" => {
+            "\
+; Возврат, если паритет нечетный (P = 0)
+        ora a            ; Вычисляем флаг четности
+        rpo              ; Возврат при нечетном числе единиц"
+        }
+
+        "RPE" => {
+            "\
+; Возврат, если паритет четный (P = 1)
+        ora a            ; Вычисляем флаг четности
+        rpe              ; Возврат при четном числе единиц"
+        }
+
+        "RP" => {
+            "\
+; Возврат из процедуры, если результат неотрицательный
+        ora a            ; Проверяем знак
+        rp               ; Возврат, если S = 0"
+        }
+
+        "RM" => {
+            "\
+; Возврат из процедуры, если результат отрицательный
+        ora a            ; Проверяем знак
+        rm               ; Возврат, если S = 1"
+        }
+
+        "RST" => {
+            "\
+; Вызов быстрого системного вектора рестарта
+        rst 1            ; Вызов вектора по адресу 0008h (RST 1)
+        rst 7            ; Точка останова отладчика DDT (0038h)"
+        }
+
+        "SET" => {
+            "\
+; Определение переопределяемой константы ассемблера
+OFFSET  set 10h          ; Первоначальное смещение 16
+        mvi a, OFFSET    ; Загрузка A = 10h
+OFFSET  set 20h          ; Повторное переопределение на 32
+        mvi b, OFFSET    ; Загрузка B = 20h"
         }
 
         _ => {

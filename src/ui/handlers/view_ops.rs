@@ -60,7 +60,41 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     app.on_filter_docs_category(move |category| {
         let Some(ui) = app_weak.upgrade() else { return };
         let lang = ui.get_current_language().to_string();
-        crate::ui::editor_bridge::populate_filtered_docs_ui(&ui, &lang, &category);
+        let query = ui.get_docs_search_query().to_string();
+        crate::ui::editor_bridge::populate_filtered_docs_ui(&ui, &lang, &category, query.as_str());
+    });
+
+    // Filter BDOS Category
+    let app_weak = app.as_weak();
+    app.on_filter_bdos_category(move |category| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        let lang = ui.get_current_language().to_string();
+        let query = ui.get_docs_search_query().to_string();
+        crate::ui::docs_bridge::populate_bdos_list(&ui, &lang, &category, query.as_str());
+    });
+
+    // Search All Docs across all modules
+    let app_weak = app.as_weak();
+    app.on_search_docs(move |query| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        let lang = ui.get_current_language().to_string();
+        crate::ui::docs_bridge::search_all_docs(&ui, &lang, query.as_str());
+    });
+
+    // Copy Text / Hex Code to Clipboard
+    let app_weak = app.as_weak();
+    app.on_copy_text_to_clipboard(move |text| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        let lang = ui.get_current_language().to_string();
+        if let Ok(mut cb) = arboard::Clipboard::new() {
+            let _ = cb.set_text(text.as_str());
+        }
+        let msg = if lang == "ru" {
+            format!("Скопировано в буфер обмена: {}", text)
+        } else {
+            format!("Copied to clipboard: {}", text)
+        };
+        ui.set_status_message(SharedString::from(msg));
     });
 
     // Insert Doc Snippet into Active Editor Code

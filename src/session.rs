@@ -59,7 +59,7 @@ impl Default for AppSession {
             toolchain_type: 0,
             large_file_optimizations: true,
             large_file_soft_limit_mb: 20,
-            large_file_soft_limit_lines: 300_000,
+            large_file_soft_limit_lines: 1_000,
             large_file_hard_limit_mb: 500,
             associate_asm_files: crate::fs_manager::associations::is_asm_associated(),
         }
@@ -195,7 +195,7 @@ pub fn load_session() -> AppSession {
                 }
                 "large_file_soft_limit_lines" => {
                     if let Ok(v) = val.parse::<usize>() {
-                        session.large_file_soft_limit_lines = v;
+                        session.large_file_soft_limit_lines = v.min(1_000);
                     }
                 }
                 "open_tabs" => {

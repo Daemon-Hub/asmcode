@@ -8,6 +8,7 @@ export component Header inherits Rectangle {
     in property <bool> is_dirty: false;
     in property <bool> is_active_asm: true;
     in property <int> editor_mode: 0;
+    in-out property <string> docs_search_query: "";
 
     in property <bool> show_file_menu: false;
     in property <bool> show_run_menu: false;
@@ -20,6 +21,7 @@ export component Header inherits Rectangle {
     callback toggle_help_menu();
     callback close_active_file();
     callback toggle_docs_mode();
+    callback search_docs(string);
     callback save_file();
     callback run_syntax_check();
     callback run_assemble_only();
@@ -58,7 +60,7 @@ export component Header inherits Rectangle {
 
                     Text {
                         text: "ASM Code";
-                        font-family: "CaskaydiaCove NF SemiBold";
+                        font-family: "CaskaydiaCove Nerd Font Propo";
                         font-size: 19px;
                         font-weight: 700;
                         color: Theme.accent_blue;
@@ -148,6 +150,82 @@ export component Header inherits Rectangle {
                 spacing: 8px;
                 alignment: end;
 
+                // Compact Docs Search Box (visible in 8080 Docs mode)
+                if root.editor_mode == 2: Rectangle {
+                    width: 260px;
+                    height: 34px;
+                    background: Theme.bg_surface;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: hdr_search_inp.has-focus ? Theme.accent_blue : Theme.border_normal;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            Image {
+                                source: @image-url("../icons/search_lens.svg");
+                                width: 15px;
+                                height: 15px;
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+
+                            if root.docs_search_query == "" && !hdr_search_inp.has-focus: Text {
+                                width: 100%;
+                                height: 100%;
+                                text: root.current_language == "ru" ? "Поиск по справке..." : "Search docs...";
+                                font-size: 13px;
+                                color: Theme.text_muted;
+                                vertical-alignment: center;
+                            }
+
+                            hdr_search_inp := TextInput {
+                                width: 100%;
+                                height: 100%;
+                                font-size: 13px;
+                                color: Theme.text_primary;
+                                single-line: true;
+                                vertical-alignment: center;
+                                text <=> root.docs_search_query;
+                                edited => {
+                                    root.search_docs(self.text);
+                                }
+                            }
+                        }
+
+                        if root.docs_search_query != "": VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 20px;
+                                height: 20px;
+                                border-radius: 10px;
+                                background: hdr_clr_touch.has-hover ? Theme.bg_surface2 : #00000000;
+                                hdr_clr_touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.docs_search_query = "";
+                                        root.search_docs("");
+                                    }
+                                }
+                                Text {
+                                    text: "×";
+                                    font-size: 15px;
+                                    font-weight: 600;
+                                    color: Theme.text_muted;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Toggle Editor vs Docs
                 ActionButton {
                     text: root.current_language == "ru"
@@ -189,7 +267,7 @@ export component Header inherits Rectangle {
 
                 // Run in CP/M Emulator
                 ActionButton {
-                    text: root.current_language == "ru" ? "Запуск (cpmemu)" : "Run (cpmemu)";
+                    text: root.current_language == "ru" ? "Запуск" : "Run";
                     icon_source: @image-url("../icons/run.svg");
                     text_color: #a6e3a1;
                     text_font_weight: 700;

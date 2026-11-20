@@ -1,0 +1,370 @@
+import { Theme } from "theme.slint";
+
+export component FindReplaceBar inherits Rectangle {
+    in property <string> current_language: "ru";
+    in-out property <bool> show_replace: false;
+    in-out property <string> find_text: "";
+    in-out property <string> replace_text: "";
+    in-out property <bool> match_case: false;
+    in-out property <bool> whole_word: false;
+    in property <int> match_count: 0;
+    in property <int> match_index: 0;
+
+    callback find_changed(string, bool, bool);
+    callback find_next();
+    callback find_prev();
+    callback replace_current(string);
+    callback replace_all(string);
+    callback close();
+
+    init => {
+        find_inp.focus();
+        find_inp.select-all();
+    }
+
+    width: 380px;
+    height: root.show_replace ? 66px : 36px;
+    background: Theme.bg_surface;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: Theme.border_normal;
+    drop-shadow-blur: 8px;
+    drop-shadow-color: #00000080;
+    drop-shadow-offset-y: 2px;
+
+    // Root TouchArea prevents clicks on empty padding/margins from passing through to editor
+    TouchArea {
+        width: 100%;
+        height: 100%;
+    }
+
+    VerticalLayout {
+        padding-top: 5px;
+        padding-bottom: 5px;
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 4px;
+
+        // Row 1: Find Controls
+        HorizontalLayout {
+            height: 26px;
+            spacing: 4px;
+
+            // Toggle Replace button (Chevron)
+            Rectangle {
+                width: 20px;
+                height: 26px;
+                border-radius: 3px;
+                background: tog_rep.has-hover ? Theme.bg_surface2 : #00000000;
+                tog_rep := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.show_replace = !root.show_replace;
+                    }
+                }
+                Text {
+                    text: root.show_replace ? "▼" : "▶";
+                    font-size: 9px;
+                    color: Theme.text_muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Find Input Container
+            Rectangle {
+                width: 204px;
+                height: 26px;
+                background: Theme.editor_bg;
+                border-radius: 3px;
+                border-width: 1px;
+                border-color: find_inp.has-focus ? Theme.accent_blue : Theme.border_normal;
+                clip: true;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 4px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+
+                        if root.find_text == "" && !find_inp.has-focus: Text {
+                            width: 100%;
+                            height: 100%;
+                            text: root.current_language == "ru" ? "Найти" : "Find";
+                            font-size: 13px;
+                            color: Theme.text_muted;
+                            vertical-alignment: center;
+                        }
+
+                        find_inp := TextInput {
+                            width: 100%;
+                            height: 100%;
+                            font-size: 13px;
+                            color: Theme.text_primary;
+                            single-line: true;
+                            vertical-alignment: center;
+                            text <=> root.find_text;
+                            edited => {
+                                root.find_changed(self.text, root.match_case, root.whole_word);
+                            }
+                            key-pressed(e) => {
+                                if (e.text == Key.Return) {
+                                    if (e.modifiers.shift) {
+                                        root.find_prev();
+                                    } else {
+                                        root.find_next();
+                                    }
+                                    return EventResult.accept;
+                                }
+                                if (e.text == Key.Escape) {
+                                    root.close();
+                                    return EventResult.accept;
+                                }
+                                return EventResult.reject;
+                            }
+                        }
+                    }
+
+                    if root.find_text != "": Text {
+                        text: root.match_count > 0 ? (root.match_index + " из " + root.match_count) : (root.current_language == "ru" ? "0 из 0" : "0 of 0");
+                        font-size: 11px;
+                        color: root.match_count > 0 ? Theme.text_muted : Theme.accent_red;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Match Case Toggle (Aa)
+            Rectangle {
+                width: 24px;
+                height: 26px;
+                border-radius: 3px;
+                background: root.match_case ? Theme.accent_blue : (btn_case.has-hover ? Theme.bg_surface2 : #00000000);
+                border-width: 1px;
+                border-color: root.match_case ? Theme.accent_blue : (btn_case.has-hover ? Theme.border_normal : #00000000);
+                btn_case := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.match_case = !root.match_case;
+                        root.find_changed(root.find_text, root.match_case, root.whole_word);
+                    }
+                }
+                Text {
+                    text: "Aa";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: root.match_case ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Whole Word Toggle (ab)
+            Rectangle {
+                width: 24px;
+                height: 26px;
+                border-radius: 3px;
+                background: root.whole_word ? Theme.accent_blue : (btn_word.has-hover ? Theme.bg_surface2 : #00000000);
+                border-width: 1px;
+                border-color: root.whole_word ? Theme.accent_blue : (btn_word.has-hover ? Theme.border_normal : #00000000);
+                btn_word := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.whole_word = !root.whole_word;
+                        root.find_changed(root.find_text, root.match_case, root.whole_word);
+                    }
+                }
+                Text {
+                    text: "ab";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: root.whole_word ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Previous Match (↑)
+            Rectangle {
+                width: 24px;
+                height: 26px;
+                border-radius: 3px;
+                background: btn_prev.has-hover ? Theme.bg_surface2 : #00000000;
+                btn_prev := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.find_prev();
+                    }
+                }
+                Text {
+                    text: "↑";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: btn_prev.has-hover ? Theme.accent_blue : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Next Match (↓)
+            Rectangle {
+                width: 24px;
+                height: 26px;
+                border-radius: 3px;
+                background: btn_next.has-hover ? Theme.bg_surface2 : #00000000;
+                btn_next := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.find_next();
+                    }
+                }
+                Text {
+                    text: "↓";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: btn_next.has-hover ? Theme.accent_blue : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Close Button (×)
+            Rectangle {
+                width: 24px;
+                height: 26px;
+                border-radius: 3px;
+                background: btn_close.has-hover ? #ff555533 : #00000000;
+                btn_close := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.close();
+                    }
+                }
+                Text {
+                    text: "×";
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: btn_close.has-hover ? Theme.accent_red : Theme.text_muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Row 2: Replace Controls
+        if root.show_replace: HorizontalLayout {
+            height: 26px;
+            spacing: 4px;
+
+            // Indent under chevron
+            Rectangle {
+                width: 20px;
+                height: 26px;
+            }
+
+            // Replace Input Container
+            Rectangle {
+                width: 204px;
+                height: 26px;
+                background: Theme.editor_bg;
+                border-radius: 3px;
+                border-width: 1px;
+                border-color: replace_inp.has-focus ? Theme.accent_blue : Theme.border_normal;
+                clip: true;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+
+                        if root.replace_text == "" && !replace_inp.has-focus: Text {
+                            width: 100%;
+                            height: 100%;
+                            text: root.current_language == "ru" ? "Заменить" : "Replace";
+                            font-size: 13px;
+                            color: Theme.text_muted;
+                            vertical-alignment: center;
+                        }
+
+                        replace_inp := TextInput {
+                            width: 100%;
+                            height: 100%;
+                            font-size: 13px;
+                            color: Theme.text_primary;
+                            single-line: true;
+                            vertical-alignment: center;
+                            text <=> root.replace_text;
+                            key-pressed(e) => {
+                                if (e.text == Key.Return) {
+                                    root.replace_current(self.text);
+                                    return EventResult.accept;
+                                }
+                                if (e.text == Key.Escape) {
+                                    root.close();
+                                    return EventResult.accept;
+                                }
+                                return EventResult.reject;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Replace Current Button
+            Rectangle {
+                width: 78px;
+                height: 26px;
+                border-radius: 3px;
+                background: btn_rep.has-hover ? Theme.bg_surface2 : Theme.terminal_bg;
+                border-width: 1px;
+                border-color: Theme.border_normal;
+
+                btn_rep := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.replace_current(root.replace_text);
+                    }
+                }
+
+                Text {
+                    text: root.current_language == "ru" ? "Заменить" : "Replace";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Replace All Button
+            Rectangle {
+                width: 50px;
+                height: 26px;
+                border-radius: 3px;
+                background: btn_rep_all.has-hover ? Theme.bg_surface2 : Theme.terminal_bg;
+                border-width: 1px;
+                border-color: Theme.border_normal;
+
+                btn_rep_all := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.replace_all(root.replace_text);
+                    }
+                }
+
+                Text {
+                    text: root.current_language == "ru" ? "Все" : "All";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.accent_yellow;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

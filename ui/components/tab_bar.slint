@@ -93,7 +93,7 @@ export component TabBar inherits Rectangle {
                 width: parent.width - 58px;
                 height: parent.height;
                 text: tab.is_deleted ? tab.name + " [Удален]" : (tab.is_dirty ? tab.name + " *" : tab.name);
-                font-family: "CaskaydiaCove NF SemiBold";
+                font-family: "CaskaydiaCove Nerd Font Propo";
                 font-size: 13px;
                 font-weight: tab.is_active ? 700 : 500;
                 color: tab.is_deleted ? Theme.accent_red : (tab.is_active ? (tab.is_dirty ? Theme.accent_yellow : Theme.text_primary) : Theme.text_muted);

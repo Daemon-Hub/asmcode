@@ -2,6 +2,7 @@
 
 mod autocomplete;
 mod compiler;
+mod docs;
 mod editor;
 mod fs_manager;
 mod session;
@@ -93,3 +94,5 @@ fn main() -> Result<(), slint::PlatformError> {
 
     app.run()
 }
+
+

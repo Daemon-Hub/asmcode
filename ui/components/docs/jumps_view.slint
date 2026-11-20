@@ -1,0 +1,205 @@
+import { JumpConditionItem, CodePatternItem } from "../../models.slint";
+import { Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export component JumpsView inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in property <[JumpConditionItem]> jumps_list: [];
+    in property <[CodePatternItem]> patterns_list: [];
+
+    callback insert_snippet(string);
+
+    spacing: 12px;
+
+    // Header Matrix Card
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            Text {
+                text: root.current_language == "ru"
+                    ? "МАТРИЦА УСЛОВНЫХ ПЕРЕХОДОВ INTEL 8080 (УСЛОВИЯ, JMP, CALL И RET):"
+                    : "INTEL 8080 CONDITIONAL BRANCHING MATRIX (CONDITIONS, JMP, CALL, RET):";
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.accent_blue;
+            }
+
+            // Table Header
+            Rectangle {
+                height: 32px;
+                background: Theme.bg_surface;
+                border-radius: 4px;
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    spacing: 10px;
+                    Text { width: 120px; text: root.current_language == "ru" ? "УСЛОВИЕ" : "CONDITION"; font-size: 13px; font-weight: 700; color: Theme.accent_yellow; vertical-alignment: center; }
+                    Text { width: 85px; text: root.current_language == "ru" ? "ФЛАГ" : "FLAG TEST"; font-size: 13px; font-weight: 700; color: Theme.accent_yellow; vertical-alignment: center; }
+                    Text { width: 105px; text: "JUMP (Jcc)"; font-size: 13px; font-weight: 700; color: Theme.accent_blue; vertical-alignment: center; }
+                    Text { width: 105px; text: "CALL (Ccc)"; font-size: 13px; font-weight: 700; color: Theme.accent_blue; vertical-alignment: center; }
+                    Text { width: 85px; text: "RET (Rcc)"; font-size: 13px; font-weight: 700; color: Theme.accent_blue; vertical-alignment: center; }
+                    Text { text: root.current_language == "ru" ? "ЗНАЧЕНИЕ И СЦЕНАРИЙ" : "MEANING & SCENARIO"; font-size: 13px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+                }
+            }
+
+            // Table Rows
+            for j in root.jumps_list: HorizontalLayout {
+                height: 36px;
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+
+                Text { width: 120px; text: j.condition; font-size: 14px; font-weight: 600; color: Theme.accent_yellow; vertical-alignment: center; }
+                Text { width: 85px; text: j.flag_test; font-size: 14px; font-weight: 600; color: Theme.accent_green; vertical-alignment: center; }
+
+                Rectangle {
+                    width: 105px;
+                    height: 26px;
+                    y: 5px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface2;
+                    Text { text: j.jump_cmd; font-size: 14px; font-weight: 600; color: Theme.accent_blue; horizontal-alignment: center; vertical-alignment: center; }
+                }
+
+                Rectangle {
+                    width: 105px;
+                    height: 26px;
+                    y: 5px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface2;
+                    Text { text: j.call_cmd; font-size: 14px; font-weight: 600; color: #bd93f9; horizontal-alignment: center; vertical-alignment: center; }
+                }
+
+                Rectangle {
+                    width: 85px;
+                    height: 26px;
+                    y: 5px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface2;
+                    Text { text: j.ret_cmd; font-size: 14px; font-weight: 600; color: #ff79c6; horizontal-alignment: center; vertical-alignment: center; }
+                }
+
+                Text { text: j.meaning; font-size: 14px; color: Theme.text_primary; vertical-alignment: center; overflow: elide; }
+            }
+        }
+    }
+
+    // Practical Code Idioms / Patterns
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.accent_green;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 10px;
+
+            Text {
+                text: root.current_language == "ru"
+                    ? "ПРАКТИЧЕСКИЕ ШАБЛОНЫ И ИДИОМЫ КОДА (ВЕТВЛЕНИЯ, ЦИКЛЫ, ПЕРЕПОЛНЕНИЕ):"
+                    : "PRACTICAL CODE IDIOMS & TEMPLATES (BRANCHING, LOOPS, OVERFLOW):";
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.accent_green;
+            }
+
+            ListView {
+                for pat in root.patterns_list: VerticalLayout {
+                    padding-bottom: 10px;
+
+                    Rectangle {
+                        background: Theme.bg_surface;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+
+                            HorizontalLayout {
+                                alignment: space-between;
+
+                                HorizontalLayout {
+                                    spacing: 10px;
+                                    Text { text: pat.title; font-size: 15px; font-weight: 700; color: Theme.accent_yellow; vertical-alignment: center; }
+
+                                    Rectangle {
+                                        height: 24px;
+                                        border-radius: 3px;
+                                        background: Theme.bg_surface2;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            Text { text: pat.category; font-size: 13px; color: Theme.text_muted; vertical-alignment: center; }
+                                        }
+                                    }
+                                }
+
+                                // Insert Pattern Button
+                                Rectangle {
+                                    height: 28px;
+                                    border-radius: 4px;
+                                    background: pat_ins.has-hover ? Theme.accent_blue : Theme.accent_green;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        Text {
+                                            text: root.current_language == "ru" ? "Вставить шаблон" : "Insert Template";
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            color: #151518;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+
+                                    pat_ins := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => { root.insert_snippet(pat.raw_snippet); }
+                                    }
+                                }
+                            }
+
+                            Text { text: pat.description; font-size: 15px; color: Theme.text_primary; wrap: word-wrap; }
+
+                            // Syntax Highlighted Code Box
+                            Rectangle {
+                                background: Theme.editor_bg;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: Theme.border_normal;
+
+                                VerticalLayout {
+                                    padding: 8px;
+                                    spacing: 2px;
+                                    for line in pat.example_lines: HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 0px;
+                                        for tok in line.tokens: Text {
+                                            text: tok.text;
+                                            color: tok.color;
+                                            font-family: "CaskaydiaCove Nerd Font Propo";
+                                            font-size: 15px;
+                                            font-weight: 600;
+                                            font-italic: tok.is_italic;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,267 @@
+import { MemoryMapItem } from "../../models.slint";
+import { Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export component MemoryMapView inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in property <[MemoryMapItem]> memory_map_list: [];
+
+    callback insert_snippet(string);
+
+    spacing: 12px;
+
+    // Header Explanation
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 6px;
+
+            Text {
+                text: root.current_language == "ru"
+                    ? "КАРТА АДРЕСНОГО ПРОСТРАНСТВА INTEL 8080 (64 КБ ПАМЯТИ ПОД CP/M 2.2):"
+                    : "INTEL 8080 MEMORY MAP ARCHITECTURE (64 KB UNDER CP/M 2.2):";
+                font-size: 15px;
+                font-weight: 700;
+                color: Theme.accent_blue;
+            }
+
+            // Visual Memory Strip representation
+            HorizontalLayout {
+                height: 40px;
+                spacing: 3px;
+
+                // Page Zero
+                Rectangle {
+                    width: 90px;
+                    border-radius: 3px;
+                    background: #ff5555;
+                    Text {
+                        text: "Page 0\n0000-00FF";
+                        font-family: Theme.font_ui;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #ffffff;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // TPA (User RAM)
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 3px;
+                    background: Theme.accent_green;
+                    Text {
+                        text: "TPA (Transient Program Area: 0100h - ~DAFFh) - Память для ваших .COM программ (ORG 100h)";
+                        font-family: Theme.font_ui;
+                        font-size: 12px;
+                        font-weight: 600;
+                        color: #151518;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // CCP
+                Rectangle {
+                    width: 110px;
+                    border-radius: 3px;
+                    background: #f1fa8c;
+                    Text {
+                        text: "CCP (~2KB)\nDB00-E2FF";
+                        font-family: Theme.font_ui;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #151518;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // BDOS
+                Rectangle {
+                    width: 120px;
+                    border-radius: 3px;
+                    background: #bd93f9;
+                    Text {
+                        text: "BDOS (~3.5KB)\nE300-EFFF";
+                        font-family: Theme.font_ui;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #151518;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // BIOS
+                Rectangle {
+                    width: 110px;
+                    border-radius: 3px;
+                    background: #8be9fd;
+                    Text {
+                        text: "BIOS (~4KB)\nF000-FFFF";
+                        font-family: Theme.font_ui;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: #151518;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Scrollable Segment Breakdown
+    ListView {
+        for seg in root.memory_map_list: VerticalLayout {
+            padding-bottom: 8px;
+
+            Rectangle {
+                background: Theme.terminal_bg;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: seg.is_tpa ? Theme.accent_green : Theme.border_normal;
+
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 6px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+
+                        HorizontalLayout {
+                            spacing: 10px;
+
+                            Rectangle {
+                                width: 126px;
+                                height: 28px;
+                                border-radius: 4px;
+                                background: seg.is_tpa ? Theme.accent_green : Theme.accent_blue;
+                                Text {
+                                    text: seg.start_addr + " - " + seg.end_addr;
+                                    font-family: Theme.font_ui;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    color: #151518;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: seg.name;
+                                font-size: 16px;
+                                font-weight: 700;
+                                color: seg.is_tpa ? Theme.accent_green : Theme.accent_yellow;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle {
+                            height: 26px;
+                            border-radius: 3px;
+                            background: Theme.bg_surface2;
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: seg.category;
+                                    font-size: 13px;
+                                    color: Theme.text_muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: seg.description;
+                        font-size: 15px;
+                        color: Theme.text_primary;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle {
+                        background: Theme.bg_surface;
+                        border-radius: 4px;
+
+                        VerticalLayout {
+                            padding: 8px;
+                            Text {
+                                text: (root.current_language == "ru" ? "Важно для программиста: " : "Developer Note: ") + seg.importance;
+                                font-size: 14px;
+                                color: Theme.accent_yellow;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Stack Architecture Card
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.accent_blue;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                Text {
+                    text: root.current_language == "ru" ? "АРХИТЕКТУРА СТЕКА (SP, LIFO И ВЫЗОВЫ ПРОЦЕДУР):" : "STACK ARCHITECTURE (SP, LIFO & CALL/RET):";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.accent_blue;
+                }
+
+                Rectangle {
+                    height: 26px;
+                    border-radius: 4px;
+                    background: stack_ins.has-hover ? Theme.accent_blue : Theme.accent_green;
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        Text {
+                            text: root.current_language == "ru" ? "Вставить шаблон стека" : "Insert Stack Template";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #151518;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    stack_ins := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.insert_snippet("    lxi sp, stack_top\n\n    ; Код программы...\n\n    ds 128\nstack_top:");
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: root.current_language == "ru"
+                    ? "Стек процессора 8080 работает по принципу LIFO (Last-In, First-Out) и растет вниз от старших адресов к младшим. Инструкция PUSH уменьшает SP на 2 и сохраняет регистр в стек. POP извлекает данные и увеличивает SP на 2. Инструкция CALL помещает в стек 16-битный адрес возврата PC+3, а RET выталкивает адрес в PC."
+                    : "Intel 8080 stack is LIFO growing downward. PUSH decrements SP by 2; POP increments SP by 2. CALL pushes return address PC+3; RET pops it into PC.";
+                font-size: 15px;
+                color: Theme.text_primary;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

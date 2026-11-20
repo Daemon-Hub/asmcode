@@ -1,42 +1,205 @@
-import { DocItem } from "../models.slint";
+import {
+    DocItem, BdosItem, FcbFieldItem, BufferFieldItem, MemoryMapItem, RegisterItem,
+    FlagItem, FlagRuleItem, AsciiItem, JumpConditionItem, CodePatternItem
+} from "../models.slint";
 import { Theme } from "../components/theme.slint";
 import { ListView } from "std-widgets.slint";
+import { BdosView } from "../components/docs/bdos_view.slint";
+import { MemoryMapView } from "../components/docs/memory_map_view.slint";
+import { RegistersView } from "../components/docs/registers_view.slint";
+import { AsciiView } from "../components/docs/ascii_view.slint";
+import { JumpsView } from "../components/docs/jumps_view.slint";
 
 export component DocsPage inherits VerticalLayout {
     in property <string> current_language: "ru";
+    in-out property <int> docs_active_module: 0; // 0=Instructions, 1=BDOS, 2=MemoryMap, 3=Registers/PSW, 4=ASCII, 5=Flags/Jumps
     in property <[DocItem]> docs_list: [];
-    in property <int> docs_total_count: 67;
+    in property <int> docs_total_count: 85;
     in-out property <string> selected_category: root.current_language == "ru" ? "Все" : "All";
+    in-out property <string> bdos_selected_category: root.current_language == "ru" ? "Все" : "All";
     in-out property <string> expanded_cmd: "";
 
+    in property <[BdosItem]> bdos_list: [];
+    in property <int> bdos_total_count: 37;
+    in property <[FcbFieldItem]> fcb_fields_list: [];
+    in property <[BufferFieldItem]> buffer_fields_list: [];
+    in property <[MemoryMapItem]> memory_map_list: [];
+    in property <[RegisterItem]> registers_list: [];
+    in property <[FlagItem]> flags_list: [];
+    in property <[FlagRuleItem]> flag_rules_list: [];
+    in property <[AsciiItem]> ascii_list: [];
+    in property <[JumpConditionItem]> jumps_list: [];
+    in property <[CodePatternItem]> patterns_list: [];
+
+    in-out property <string> docs_search_query: "";
+
     callback filter_category(string);
+    callback filter_bdos_category(string);
+    callback search_docs(string);
     callback insert_snippet(string);
+    callback copy_text_to_clipboard(string);
 
     padding: 16px;
     spacing: 12px;
 
-    // Header Title and Counter
-    HorizontalLayout {
-        alignment: space-between;
-        Text {
-            text: root.current_language == "ru"
-                ? "ИНТЕРАКТИВНЫЙ СПРАВОЧНИК КОМАНД INTEL 8080"
-                : "INTEL 8080 INSTRUCTION SET ENCYCLOPEDIA";
-            font-size: 18px;
-            font-weight: 700;
-            color: Theme.accent_blue;
-            vertical-alignment: center;
-        }
-        Text {
-            text: (root.current_language == "ru" ? "Показано команд: " : "Showing: ")
-                + root.docs_list.length
-                + (root.current_language == "ru" ? " из " : " of ")
-                + root.docs_total_count;
-            font-size: 14px;
-            color: Theme.text_muted;
-            vertical-alignment: center;
+    // Top Educational Module Navigation Tabs
+    Rectangle {
+        height: 44px;
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        HorizontalLayout {
+            padding-left: 8px;
+            padding-right: 8px;
+            padding-top: 4px;
+            padding-bottom: 4px;
+            spacing: 6px;
+            alignment: start;
+
+            // Module 0: 8080 Instructions
+            Rectangle {
+                width: root.current_language == "ru" ? 180px : 160px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 0 ? Theme.accent_blue : (m0.has-hover ? Theme.bg_surface2 : #00000000);
+                m0 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 0; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Мнемоники (" : "Mnemonics (") + root.docs_list.length + ")")
+                        : ((root.current_language == "ru" ? "Мнемоники 8080 (" : "8080 Instructions (") + root.docs_total_count + ")");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 0 ? 600 : 500;
+                    color: root.docs_active_module == 0 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Module 1: BDOS System Calls
+            Rectangle {
+                width: root.current_language == "ru" ? 190px : 160px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 1 ? Theme.accent_blue : (m1.has-hover ? Theme.bg_surface2 : #00000000);
+                m1 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 1; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Вызовы BDOS (" : "BDOS Calls (") + root.bdos_list.length + ")")
+                        : (root.current_language == "ru" ? "Вызовы BDOS 2.2 (37)" : "BDOS 2.2 Calls (37)");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 1 ? 600 : 500;
+                    color: root.docs_active_module == 1 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Module 2: Memory Map
+            Rectangle {
+                width: root.current_language == "ru" ? 170px : 150px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 2 ? Theme.accent_blue : (m2.has-hover ? Theme.bg_surface2 : #00000000);
+                m2 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 2; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Карта памяти (" : "Memory Map (") + root.memory_map_list.length + ")")
+                        : (root.current_language == "ru" ? "Карта памяти 64K" : "64K Memory Map");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 2 ? 600 : 500;
+                    color: root.docs_active_module == 2 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Module 3: Registers & PSW
+            Rectangle {
+                width: root.current_language == "ru" ? 170px : 150px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 3 ? Theme.accent_blue : (m3.has-hover ? Theme.bg_surface2 : #00000000);
+                m3 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 3; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Регистры / PSW (" : "Registers / PSW (") + (root.registers_list.length + root.flag_rules_list.length) + ")")
+                        : (root.current_language == "ru" ? "Регистры и PSW" : "Registers & PSW");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 3 ? 600 : 500;
+                    color: root.docs_active_module == 3 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Module 4: ASCII Table
+            Rectangle {
+                width: root.current_language == "ru" ? 170px : 150px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 4 ? Theme.accent_blue : (m4.has-hover ? Theme.bg_surface2 : #00000000);
+                m4 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 4; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Таблица ASCII (" : "ASCII Table (") + root.ascii_list.length + ")")
+                        : (root.current_language == "ru" ? "Таблица ASCII (128)" : "ASCII Table (128)");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 4 ? 600 : 500;
+                    color: root.docs_active_module == 4 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Module 5: Conditional Jumps & Idioms
+            Rectangle {
+                width: root.current_language == "ru" ? 180px : 160px;
+                height: 34px;
+                border-radius: 4px;
+                background: root.docs_active_module == 5 ? Theme.accent_blue : (m5.has-hover ? Theme.bg_surface2 : #00000000);
+                m5 := TouchArea { mouse-cursor: pointer; clicked => { root.docs_active_module = 5; } }
+                Text {
+                    text: root.docs_search_query != ""
+                        ? ((root.current_language == "ru" ? "Переходы (" : "Jumps (") + root.jumps_list.length + ")")
+                        : (root.current_language == "ru" ? "Условные переходы" : "Flags & Jumps");
+                    font-size: 13px;
+                    font-weight: root.docs_active_module == 5 ? 600 : 500;
+                    color: root.docs_active_module == 5 ? #151518 : Theme.text_primary;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
         }
     }
+
+    // MODULE 0: OPCODES LIST
+    if root.docs_active_module == 0: VerticalLayout {
+        spacing: 12px;
+
+        // Header Title and Counter
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.current_language == "ru"
+                    ? "ИНТЕРАКТИВНЫЙ СПРАВОЧНИК КОМАНД INTEL 8080"
+                    : "INTEL 8080 INSTRUCTION SET ENCYCLOPEDIA";
+                font-size: 18px;
+                font-weight: 700;
+                color: Theme.accent_blue;
+                vertical-alignment: center;
+            }
+            Text {
+                text: (root.current_language == "ru" ? "Показано команд: " : "Showing: ")
+                    + root.docs_list.length
+                    + (root.current_language == "ru" ? " из " : " of ")
+                    + root.docs_total_count;
+                font-size: 14px;
+                color: Theme.text_muted;
+                vertical-alignment: center;
+            }
+        }
 
     // Category Filter Bar
     Rectangle {
@@ -346,7 +509,7 @@ export component DocsPage inherits VerticalLayout {
                             alignment: center;
                             Text {
                                 text: doc.name;
-                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-family: "CaskaydiaCove Nerd Font Propo";
                                 font-size: 20px;
                                 font-weight: 700;
                                 color: Theme.accent_blue;
@@ -363,7 +526,7 @@ export component DocsPage inherits VerticalLayout {
                             alignment: center;
                             Text {
                                 text: doc.syntax;
-                                font-family: "CaskaydiaCove NF SemiBold";
+                                font-family: "CaskaydiaCove Nerd Font Propo";
                                 font-size: 15px;
                                 font-weight: 600;
                                 color: Theme.accent_green;
@@ -441,7 +604,7 @@ export component DocsPage inherits VerticalLayout {
                                     padding-right: 12px;
                                     Text {
                                         text: doc.syntax;
-                                        font-family: "CaskaydiaCove NF SemiBold";
+                                        font-family: "CaskaydiaCove Nerd Font Propo";
                                         font-size: 16px;
                                         font-weight: 700;
                                         color: Theme.accent_green;
@@ -615,7 +778,7 @@ export component DocsPage inherits VerticalLayout {
                                         for tok in eline.tokens: Text {
                                             text: tok.text;
                                             color: tok.color;
-                                            font-family: "CaskaydiaCove NF SemiBold";
+                                            font-family: "CaskaydiaCove Nerd Font Propo";
                                             font-size: 15px;
                                             font-weight: 600;
                                             font-italic: tok.is_italic;
@@ -629,5 +792,48 @@ export component DocsPage inherits VerticalLayout {
                 }
             }
         }
+    }
+    }
+
+    // MODULE 1: BDOS SYSTEM CALLS (0-36)
+    if root.docs_active_module == 1: BdosView {
+        current_language: root.current_language;
+        selected_category <=> root.bdos_selected_category;
+        bdos_list: root.bdos_list;
+        bdos_total_count: root.bdos_total_count;
+        fcb_fields_list: root.fcb_fields_list;
+        buffer_fields_list: root.buffer_fields_list;
+        filter_category(cat) => { root.filter_bdos_category(cat); }
+        insert_snippet(snip) => { root.insert_snippet(snip); }
+    }
+
+    // MODULE 2: 64K MEMORY MAP
+    if root.docs_active_module == 2: MemoryMapView {
+        current_language: root.current_language;
+        memory_map_list: root.memory_map_list;
+        insert_snippet(snip) => { root.insert_snippet(snip); }
+    }
+
+    // MODULE 3: REGISTERS & PSW
+    if root.docs_active_module == 3: RegistersView {
+        current_language: root.current_language;
+        registers_list: root.registers_list;
+        flags_list: root.flags_list;
+        flag_rules_list: root.flag_rules_list;
+    }
+
+    // MODULE 4: ASCII TABLE
+    if root.docs_active_module == 4: AsciiView {
+        current_language: root.current_language;
+        ascii_list: root.ascii_list;
+        copy_clipboard(code) => { root.copy_text_to_clipboard(code); }
+    }
+
+    // MODULE 5: CONDITIONAL JUMPS & IDIOMS
+    if root.docs_active_module == 5: JumpsView {
+        current_language: root.current_language;
+        jumps_list: root.jumps_list;
+        patterns_list: root.patterns_list;
+        insert_snippet(snip) => { root.insert_snippet(snip); }
     }
 }

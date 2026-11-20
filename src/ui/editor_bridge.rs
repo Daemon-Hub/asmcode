@@ -1,5 +1,5 @@
 use crate::autocomplete::engine::AutocompleteEngine;
-use crate::syntax::intel8080::highlight_document;
+use crate::syntax::intel8080::highlight_document_range;
 use crate::ui::controller::IdeController;
 use crate::ui::{AppWindow, DocItem, HighlightLineItem, LabelItem, SuggestionItem, TokenItem};
 use slint::{ModelRc, SharedString, VecModel};
@@ -24,6 +24,48 @@ fn push_usize(buf: &mut String, mut n: usize) {
     buf.push_str(s);
 }
 
+pub fn update_viewport_highlight(
+    app: &AppWindow,
+    code: &str,
+    scroll_line: usize,
+    visible_count: usize,
+    is_asm: bool,
+) {
+    if !is_asm || code.is_empty() {
+        app.set_highlight_lines(ModelRc::default());
+        return;
+    }
+
+    let theme_id = app.get_active_theme_id();
+    let buffered_start = scroll_line.saturating_sub(8);
+    let count = (visible_count + 16).max(60);
+
+    let lines = highlight_document_range(code, theme_id, buffered_start, count);
+    let line_models: Vec<HighlightLineItem> = lines
+        .into_iter()
+        .map(|line| {
+            let token_models: Vec<TokenItem> = line
+                .tokens
+                .into_iter()
+                .map(|tok| TokenItem {
+                    text: tok.text,
+                    color: tok.color,
+                    is_italic: tok.is_italic,
+                    char_count: tok.char_count,
+                    is_whitespace: tok.is_whitespace,
+                })
+                .collect();
+            HighlightLineItem {
+                line_number: line.line_number,
+                tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
+            }
+        })
+        .collect();
+
+    app.set_highlight_start_line(buffered_start as i32);
+    app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
+}
+
 pub fn update_highlight_and_labels(
     app: &AppWindow,
     autocomplete: &AutocompleteEngine,
@@ -36,49 +78,22 @@ pub fn update_highlight_and_labels(
         code.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1
     };
 
-    let is_large_file = app.get_is_large_file_mode();
-
-    // Fast O(1) bounded numbers generation
-    let max_numbers = if is_large_file {
-        100_000
-    } else {
-        line_count.min(300_000)
-    };
-    let actual_count = line_count.min(max_numbers);
-    let mut numbers_str = String::with_capacity(actual_count * 6);
-    for i in 1..=actual_count {
+    let mut numbers_str = String::with_capacity(line_count * 6);
+    for i in 1..=line_count {
         push_usize(&mut numbers_str, i);
         numbers_str.push('\n');
     }
     app.set_line_numbers_text(SharedString::from(numbers_str));
 
-    if !is_asm || is_large_file {
+    if !is_asm {
         app.set_highlight_lines(ModelRc::default());
         app.set_label_list(ModelRc::default());
         return;
     }
 
-    let theme_id = app.get_active_theme_id();
-    let lines = highlight_document(code, theme_id);
-    let line_models: Vec<HighlightLineItem> = lines
-        .into_iter()
-        .map(|line| {
-            let token_models: Vec<TokenItem> = line
-                .tokens
-                .into_iter()
-                .map(|tok| TokenItem {
-                    text: tok.text,
-                    color: tok.color,
-                    is_italic: tok.is_italic,
-                })
-                .collect();
-            HighlightLineItem {
-                line_number: line.line_number,
-                tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
-            }
-        })
-        .collect();
-    app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
+    let scroll_line = app.get_visible_scroll_line().max(0) as usize;
+    let visible_count = (app.get_visible_line_count().max(40) as usize).min(120);
+    update_viewport_highlight(app, code, scroll_line, visible_count, is_asm);
 
     let labels = autocomplete.get_user_labels(code);
     let label_items: Vec<LabelItem> = labels
@@ -91,22 +106,40 @@ pub fn update_highlight_and_labels(
     app.set_label_list(ModelRc::from(Rc::new(VecModel::from(label_items))));
 }
 
-pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
+pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str, query: &str) {
     let docs = crate::autocomplete::intel8080_docs::INTEL_8080_DOCS;
     let theme_id = app.get_active_theme_id();
+    let q = query.trim().to_lowercase();
+    let has_q = !q.is_empty();
+
     let doc_items: Vec<DocItem> = docs
         .iter()
         .filter(|doc| {
-            if category.is_empty() || category == "Все" || category == "All" {
+            if !category.is_empty() && category != "Все" && category != "All" {
+                let cat_ru = doc.get_category("ru");
+                let cat_en = doc.get_category("en");
+                let cat_lower = category.to_lowercase();
+                let matches_cat = cat_ru.to_lowercase().contains(&cat_lower)
+                    || cat_en.to_lowercase().contains(&cat_lower)
+                    || doc.category.to_lowercase().contains(&cat_lower)
+                    || doc.category_ru.to_lowercase().contains(&cat_lower);
+                if !matches_cat {
+                    return false;
+                }
+            }
+
+            if !has_q {
                 return true;
             }
-            let cat_ru = doc.get_category("ru");
-            let cat_en = doc.get_category("en");
-            let cat_lower = category.to_lowercase();
-            cat_ru.to_lowercase().contains(&cat_lower)
-                || cat_en.to_lowercase().contains(&cat_lower)
-                || doc.category.to_lowercase().contains(&cat_lower)
-                || doc.category_ru.to_lowercase().contains(&cat_lower)
+
+            let desc = crate::autocomplete::intel8080_details::get_detailed_description(doc.name, lang);
+            doc.name.to_lowercase().contains(&q)
+                || doc.syntax.to_lowercase().contains(&q)
+                || doc.get_summary(lang).to_lowercase().contains(&q)
+                || doc.get_operands(lang).to_lowercase().contains(&q)
+                || doc.flags.to_lowercase().contains(&q)
+                || doc.get_category(lang).to_lowercase().contains(&q)
+                || desc.to_lowercase().contains(&q)
         })
         .map(|doc| {
             let detailed_desc =
@@ -129,6 +162,8 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
                             text: t.text,
                             color: t.color,
                             is_italic: t.is_italic,
+                            char_count: t.char_count,
+                            is_whitespace: t.is_whitespace,
                         })
                         .collect();
                     HighlightLineItem {
@@ -142,7 +177,7 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
                 name: SharedString::from(doc.name),
                 syntax: SharedString::from(doc.syntax),
                 summary: SharedString::from(doc.get_summary(lang)),
-                operands: SharedString::from(doc.operands),
+                operands: SharedString::from(doc.get_operands(lang)),
                 flags: SharedString::from(doc.flags),
                 cycles: SharedString::from(doc.cycles),
                 bytes: doc.bytes as i32,
@@ -162,7 +197,8 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str) {
 }
 
 pub fn populate_docs_ui(app: &AppWindow, lang: &str) {
-    populate_filtered_docs_ui(app, lang, "Все");
+    populate_filtered_docs_ui(app, lang, "Все", "");
+    crate::ui::docs_bridge::populate_all_educational_docs(app, lang);
 }
 
 pub fn refresh_suggestions_ui(
@@ -235,7 +271,7 @@ pub fn ensure_active_file_or_create_draft(app: &AppWindow, ctrl: &mut IdeControl
 
     app.set_active_file_name(SharedString::from(&draft_name));
     app.set_active_file_path(SharedString::from(draft_path.to_string_lossy().to_string()));
-    app.set_is_dirty(true);
+    app.set_is_dirty(false);
     app.set_is_active_asm(true);
 }
 
@@ -250,6 +286,7 @@ pub fn record_editor_mutation(
     ctrl.undo_manager
         .record_edit(new_code, cursor_pos, is_group);
     if let Some(path) = &ctrl.file_manager.active_file_path {
+        ctrl.dirty_tabs.insert(path.clone());
         match ctrl.tab_buffers.get_mut(path) {
             Some(buf) => {
                 buf.clear();

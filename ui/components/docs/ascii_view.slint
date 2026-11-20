@@ -1,0 +1,162 @@
+import { AsciiItem } from "../../models.slint";
+import { Theme } from "../theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export component AsciiView inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in property <[AsciiItem]> ascii_list: [];
+    in-out property <string> search_filter: "";
+
+    callback copy_clipboard(string);
+
+    spacing: 12px;
+
+    // Header Explanation Banner
+    Rectangle {
+        background: Theme.terminal_bg;
+        border-radius: 6px;
+        border-width: 1px;
+        border-color: Theme.border_normal;
+
+        HorizontalLayout {
+            padding: 12px;
+            alignment: space-between;
+
+            VerticalLayout {
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru"
+                        ? "ПОЛНАЯ ТАБЛИЦА ASCII (СИМВОЛЫ 0-127 И СПЕЦ-КОДЫ CP/M):"
+                        : "FULL ASCII CHARACTER TABLE (CODES 0-127 & CP/M SPECIAL BYTES):";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.accent_blue;
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Кликните по строке символа, чтобы скопировать его шестнадцатеричный код (HEX) или директиву DB."
+                        : "Click any character row to copy its HEX value or DB directive.";
+                    font-size: 13px;
+                    color: Theme.text_muted;
+                }
+            }
+
+            Rectangle {
+                width: 130px;
+                height: 28px;
+                border-radius: 4px;
+                background: #ff5555;
+                Text {
+                    text: root.current_language == "ru" ? "Спец-код CP/M" : "CP/M Special";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Table Header
+    Rectangle {
+        height: 32px;
+        background: Theme.bg_surface;
+        border-radius: 4px;
+
+        HorizontalLayout {
+            padding-left: 12px;
+            padding-right: 12px;
+            spacing: 12px;
+            Text { width: 50px; text: "DEC"; font-size: 13px; font-weight: 700; color: Theme.accent_yellow; vertical-alignment: center; }
+            Text { width: 60px; text: "HEX"; font-size: 13px; font-weight: 700; color: Theme.accent_blue; vertical-alignment: center; }
+            Text { width: 70px; text: "CHAR"; font-size: 13px; font-weight: 700; color: Theme.accent_green; vertical-alignment: center; }
+            Text { width: 230px; text: root.current_language == "ru" ? "НАЗВАНИЕ" : "NAME"; font-size: 13px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+            Text { text: root.current_language == "ru" ? "ОПИСАНИЕ И РОЛЬ В CP/M" : "DESCRIPTION & CP/M ROLE"; font-size: 13px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+        }
+    }
+
+    // Scrollable Table List
+    ListView {
+        for a in root.ascii_list: VerticalLayout {
+            padding-bottom: 2px;
+
+            row_rect := Rectangle {
+                height: 36px;
+                border-radius: 4px;
+                background: a.is_cpm_special
+                    ? (row_touch.has-hover ? #3a2528 : #281d22)
+                    : (row_touch.has-hover ? Theme.bg_surface2 : #00000000);
+
+                row_touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.copy_clipboard(a.code_hex);
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 12px;
+
+                        // Dec
+                        Text {
+                            width: 50px;
+                            text: a.code_dec;
+                            font-size: 14px;
+                            color: Theme.accent_yellow;
+                            vertical-alignment: center;
+                        }
+
+                        // Hex
+                        Text {
+                            width: 60px;
+                            text: a.code_hex;
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.accent_blue;
+                            vertical-alignment: center;
+                        }
+
+                        // Char
+                        Rectangle {
+                            width: 70px;
+                            height: 24px;
+                            y: 6px;
+                            border-radius: 3px;
+                            background: a.is_cpm_special ? #ff5555 : Theme.bg_surface;
+                            Text {
+                                text: a.char_display;
+                                font-size: 14px;
+                                font-weight: 600;
+                                color: a.is_cpm_special ? #ffffff : Theme.accent_green;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Name
+                        Text {
+                            width: 230px;
+                            text: a.name;
+                            font-size: 15px;
+                            font-weight: a.is_cpm_special ? 700 : 500;
+                            color: a.is_cpm_special ? #ff79c6 : Theme.text_primary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+
+                        // Description
+                        Text {
+                            text: a.description;
+                            font-size: 14px;
+                            color: Theme.text_muted;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

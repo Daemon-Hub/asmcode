@@ -11,8 +11,12 @@ export component TerminalPanel inherits Rectangle {
     in property <color> status_color: #a6e3a1;
     in property <string> output_log_text: "";
     in property <[TerminalLineItem]> terminal_lines: [];
+    in property <bool> is_process_running: false;
+    in-out property <string> terminal_input_text: "";
 
     callback clear_output();
+    callback terminal_input_submitted(string);
+    callback stop_process();
 
     height: root.terminal_expanded ? (root.terminal_height + 38px) : 38px;
     background: Theme.terminal_bg;
@@ -65,25 +69,55 @@ export component TerminalPanel inherits Rectangle {
                 }
             }
 
-            Rectangle {
-                width: 95px;
-                height: 26px;
-                border-radius: 3px;
-                background: Theme.bg_surface;
-                border-width: 1px;
-                border-color: Theme.border_normal;
+            HorizontalLayout {
+                spacing: 6px;
 
-                Text {
-                    text: root.current_language == "ru" ? "Очистить" : "Clear";
-                    font-size: 12px;
-                    color: Theme.text_primary;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+                // Stop button if process is running
+                if root.is_process_running: Rectangle {
+                    width: root.current_language == "ru" ? 80px : 70px;
+                    height: 26px;
+                    border-radius: 3px;
+                    background: stop_touch.has-hover ? #f38ba8 : #4d2b33;
+                    border-width: 1px;
+                    border-color: #fd6d6d;
+
+                    Text {
+                        text: root.current_language == "ru" ? "Стоп" : "Stop";
+                        font-family: Theme.font_ui;
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: stop_touch.has-hover ? #151518 : #fd6d6d;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    stop_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.stop_process(); }
+                    }
                 }
 
-                TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.clear_output(); }
+                // Clear output button
+                Rectangle {
+                    width: 80px;
+                    height: 26px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface;
+                    border-width: 1px;
+                    border-color: Theme.border_normal;
+
+                    Text {
+                        text: root.current_language == "ru" ? "Очистить" : "Clear";
+                        font-size: 12px;
+                        color: Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.clear_output(); }
+                    }
                 }
             }
         }
@@ -94,38 +128,122 @@ export component TerminalPanel inherits Rectangle {
             border-width: 1px;
             border-color: Theme.border_normal;
 
-            ScrollView {
-                VerticalLayout {
-                    padding: 8px;
-                    spacing: 3px;
-                    alignment: start;
+            VerticalLayout {
+                padding: 4px;
+                spacing: 4px;
 
-                    if root.terminal_lines.length == 0: Text {
-                        text: root.output_log_text;
-                        font-family: "CaskaydiaCove NF SemiBold";
-                        font-size: 14px;
-                        color: #cdd6f4;
-                        wrap: word-wrap;
-                    }
+                ScrollView {
+                    vertical-stretch: 1;
 
-                    for line in root.terminal_lines: HorizontalLayout {
-                        spacing: 6px;
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 3px;
                         alignment: start;
 
-                        if line.prefix != "": Text {
-                            text: line.prefix;
-                            color: line.prefix_color;
-                            font-family: "CaskaydiaCove NF SemiBold";
-                            font-size: 13px;
-                            font-weight: 700;
+                        if root.terminal_lines.length == 0: Text {
+                            text: root.output_log_text;
+                            font-family: "CaskaydiaCove Nerd Font Propo";
+                            font-size: 14px;
+                            color: #cdd6f4;
+                            wrap: word-wrap;
                         }
 
+                        for line in root.terminal_lines: HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+
+                            if line.prefix != "": Text {
+                                text: line.prefix;
+                                color: line.prefix_color;
+                                font-family: "CaskaydiaCove Nerd Font Propo";
+                                font-size: 13px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: line.text;
+                                color: line.text_color;
+                                font-family: "CaskaydiaCove Nerd Font Propo";
+                                font-size: 13px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.border_normal;
+                }
+
+                // Interactive Stdin Input Row
+                HorizontalLayout {
+                    height: 30px;
+                    spacing: 6px;
+                    padding-left: 4px;
+                    padding-right: 4px;
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        background: Theme.bg_surface;
+                        border-radius: 3px;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            spacing: 6px;
+
+                            Text {
+                                text: ">";
+                                font-family: Theme.font_mono;
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: Theme.accent_blue;
+                                vertical-alignment: center;
+                            }
+
+                            term_input := TextInput {
+                                text <=> root.terminal_input_text;
+                                font-family: Theme.font_mono;
+                                font-size: 13px;
+                                color: Theme.text_primary;
+                                vertical-alignment: center;
+                                single-line: true;
+                                accepted => {
+                                    if root.terminal_input_text != "" {
+                                        root.terminal_input_submitted(root.terminal_input_text);
+                                        root.terminal_input_text = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 80px;
+                        border-radius: 3px;
+                        background: send_touch.has-hover ? Theme.accent_blue : Theme.bg_surface2;
+
                         Text {
-                            text: line.text;
-                            color: line.text_color;
-                            font-family: "CaskaydiaCove NF SemiBold";
-                            font-size: 13px;
-                            wrap: word-wrap;
+                            text: root.current_language == "ru" ? "Ввод" : "Send";
+                            font-family: Theme.font_ui;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: send_touch.has-hover ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        send_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if root.terminal_input_text != "" {
+                                    root.terminal_input_submitted(root.terminal_input_text);
+                                    root.terminal_input_text = "";
+                                }
+                            }
                         }
                     }
                 }

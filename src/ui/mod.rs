@@ -3,6 +3,7 @@ slint::include_modules!();
 
 pub mod bridge;
 pub mod controller;
+pub mod docs_bridge;
 pub mod editor_bridge;
 pub mod explorer_bridge;
 pub mod handlers;
@@ -10,3 +11,5 @@ pub mod terminal;
 
 pub use bridge::setup_ui;
 pub use controller::IdeController;
+
+

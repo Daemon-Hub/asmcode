@@ -1,10 +1,19 @@
-import "./fonts/CaskaydiaCoveNF-SemiBold.ttf";
-import "./fonts/CaskaydiaCoveNF-SemiBoldItalic.ttf";
+import "./fonts/CaskaydiaCoveNerdFontPropo-Regular.ttf";
+import "./fonts/CaskaydiaCoveNerdFontPropo-SemiBold.ttf";
+import "./fonts/CaskaydiaCoveNerdFontPropo-SemiBoldItalic.ttf";
 
 // Re-export models for Rust bindings and external usage
-export { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem } from "./models.slint";
+export {
+    FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem,
+    BdosItem, FcbFieldItem, BufferFieldItem, MemoryMapItem, RegisterItem, FlagItem, FlagRuleItem, AsciiItem,
+    JumpConditionItem, CodePatternItem, FindMatchItem
+} from "./models.slint";
 
-import { FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem } from "./models.slint";
+import {
+    FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem,
+    BdosItem, FcbFieldItem, BufferFieldItem, MemoryMapItem, RegisterItem, FlagItem, FlagRuleItem, AsciiItem,
+    JumpConditionItem, CodePatternItem, FindMatchItem
+} from "./models.slint";
 import { Theme } from "./components/theme.slint";
 import { Header } from "./components/header.slint";
 import { Sidebar } from "./components/sidebar.slint";
@@ -24,7 +33,7 @@ export component AppWindow inherits Window {
     min-width: 1200px;
     min-height: 800px;
     background: Theme.bg_base;
-    default-font-family: "CaskaydiaCove NF SemiBold";
+    default-font-family: "Segoe UI";
 
     // Theme selector: 0 = Catppuccin Dark, 1 = Cyberpunk 2077 Red (Default)
     in-out property <int> active_theme_id <=> Theme.active_theme;
@@ -34,8 +43,9 @@ export component AppWindow inherits Window {
 
     // Dynamic Zoom & Font properties
     in-out property <length> editor_font_size: 18px;
-    in-out property <bool> editor_font_italic: false;
-    out property <length> editor_line_height: measure_text_2.preferred-height - measure_text_1.preferred-height;
+    in-out property <bool> editor_font_italic: true;
+    out property <length> editor_line_height: (measure_20_lines.preferred-height - measure_1_line.preferred-height) / 19;
+    out property <length> char_advance: measure_10_chars.preferred-width / 10;
 
     // Resizable Layout Dimensions
     in-out property <length> sidebar_width: 320px;
@@ -96,21 +106,29 @@ export component AppWindow inherits Window {
         }
     }
 
-    measure_text_1 := Text {
+    measure_20_lines := Text {
         visible: false;
-        font-family: "CaskaydiaCove NF SemiBold";
+        font-family: "CaskaydiaCove Nerd Font";
         font-size: root.editor_font_size;
         font-weight: 600;
-        font-italic: root.editor_font_italic;
-        text: "Mg";
+        font-italic: false;
+        text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20";
     }
-    measure_text_2 := Text {
+    measure_1_line := Text {
         visible: false;
-        font-family: "CaskaydiaCove NF SemiBold";
+        font-family: "CaskaydiaCove Nerd Font";
         font-size: root.editor_font_size;
         font-weight: 600;
-        font-italic: root.editor_font_italic;
-        text: "Mg\nMg";
+        font-italic: false;
+        text: "1";
+    }
+    measure_10_chars := Text {
+        visible: false;
+        font-family: "CaskaydiaCove Nerd Font";
+        font-size: root.editor_font_size;
+        font-weight: 600;
+        font-italic: false;
+        text: "0123456789";
     }
 
     // State properties
@@ -155,10 +173,25 @@ export component AppWindow inherits Window {
     // Models
     in property <[FileItem]> file_list: [];
     in property <[HighlightLineItem]> highlight_lines: [];
+    in-out property <int> highlight_start_line: 0;
+    in-out property <int> visible_scroll_line: 0;
+    in-out property <int> visible_line_count: 60;
     in property <[LabelItem]> label_list: [];
     in property <[SuggestionItem]> suggestion_list: [];
     in property <[DocItem]> docs_list: [];
-    in-out property <int> docs_total_count: 67;
+    in-out property <int> docs_total_count: 85;
+    in-out property <int> docs_active_module: 0;
+    in property <[BdosItem]> bdos_list: [];
+    in-out property <int> bdos_total_count: 37;
+    in property <[FcbFieldItem]> fcb_fields_list: [];
+    in property <[BufferFieldItem]> buffer_fields_list: [];
+    in property <[MemoryMapItem]> memory_map_list: [];
+    in property <[RegisterItem]> registers_list: [];
+    in property <[FlagItem]> flags_list: [];
+    in property <[FlagRuleItem]> flag_rules_list: [];
+    in property <[AsciiItem]> ascii_list: [];
+    in property <[JumpConditionItem]> jumps_list: [];
+    in property <[CodePatternItem]> patterns_list: [];
     in-out property <[FileTabItem]> open_tabs: [];
 
     // Large File Optimizations
@@ -166,6 +199,7 @@ export component AppWindow inherits Window {
     in-out property <bool> show_large_file_modal: false;
     in-out property <string> pending_large_file_path: "";
     in-out property <string> large_file_modal_text: "";
+    in-out property <bool> is_process_running: false;
 
     // Selected suggestion details
     in-out property <string> selected_sugg_name: "MOV";
@@ -206,6 +240,9 @@ export component AppWindow inherits Window {
     callback run_emulator();
     callback run_syntax_check();
     callback clear_output();
+    callback terminal_input_submitted(string);
+    callback stop_process();
+    callback editor_viewport_scrolled(int, int);
     callback code_edited(string, int);
     callback insert_suggestion(string);
     callback select_suggestion(int);
@@ -249,10 +286,32 @@ export component AppWindow inherits Window {
     callback confirm_close_deleted_tab(string);
     callback cancel_close_deleted_tab();
     callback filter_docs_category(string);
+    callback filter_bdos_category(string);
+    callback search_docs(string);
     callback insert_doc_snippet(string);
+    callback copy_text_to_clipboard(string);
     callback dnd_conflict_replace(string, string);
     callback dnd_conflict_rename(string, string, string);
     callback dnd_conflict_cancel();
+    callback editor_find(string, bool, bool);
+    callback editor_find_next();
+    callback editor_find_prev();
+    callback editor_replace(string);
+    callback editor_replace_all(string);
+    callback request_open_find(int, int, bool);
+
+    in-out property <string> docs_search_query: "";
+    in-out property <string> docs_selected_category: "Все";
+    in-out property <string> bdos_selected_category: "Все";
+    in-out property <int> find_match_count: 0;
+    in-out property <int> find_match_index: 0;
+    in-out property <[FindMatchItem]> find_matches: [];
+    in-out property <string> find_text: "";
+    in-out property <string> replace_text: "";
+    in-out property <bool> show_find_replace: false;
+    in-out property <bool> show_replace_row: false;
+    in-out property <int> select_range_start: -1;
+    in-out property <int> select_range_end: -1;
 
     zoom_in => {
         if root.editor_font_size < 38px {
@@ -279,6 +338,7 @@ export component AppWindow inherits Window {
             is_dirty: root.is_dirty;
             is_active_asm: root.is_active_asm;
             editor_mode: root.editor_mode;
+            docs_search_query <=> root.docs_search_query;
             show_file_menu: root.show_file_menu;
             show_run_menu: root.show_run_menu;
             show_view_menu: root.show_view_menu;
@@ -309,6 +369,7 @@ export component AppWindow inherits Window {
             }
             close_active_file => { root.close_active_file(); }
             toggle_docs_mode => { root.toggle_docs_mode(); }
+            search_docs(q) => { root.search_docs(q); }
             save_file => { root.save_file(); }
             run_syntax_check => { root.run_syntax_check(); }
             run_assemble_only => { root.run_assemble_only(); }
@@ -404,12 +465,17 @@ export component AppWindow inherits Window {
                 editor_font_size: root.editor_font_size;
                 editor_font_italic: root.editor_font_italic;
                 editor_line_height: root.editor_line_height;
+                char_advance: root.char_advance;
                 cursor_visible <=> root.cursor_visible;
                 cursor_x <=> root.cursor_x;
                 cursor_y <=> root.cursor_y;
                 code_text <=> root.code_text;
                 is_active_asm: root.is_active_asm;
                 highlight_lines: root.highlight_lines;
+                highlight_start_line: root.highlight_start_line;
+                visible_scroll_line <=> root.visible_scroll_line;
+                visible_line_count <=> root.visible_line_count;
+                editor_viewport_scrolled(s, c) => { root.editor_viewport_scrolled(s, c); }
                 suggestion_list: root.suggestion_list;
                 selected_sugg_name <=> root.selected_sugg_name;
                 selected_sugg_category <=> root.selected_sugg_category;
@@ -457,16 +523,49 @@ export component AppWindow inherits Window {
                 dnd_hover_target: root.dnd_hover_target;
                 dnd_hover_filename: root.dnd_hover_filename;
                 file_dropped_in_editor(dt) => { root.file_dropped_in_editor(dt); }
+                find_match_count: root.find_match_count;
+                find_match_index: root.find_match_index;
+                find_matches: root.find_matches;
+                find_text <=> root.find_text;
+                replace_text <=> root.replace_text;
+                show_find_replace <=> root.show_find_replace;
+                show_replace_row <=> root.show_replace_row;
+                request_open_find(s_pos, e_pos, is_rep) => { root.request_open_find(s_pos, e_pos, is_rep); }
+                editor_find(q, mc, ww) => { root.editor_find(q, mc, ww); }
+                editor_find_next => { root.editor_find_next(); }
+                editor_find_prev => { root.editor_find_prev(); }
+                editor_replace(rep) => { root.editor_replace(rep); }
+                editor_replace_all(rep) => { root.editor_replace_all(rep); }
+                select_range_start: root.select_range_start;
+                select_range_end: root.select_range_end;
             }
 
             if root.editor_mode == 2: DocsPage {
                 horizontal-stretch: 1;
                 vertical-stretch: 1;
                 current_language: root.current_language;
+                selected_category <=> root.docs_selected_category;
+                bdos_selected_category <=> root.bdos_selected_category;
+                docs_search_query <=> root.docs_search_query;
+                docs_active_module <=> root.docs_active_module;
                 docs_list: root.docs_list;
                 docs_total_count: root.docs_total_count;
+                bdos_list: root.bdos_list;
+                bdos_total_count: root.bdos_total_count;
+                fcb_fields_list: root.fcb_fields_list;
+                buffer_fields_list: root.buffer_fields_list;
+                memory_map_list: root.memory_map_list;
+                registers_list: root.registers_list;
+                flags_list: root.flags_list;
+                flag_rules_list: root.flag_rules_list;
+                ascii_list: root.ascii_list;
+                jumps_list: root.jumps_list;
+                patterns_list: root.patterns_list;
                 filter_category(cat) => { root.filter_docs_category(cat); }
+                filter_bdos_category(cat) => { root.filter_bdos_category(cat); }
+                search_docs(q) => { root.search_docs(q); }
                 insert_snippet(snip) => { root.insert_doc_snippet(snip); }
+                copy_text_to_clipboard(txt) => { root.copy_text_to_clipboard(txt); }
             }
         }
 
@@ -494,7 +593,10 @@ export component AppWindow inherits Window {
             status_color: root.status_color;
             output_log_text: root.output_log_text;
             terminal_lines: root.terminal_lines;
+            is_process_running: root.is_process_running;
             clear_output => { root.clear_output(); }
+            terminal_input_submitted(txt) => { root.terminal_input_submitted(txt); }
+            stop_process => { root.stop_process(); }
         }
     }
 
@@ -781,7 +883,7 @@ export component AppWindow inherits Window {
         cursor_blink <=> root.cursor_blink;
         tab_size <=> root.tab_size;
         active_theme_id <=> root.active_theme_id;
-        selected_language: root.current_language;
+        selected_language <=> root.current_language;
         compiler_path <=> root.compiler_path;
         emulator_path <=> root.emulator_path;
         toolchain_type <=> root.toolchain_type;

@@ -166,6 +166,7 @@ impl CompilerRunner {
         crate::compiler::kit_engine::run_com_file(com_path)
     }
 
+    #[allow(dead_code)]
     pub fn run_emulator_external(com_path: &Path, cpmemu_bin: &Path) -> Vec<String> {
         let mut logs = Vec::new();
 
@@ -224,6 +225,7 @@ impl CompilerRunner {
         logs
     }
 
+    #[allow(dead_code)]
     pub fn run_in_emulator(
         com_path: &Path,
         toolchain_type: i32,
@@ -259,7 +261,7 @@ impl CompilerRunner {
     }
 }
 
-fn get_timestamp() -> String {
+pub fn get_timestamp() -> String {
     use std::time::SystemTime;
     let duration = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

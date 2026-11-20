@@ -5,6 +5,23 @@ use crate::session::{self, AppSession};
 use crate::ui::AppWindow;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::process::ChildStdin;
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+pub struct RunningProcess {
+    pub pid: u32,
+    pub stdin: Arc<Mutex<ChildStdin>>,
+}
+
+#[derive(Default, Clone)]
+pub struct FindState {
+    pub query: String,
+    pub match_case: bool,
+    pub whole_word: bool,
+    pub matches: Vec<(usize, usize)>,
+    pub current_idx: usize,
+}
 
 pub struct IdeController {
     pub file_manager: FileManager,
@@ -17,9 +34,12 @@ pub struct IdeController {
     pub deleted_open_tabs: HashSet<PathBuf>,
     pub untitled_drafts: HashSet<PathBuf>,
     pub tab_buffers: HashMap<PathBuf, String>,
+    pub dirty_tabs: HashSet<PathBuf>,
+    pub find_state: FindState,
     pub session: AppSession,
     pub is_large_file_mode: bool,
     pub force_full_features: bool,
+    pub running_process: Option<RunningProcess>,
 }
 
 impl IdeController {
@@ -38,9 +58,12 @@ impl IdeController {
             deleted_open_tabs: HashSet::new(),
             untitled_drafts: HashSet::new(),
             tab_buffers: HashMap::new(),
+            dirty_tabs: HashSet::new(),
+            find_state: FindState::default(),
             session: AppSession::default(),
             is_large_file_mode: false,
             force_full_features: false,
+            running_process: None,
         }
     }
 

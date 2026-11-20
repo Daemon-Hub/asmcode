@@ -77,6 +77,13 @@ pub fn parse_log_line(line: &str) -> (&str, Color, &str, Color) {
             rest.strip_prefix("[CPM OUTPUT] ").unwrap_or(rest),
             Color::from_rgb_u8(255, 255, 255),
         )
+    } else if rest.starts_with("[STDIN]") {
+        (
+            "[STDIN] ",
+            Color::from_rgb_u8(166, 227, 161),
+            rest.strip_prefix("[STDIN] ").unwrap_or(rest),
+            Color::from_rgb_u8(205, 214, 244),
+        )
     } else if rest.starts_with("[EMULATOR]") {
         (
             if time_part.is_empty() {

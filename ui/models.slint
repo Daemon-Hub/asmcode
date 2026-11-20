@@ -13,6 +13,8 @@ export struct TokenItem {
     text: string,
     color: color,
     is_italic: bool,
+    char_count: int,
+    is_whitespace: bool,
 }
 
 export struct HighlightLineItem {
@@ -71,4 +73,104 @@ export struct FileTabItem {
     is_pinned: bool,
     is_deleted: bool,
 }
+
+export struct BdosItem {
+    func_num: int,
+    func_hex: string,
+    name: string,
+    title: string,
+    category: string,
+    entry_c: string,
+    entry_de: string,
+    exit_a: string,
+    exit_hl: string,
+    description: string,
+    notes: string,
+    raw_snippet: string,
+    example_lines: [HighlightLineItem],
+}
+
+export struct FcbFieldItem {
+    offset: string,
+    name: string,
+    size_str: string,
+    desc: string,
+}
+
+export struct BufferFieldItem {
+    byte_idx: string,
+    name: string,
+    set_by: string,
+    desc: string,
+}
+
+export struct MemoryMapItem {
+    start_addr: string,
+    end_addr: string,
+    name: string,
+    category: string,
+    description: string,
+    importance: string,
+    is_tpa: bool,
+}
+
+export struct RegisterItem {
+    name: string,
+    bits: int,
+    pair_name: string,
+    role: string,
+    description: string,
+}
+
+export struct FlagItem {
+    name: string,
+    bit_index: int,
+    title: string,
+    description: string,
+    when_set: string,
+    when_cleared: string,
+    affected_by: string,
+}
+
+export struct FlagRuleItem {
+    op_group: string,
+    commands: string,
+    effect: string,
+}
+
+export struct AsciiItem {
+    code_dec: int,
+    code_hex: string,
+    char_display: string,
+    name: string,
+    description: string,
+    is_cpm_special: bool,
+}
+
+export struct JumpConditionItem {
+    condition: string,
+    flag_test: string,
+    flag_name: string,
+    jump_cmd: string,
+    call_cmd: string,
+    ret_cmd: string,
+    meaning: string,
+    scenario: string,
+}
+
+export struct CodePatternItem {
+    title: string,
+    category: string,
+    description: string,
+    raw_snippet: string,
+    example_lines: [HighlightLineItem],
+}
+
+export struct FindMatchItem {
+    line_number: int,
+    char_offset: int,
+    char_length: int,
+    is_current: bool,
+}
+
 
