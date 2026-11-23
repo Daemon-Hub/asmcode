@@ -1,0 +1,97 @@
+export component TerminalView inherits Rectangle {
+    in property <[image]> bands;
+    in property <length> line-height: 18px;
+    in property <length> cell-width: 8px;
+    in property <int> history-lines;
+    in property <int> history-offset;
+    in property <string> preedit;
+    in property <int> cursor-col;
+    in property <int> cursor-row;
+    in property <color> text-color: #d5d9dd;
+
+    callback pointer(float, float, int, int, bool, bool, bool);
+    callback motion(float, float);
+    callback wheel(float, float, float, bool, bool, bool);
+    callback scroll_to(float);
+    callback focus_changed(bool);
+
+    out property <bool> focused: keys.has-focus;
+    forward-focus: keys;
+    clip: true;
+    background: transparent;
+
+    for band[n] in bands: Image {
+        x: 0;
+        y: n * root.line-height;
+        width: self.source.width * root.line-height / max(1, self.source.height);
+        height: root.line-height;
+        source: band;
+        image-fit: fill;
+        image-rendering: pixelated;
+    }
+
+    if preedit != "": Text {
+        x: root.cursor-col * root.cell-width;
+        y: root.cursor-row * root.line-height;
+        text: root.preedit;
+        color: root.text-color;
+        font-size: root.line-height / 1.38;
+    }
+
+    keys := FocusScope {
+        changed has-focus => { root.focus_changed(self.has-focus); }
+    }
+
+    area := TouchArea {
+        width: parent.width - 8px;
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                keys.focus();
+                root.focus_changed(true);
+            }
+            root.pointer(
+                self.mouse-x / 1px,
+                self.mouse-y / 1px,
+                e.kind == PointerEventKind.down ? 0 : (e.kind == PointerEventKind.up ? 1 : 2),
+                e.button == PointerEventButton.left ? 0 : (e.button == PointerEventButton.right ? 1 : (e.button == PointerEventButton.middle ? 2 : 3)),
+                e.modifiers.control,
+                e.modifiers.alt,
+                e.modifiers.shift
+            );
+        }
+        moved => { root.motion(self.mouse-x / 1px, self.mouse-y / 1px); }
+        scroll-event(e) => {
+            root.wheel(self.mouse-x / 1px, self.mouse-y / 1px, e.delta-y / 1px, e.modifiers.control, e.modifiers.alt, e.modifiers.shift);
+            return accept;
+        }
+    }
+
+    bar := Rectangle {
+        x: parent.width - 8px;
+        width: 8px;
+        height: parent.height;
+        property <length> thumb-height: max(12px, self.height * root.bands.length / max(1, root.bands.length + root.history-lines));
+
+        if root.history-lines > 0: Rectangle {
+            width: 6px;
+            x: 1px;
+            height: bar.thumb-height;
+            y: (bar.height - self.height) * (1 - root.history-offset / max(1, root.history-lines));
+            border-radius: 3px;
+            background: #80808088;
+        }
+
+        TouchArea {
+            pointer-event(e) => {
+                if e.kind == PointerEventKind.down {
+                    root.scroll_to(clamp(1 - (self.mouse-y - bar.thumb-height / 2) / max(1px, bar.height - bar.thumb-height), 0, 1));
+                }
+            }
+            moved => {
+                if self.pressed {
+                    root.scroll_to(clamp(1 - (self.mouse-y - bar.thumb-height / 2) / max(1px, bar.height - bar.thumb-height), 0, 1));
+                }
+            }
+        }
+    }
+}

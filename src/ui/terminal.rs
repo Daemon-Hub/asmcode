@@ -70,11 +70,13 @@ pub fn parse_log_line(line: &str) -> (&str, Color, &str, Color) {
             rest.strip_prefix("[CMD] ").unwrap_or(rest),
             Color::from_rgb_u8(205, 214, 244),
         )
-    } else if rest.starts_with("[CPM OUTPUT]") {
+    } else if rest.starts_with("[CPM OUTPUT]") || rest.starts_with("[CPM] ") {
         (
             "[CPM OUT] ",
             Color::from_rgb_u8(148, 226, 213),
-            rest.strip_prefix("[CPM OUTPUT] ").unwrap_or(rest),
+            rest.strip_prefix("[CPM OUTPUT] ")
+                .or_else(|| rest.strip_prefix("[CPM] "))
+                .unwrap_or(rest),
             Color::from_rgb_u8(255, 255, 255),
         )
     } else if rest.starts_with("[STDIN]") {

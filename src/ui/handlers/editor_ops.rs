@@ -1,8 +1,8 @@
 use crate::editor::{
-    delete_word_left, find_all_matches, replace_all_matches, replace_current_match,
-    toggle_comment_in_code,
+    delete_word_left, duplicate_selection_or_line, find_all_matches, move_lines_down,
+    move_lines_up, replace_all_matches, replace_current_match, toggle_comment_in_code,
 };
-use crate::ui::AppWindow;
+use crate::ui::{AppWindow, TextSelectionItem};
 use crate::ui::controller::IdeController;
 use crate::ui::editor_bridge::{record_editor_mutation, update_highlight_and_labels};
 use crate::ui::handlers::file_ops::sync_tabs_ui;
@@ -66,17 +66,74 @@ pub fn sync_find_matches_to_ui(ui: &AppWindow, ctrl: &IdeController, code: &str)
 pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeController>>) {
     // Viewport Scrolled (Virtualization: slice visible highlight lines)
     let app_weak = app.as_weak();
+    let ctrl_scroll = Arc::clone(controller_rc);
     app.on_editor_viewport_scrolled(move |scroll_line, visible_count| {
         let Some(ui) = app_weak.upgrade() else { return };
         let is_asm = ui.get_is_active_asm();
-        let code = ui.get_code_text().to_string();
-        crate::ui::editor_bridge::update_viewport_highlight(
-            &ui,
-            &code,
-            scroll_line.max(0) as usize,
-            visible_count.max(40) as usize,
-            is_asm,
-        );
+        if !is_asm || ui.get_is_large_file_mode() {
+            return;
+        }
+
+        let s_line = scroll_line.max(0) as usize;
+        let v_count = (visible_count.max(20) as usize).min(100);
+
+        let mut ctrl = ctrl_scroll.lock().unwrap();
+        let active_path = ctrl.file_manager.active_file_path.clone();
+
+        if let Some(cache) = &ctrl.viewport_cache {
+            if cache.path == active_path {
+                let viewport_start = s_line;
+                let viewport_end = s_line + v_count;
+                let margin = 15;
+                let top_ok = (cache.buffer_start == 0 && viewport_start == 0)
+                    || (viewport_start >= cache.buffer_start + margin);
+                let bottom_ok = viewport_end + margin <= cache.buffer_end;
+                if top_ok && bottom_ok {
+                    return;
+                }
+            }
+        }
+
+        let (buf_start, buf_end) = if let Some(path) = &active_path {
+            let code = ctrl.tab_buffers.get(path);
+            let line_starts = ctrl.tab_line_starts.get(path);
+            if let Some(c) = code {
+                crate::ui::editor_bridge::update_viewport_highlight(
+                    &ui,
+                    c.as_str(),
+                    line_starts.map(|v| v.as_slice()),
+                    s_line,
+                    v_count,
+                    is_asm,
+                )
+            } else {
+                let code_str = ui.get_code_text().to_string();
+                crate::ui::editor_bridge::update_viewport_highlight(
+                    &ui,
+                    &code_str,
+                    None,
+                    s_line,
+                    v_count,
+                    is_asm,
+                )
+            }
+        } else {
+            let code_str = ui.get_code_text().to_string();
+            crate::ui::editor_bridge::update_viewport_highlight(
+                &ui,
+                &code_str,
+                None,
+                s_line,
+                v_count,
+                is_asm,
+            )
+        };
+
+        ctrl.viewport_cache = Some(crate::ui::controller::ViewportCache {
+            buffer_start: buf_start,
+            buffer_end: buf_end,
+            path: active_path,
+        });
     });
 
     // Insert Tab (Inserts 4 spaces without losing focus)
@@ -181,7 +238,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
             if let Some(path) = ctrl.file_manager.active_file_path.clone() {
-                ctrl.tab_buffers.insert(path, snap.text.clone());
+                ctrl.set_tab_buffer(path, snap.text.clone());
             }
             sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
@@ -208,7 +265,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             ui.set_code_text(SharedString::from(&snap.text));
             ui.set_is_dirty(true);
             if let Some(path) = ctrl.file_manager.active_file_path.clone() {
-                ctrl.tab_buffers.insert(path, snap.text.clone());
+                ctrl.set_tab_buffer(path, snap.text.clone());
             }
             sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
@@ -269,42 +326,102 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         new_pos
     });
 
-    // Duplicate Line (Ctrl + D)
+    // Duplicate Selection or Line Downwards with Enter (Ctrl + D)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
-    app.on_duplicate_line(move |byte_offset| {
+    app.on_duplicate_selection_or_line(move |cursor_offset, anchor_offset| {
         let Some(ui) = app_weak.upgrade() else {
-            return 0;
+            return TextSelectionItem {
+                cursor_offset,
+                anchor_offset,
+            };
         };
         let code = ui.get_code_text().to_string();
-        let offset = (byte_offset as usize).min(code.len());
-        let pre = &code[..offset];
-        let line_start = pre.rfind('\n').map(|p| p + 1).unwrap_or(0);
-        let line_end = code[offset..]
-            .find('\n')
-            .map(|p| offset + p)
-            .unwrap_or(code.len());
-        let current_line = &code[line_start..line_end];
+        let cur = cursor_offset.max(0) as usize;
+        let anc = anchor_offset.max(0) as usize;
 
-        let col = offset - line_start;
-        let duplicate_chunk = format!("\n{}", current_line);
-
-        let mut new_code = String::with_capacity(code.len() + duplicate_chunk.len());
-        new_code.push_str(&code[..line_end]);
-        new_code.push_str(&duplicate_chunk);
-        new_code.push_str(&code[line_end..]);
-
-        let new_pos = (line_end + 1 + col) as i32;
+        let (new_code, new_cur, new_anc) = duplicate_selection_or_line(&code, cur, anc);
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
-        record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
+        record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
-        new_pos
+        TextSelectionItem {
+            cursor_offset: new_cur as i32,
+            anchor_offset: new_anc as i32,
+        }
+    });
+
+    // Move Line(s) Up (Alt + UpArrow)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_move_lines_up(move |cursor_offset, anchor_offset| {
+        let fallback = TextSelectionItem {
+            cursor_offset,
+            anchor_offset,
+        };
+        let Some(ui) = app_weak.upgrade() else {
+            return fallback;
+        };
+        let code = ui.get_code_text().to_string();
+        let cur = cursor_offset.max(0) as usize;
+        let anc = anchor_offset.max(0) as usize;
+
+        if let Some((new_code, new_cur, new_anc)) = move_lines_up(&code, cur, anc) {
+            ui.set_code_text(SharedString::from(&new_code));
+            ui.set_is_dirty(true);
+
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
+            sync_tabs_ui(&ui, &ctrl);
+            let is_asm = ui.get_is_active_asm();
+            update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+
+            TextSelectionItem {
+                cursor_offset: new_cur as i32,
+                anchor_offset: new_anc as i32,
+            }
+        } else {
+            fallback
+        }
+    });
+
+    // Move Line(s) Down (Alt + DownArrow)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_move_lines_down(move |cursor_offset, anchor_offset| {
+        let fallback = TextSelectionItem {
+            cursor_offset,
+            anchor_offset,
+        };
+        let Some(ui) = app_weak.upgrade() else {
+            return fallback;
+        };
+        let code = ui.get_code_text().to_string();
+        let cur = cursor_offset.max(0) as usize;
+        let anc = anchor_offset.max(0) as usize;
+
+        if let Some((new_code, new_cur, new_anc)) = move_lines_down(&code, cur, anc) {
+            ui.set_code_text(SharedString::from(&new_code));
+            ui.set_is_dirty(true);
+
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
+            sync_tabs_ui(&ui, &ctrl);
+            let is_asm = ui.get_is_active_asm();
+            update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+
+            TextSelectionItem {
+                cursor_offset: new_cur as i32,
+                anchor_offset: new_anc as i32,
+            }
+        } else {
+            fallback
+        }
     });
 
     // Open Find/Replace with optional selection pre-fill (Ctrl+F / Ctrl+R)

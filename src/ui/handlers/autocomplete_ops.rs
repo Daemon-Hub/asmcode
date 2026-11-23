@@ -5,13 +5,17 @@ use crate::ui::editor_bridge::{
     populate_docs_ui, record_editor_mutation, refresh_suggestions_ui, update_highlight_and_labels,
 };
 use crate::ui::handlers::file_ops::sync_tabs_ui;
-use slint::{ComponentHandle, Model, SharedString};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeController>>) {
+    let prev_code_len = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
     // Apply Completion at Cursor Offset (replaces the typed prefix seamlessly)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
+    let prev_len_apply_at = Arc::clone(&prev_code_len);
     app.on_apply_completion_at(move |snippet, byte_offset| {
         let Some(ui) = app_weak.upgrade() else {
             return 0;
@@ -46,6 +50,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let new_cursor_pos = new_code.len();
         new_code.push_str(&code[word_end..]);
 
+        prev_len_apply_at.store(new_code.len(), std::sync::atomic::Ordering::Relaxed);
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
@@ -60,7 +65,6 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     // Code Edited (Typing in Editor with Live Autocomplete Trigger)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
-    let prev_code_len = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let prev_len_clone = Arc::clone(&prev_code_len);
     app.on_code_edited(move |new_code, cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
@@ -109,13 +113,27 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let was_popup_open = ui.get_show_autocomplete_popup();
         let is_insertion = new_code.len() > old_len;
 
+        // Autocomplete must only trigger on interactive typing of a single character.
+        // Pasting multiple characters or batch insertions must never open the autocomplete popup!
+        let diff = new_code.len().saturating_sub(old_len);
+        let is_single_char_type = if diff == 1 {
+            true
+        } else if diff > 1 && diff <= 4 && cursor_offset >= diff as i32 {
+            new_code
+                .get((cursor_offset as usize - diff)..cursor_offset as usize)
+                .map(|s| s.chars().count() == 1)
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         let lang = ui.get_current_language().to_string();
         let prefix = extract_prefix_at_offset(new_code.as_str(), cursor_offset as usize);
 
-        // Only auto-trigger autocomplete when actively typing/inserting identifier characters,
+        // Only auto-trigger autocomplete when actively typing/inserting single identifier characters,
         // or if the popup was already open and user is refining completion.
         // Deleting lines or characters when popup was closed must never open the popup!
-        let should_trigger = if is_insertion {
+        let should_trigger = if is_insertion && is_single_char_type {
             let b = if cursor_offset > 0 && (cursor_offset as usize) <= new_code.len() {
                 new_code.as_bytes().get(cursor_offset as usize - 1).copied()
             } else {
@@ -126,7 +144,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
                 None => false,
             }
         } else {
-            was_popup_open
+            !is_insertion && was_popup_open
         };
 
         if is_asm && !prefix.is_empty() && should_trigger {
@@ -183,6 +201,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     // Apply In-place Completion (from list click)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
+    let prev_len_apply = Arc::clone(&prev_code_len);
     app.on_apply_completion(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
         let code = ui.get_code_text().to_string();
@@ -194,6 +213,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             0
         };
         let updated_code = apply_completion_to_code(&code, line_idx, snippet.as_str());
+        prev_len_apply.store(updated_code.len(), std::sync::atomic::Ordering::Relaxed);
         ui.set_code_text(SharedString::from(&updated_code));
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
@@ -260,7 +280,40 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     app.on_filter_changed(move |query| {
         let Some(ui) = app_weak.upgrade() else { return };
         let lang = ui.get_current_language().to_string();
-        refresh_suggestions_ui(&ui, &ctrl_clone, query.as_str(), &lang);
+        let q = query.to_string();
+
+        // 1. Filter suggestions (Мнемоники)
+        refresh_suggestions_ui(&ui, &ctrl_clone, &q, &lang);
+
+        // 2. Filter BDOS calls (Вызовы BDOS)
+        let is_ru = lang == "ru";
+        let all_label = if is_ru { "Все" } else { "All" };
+        crate::ui::docs_bridge::populate_bdos_list(&ui, &lang, all_label, &q);
+
+        // 3. Filter ASCII table (Таблица ASCII)
+        let q_lower = q.to_lowercase();
+        let filtered_ascii: Vec<crate::ui::AsciiItem> = crate::docs::ascii_table::ASCII_TABLE
+            .iter()
+            .filter(|a| {
+                q_lower.is_empty()
+                    || a.code.to_string().contains(&q_lower)
+                    || a.hex.to_lowercase().contains(&q_lower)
+                    || a.char_display.to_lowercase().contains(&q_lower)
+                    || a.name_ru.to_lowercase().contains(&q_lower)
+                    || a.name_en.to_lowercase().contains(&q_lower)
+                    || a.desc_ru.to_lowercase().contains(&q_lower)
+                    || a.desc_en.to_lowercase().contains(&q_lower)
+            })
+            .map(|a| crate::ui::AsciiItem {
+                code_dec: a.code as i32,
+                code_hex: SharedString::from(a.hex),
+                char_display: SharedString::from(a.char_display),
+                name: SharedString::from(if is_ru { a.name_ru } else { a.name_en }),
+                description: SharedString::from(if is_ru { a.desc_ru } else { a.desc_en }),
+                is_cpm_special: a.is_cpm_special,
+            })
+            .collect();
+        ui.set_ascii_list(ModelRc::from(Rc::new(VecModel::from(filtered_ascii))));
     });
 
     // Select Suggestion
@@ -285,18 +338,25 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     // Insert Suggestion Template
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
+    let prev_len_insert = Arc::clone(&prev_code_len);
     app.on_insert_suggestion(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
         let mut current_code = ui.get_code_text().to_string();
         if !current_code.is_empty() && !current_code.ends_with('\n') {
             current_code.push('\n');
         }
-        current_code.push_str("        ");
-        current_code.push_str(snippet.as_str());
-        current_code.push('\n');
+        for line in snippet.lines() {
+            if !line.starts_with(' ') && !line.starts_with('\t') && !line.ends_with(':') {
+                current_code.push_str("        ");
+            }
+            current_code.push_str(line);
+            current_code.push('\n');
+        }
 
+        prev_len_insert.store(current_code.len(), std::sync::atomic::Ordering::Relaxed);
         ui.set_code_text(SharedString::from(&current_code));
         ui.set_is_dirty(true);
+        ui.set_show_autocomplete_popup(false);
 
         let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();

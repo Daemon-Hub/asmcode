@@ -1,4 +1,4 @@
-import { FileTabItem, HighlightLineItem, SuggestionItem, FindMatchItem } from "../models.slint";
+import { FileTabItem, HighlightLineItem, SuggestionItem, FindMatchItem, TextSelectionItem, BdosItem, AsciiItem } from "../models.slint";
 import { TabBar } from "../components/tab_bar.slint";
 import { TabContextMenu } from "../components/tab_context_menu.slint";
 import { RightDrawer } from "../components/right_drawer.slint";
@@ -36,6 +36,10 @@ export component EditorPage inherits HorizontalLayout {
     callback editor_find_prev();
     callback editor_replace(string);
     callback editor_replace_all(string);
+    callback move_lines_up(int, int) -> TextSelectionItem;
+    callback move_lines_down(int, int) -> TextSelectionItem;
+    callback duplicate_selection_or_line(int, int) -> TextSelectionItem;
+    callback editor_focused();
 
     in property <int> select_range_start: -1;
     in property <int> select_range_end: -1;
@@ -44,22 +48,26 @@ export component EditorPage inherits HorizontalLayout {
         if root.select_range_start >= 0 && root.select_range_end >= 0 {
             code_input.set-selection-offsets(root.select_range_start, root.select_range_end);
             code_input.focus();
+            root.editor_focused();
         }
     }
 
     public function select_range(start: int, end: int) {
         code_input.set-selection-offsets(start, end);
         code_input.focus();
+        root.editor_focused();
     }
 
     public function open_find() {
         root.show_find_replace = true;
         root.show_replace_row = false;
+        root.editor_focused();
     }
 
     public function open_replace() {
         root.show_find_replace = true;
         root.show_replace_row = true;
+        root.editor_focused();
     }
 
     // Tabs & Large File Support
@@ -99,13 +107,15 @@ export component EditorPage inherits HorizontalLayout {
     in property <int> highlight_start_line: 0;
 
     in-out property <int> visible_scroll_line: root.editor_line_height > 0px ? max(0, floor((-editor_scroll.content-y) / root.editor_line_height)) : 0;
-    in-out property <int> visible_line_count: root.editor_line_height > 0px ? ceil(editor_scroll.visible-height / root.editor_line_height) + 15 : 60;
+    in-out property <int> visible_line_count: root.editor_line_height > 0px ? max(30, ceil(editor_scroll.visible-height / root.editor_line_height) + 10) : 30;
 
     changed visible_scroll_line => {
         root.editor_viewport_scrolled(self.visible_scroll_line, self.visible_line_count);
     }
 
     in property <[SuggestionItem]> suggestion_list: [];
+    in property <[BdosItem]> bdos_list: [];
+    in property <[AsciiItem]> ascii_list: [];
     in-out property <string> selected_sugg_name: "MOV";
     in-out property <string> selected_sugg_category: "Пересылка данных";
     in-out property <string> selected_sugg_syntax: "MOV r1, r2";
@@ -184,7 +194,11 @@ export component EditorPage inherits HorizontalLayout {
             if root.open_tabs.length > 0: TabBar {
                 open_tabs: root.open_tabs;
                 active_file_path: root.active_file_path;
-                switch_tab(p) => { root.switch_tab(p); }
+                switch_tab(p) => {
+                    root.switch_tab(p);
+                    code_input.focus();
+                    root.editor_focused();
+                }
                 close_tab(p) => { root.close_tab(p); }
                 tab_context_menu(p, x, y) => {
                     root.close_all_context_menus();
@@ -275,6 +289,17 @@ export component EditorPage inherits HorizontalLayout {
                     background: Theme.gutter_bg;
                     clip: true;
 
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        pointer-event(e) => {
+                            if (e.kind == PointerEventKind.down) {
+                                code_input.focus();
+                                root.editor_focused();
+                            }
+                        }
+                    }
+
                     // Text-based line numbers (works for all files: asm, sh, txt, md, etc.)
                     Text {
                         x: 0px;
@@ -300,13 +325,17 @@ export component EditorPage inherits HorizontalLayout {
                     content-width: max(self.visible-width, 1600px);
                     content-height: max(self.visible-height, code_input.preferred-height);
 
-                    // Background Right-Click Detector
+                    // Background Click & Right-Click Detector
                     editor_touch := TouchArea {
                         x: 0px;
                         y: 0px;
                         width: parent.content-width;
                         height: parent.content-height;
                         pointer-event(e) => {
+                            if (e.button == PointerEventButton.left && e.kind == PointerEventKind.down) {
+                                code_input.focus();
+                                root.editor_focused();
+                            }
                             if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
                                 root.close_all_context_menus();
                                 root.context_menu_x = self.mouse-x + editor_scroll.content-x;
@@ -318,6 +347,11 @@ export component EditorPage inherits HorizontalLayout {
 
                     // Transparent TextInput (handles input, cursor navigation and selection background)
                     code_input := TextInput {
+                        changed has-focus => {
+                            if self.has-focus {
+                                root.editor_focused();
+                            }
+                        }
                         x: 8px;
                         y: 0px;
                         width: parent.content-width - 8px;
@@ -375,6 +409,27 @@ export component EditorPage inherits HorizontalLayout {
                                 }
                             }
 
+                            // Alt + UpArrow: Move selected line(s) up
+                            if (e.modifiers.alt && (e.text == Key.UpArrow)) {
+                                let res = root.move_lines_up(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                code_input.set-selection-offsets(res.cursor-offset, res.anchor-offset);
+                                return EventResult.accept;
+                            }
+
+                            // Alt + DownArrow: Move selected line(s) down
+                            if (e.modifiers.alt && (e.text == Key.DownArrow)) {
+                                let res = root.move_lines_down(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                code_input.set-selection-offsets(res.cursor-offset, res.anchor-offset);
+                                return EventResult.accept;
+                            }
+
+                            // Ctrl + Backspace: delete word left (handled before Ctrl+H)
+                            if (e.modifiers.control && (e.text == Key.Backspace || e.text == "\u{007f}" || e.text == "\u{0008}")) {
+                                let new_pos = root.delete_word_left(code_input.cursor-position-byte-offset);
+                                code_input.set-selection-offsets(new_pos, new_pos);
+                                return EventResult.accept;
+                            }
+
                             // Ctrl + F: Open Find (Pre-populates with selection if active)
                             if (e.modifiers.control && (e.text == "f" || e.text == "F" || e.text == "а" || e.text == "А" || e.text == "\u{0006}")) {
                                 let s = min(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
@@ -384,7 +439,7 @@ export component EditorPage inherits HorizontalLayout {
                             }
 
                             // Ctrl + R / Ctrl + H: Open Replace (Pre-populates with selection if active)
-                            if (e.modifiers.control && (e.text == "r" || e.text == "R" || e.text == "к" || e.text == "К" || e.text == "\u{0012}" || e.text == "h" || e.text == "H" || e.text == "р" || e.text == "Р" || e.text == "\u{0008}")) {
+                            if (e.modifiers.control && (e.text == "r" || e.text == "R" || e.text == "к" || e.text == "К" || e.text == "\u{0012}" || e.text == "h" || e.text == "H" || e.text == "р" || e.text == "Р")) {
                                 let s = min(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
                                 let e_pos = max(code_input.anchor-position-byte-offset, code_input.cursor-position-byte-offset);
                                 root.request_open_find(s, e_pos, true);
@@ -429,13 +484,6 @@ export component EditorPage inherits HorizontalLayout {
                                 return EventResult.accept;
                             }
 
-                            // Ctrl + Backspace: delete word left
-                            if (e.modifiers.control && (e.text == Key.Backspace || e.text == "\u{007f}" || e.text == "\u{0008}")) {
-                                let new_pos = root.delete_word_left(code_input.cursor-position-byte-offset);
-                                code_input.set-selection-offsets(new_pos, new_pos);
-                                return EventResult.accept;
-                            }
-
                             // Ctrl + /: Toggle line comment with ';'
                             if (e.modifiers.control && (e.text == "/" || e.text == "?" || e.text == "." || e.text == ",")) {
                                 let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
@@ -443,10 +491,10 @@ export component EditorPage inherits HorizontalLayout {
                                 return EventResult.accept;
                             }
 
-                            // Ctrl + D: Duplicate current line
+                            // Ctrl + D: Duplicate selected text (if selection active) or current line downwards with newline
                             if (e.modifiers.control && (e.text == "d" || e.text == "D" || e.text == "в" || e.text == "В" || e.text == "\u{0004}")) {
-                                let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
-                                code_input.set-selection-offsets(new_pos, new_pos);
+                                let res = root.duplicate_selection_or_line(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                code_input.set-selection-offsets(res.cursor-offset, res.anchor-offset);
                                 return EventResult.accept;
                             }
 
@@ -464,6 +512,7 @@ export component EditorPage inherits HorizontalLayout {
 
                             // Ctrl + V: Paste (support EN and RU keyboard layout)
                             if (e.modifiers.control && (e.text == "v" || e.text == "V" || e.text == "м" || e.text == "М" || e.text == "\u{0016}")) {
+                                root.show_autocomplete_popup = false;
                                 code_input.paste();
                                 return EventResult.accept;
                             }
@@ -664,9 +713,13 @@ export component EditorPage inherits HorizontalLayout {
                     replace_all(rep) => {
                         root.editor_replace_all(rep);
                     }
+                    focused => {
+                        root.editor_focused();
+                    }
                     close => {
                         root.show_find_replace = false;
                         code_input.focus();
+                        root.editor_focused();
                     }
                 }
 
@@ -849,6 +902,8 @@ export component EditorPage inherits HorizontalLayout {
         current_language: root.current_language;
         right_drawer_expanded <=> root.right_drawer_expanded;
         suggestion_list: root.suggestion_list;
+        bdos_list: root.bdos_list;
+        ascii_list: root.ascii_list;
         selected_sugg_name: root.selected_sugg_name;
         selected_sugg_category: root.selected_sugg_category;
         selected_sugg_syntax: root.selected_sugg_syntax;

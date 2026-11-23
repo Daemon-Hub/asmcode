@@ -18,7 +18,9 @@ pub struct AppSession {
     pub cursor_blink: bool,
     pub tab_size: i32,
     pub compiler_path: String,
+    pub compiler_args: String,
     pub emulator_path: String,
+    pub emulator_args: String,
     pub toolchain_type: i32, // 0 = Default (intel-8080-kit built-in), 1 = External binary (asmx20 + cpmemu)
     pub large_file_optimizations: bool,
     pub large_file_soft_limit_mb: u64,
@@ -39,6 +41,8 @@ impl Default for AppSession {
             "/usr/local/bin/asmx20".to_string(),
             "/usr/local/bin/cpmemu".to_string(),
         );
+        let def_compiler_args = "-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\"".to_string();
+        let def_emulator_args = "--8080 \"{output}\"".to_string();
 
         Self {
             last_open_folder: None,
@@ -55,7 +59,9 @@ impl Default for AppSession {
             cursor_blink: true,
             tab_size: 4,
             compiler_path: def_compiler,
+            compiler_args: def_compiler_args,
             emulator_path: def_emulator,
+            emulator_args: def_emulator_args,
             toolchain_type: 0,
             large_file_optimizations: true,
             large_file_soft_limit_mb: 20,
@@ -223,10 +229,22 @@ pub fn load_session() -> AppSession {
                         session.compiler_path = s.to_string();
                     }
                 }
+                "compiler_args" => {
+                    let s = unescape_json(val);
+                    if !s.is_empty() {
+                        session.compiler_args = s;
+                    }
+                }
                 "emulator_path" => {
                     let s = val.trim_matches('"');
                     if !s.is_empty() {
                         session.emulator_path = s.to_string();
+                    }
+                }
+                "emulator_args" => {
+                    let s = unescape_json(val);
+                    if !s.is_empty() {
+                        session.emulator_args = s;
                     }
                 }
                 "toolchain_type" => {
@@ -248,6 +266,20 @@ pub fn load_session() -> AppSession {
     }
 
     session
+}
+
+fn escape_json(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn unescape_json(s: &str) -> String {
+    let trimmed = s.trim();
+    let content = if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+        &trimmed[1..trimmed.len() - 1]
+    } else {
+        trimmed
+    };
+    content.replace("\\\"", "\"").replace("\\\\", "\\")
 }
 
 pub fn save_session(session: &AppSession) {
@@ -272,7 +304,7 @@ pub fn save_session(session: &AppSession) {
         .join(", ");
 
     let json_text = format!(
-        "{{\n  \"last_open_folder\": {},\n  \"last_open_file\": {},\n  \"open_tabs\": [{}],\n  \"editor_font_size\": {},\n  \"editor_font_italic\": {},\n  \"current_language\": \"{}\",\n  \"labels_expanded\": {},\n  \"terminal_expanded\": {},\n  \"sidebar_width\": {},\n  \"terminal_height\": {},\n  \"active_theme_id\": {},\n  \"cursor_blink\": {},\n  \"tab_size\": {},\n  \"compiler_path\": \"{}\",\n  \"emulator_path\": \"{}\",\n  \"toolchain_type\": {},\n  \"large_file_optimizations\": {},\n  \"large_file_soft_limit_mb\": {},\n  \"large_file_soft_limit_lines\": {},\n  \"large_file_hard_limit_mb\": {},\n  \"associate_asm_files\": {}\n}}\n",
+        "{{\n  \"last_open_folder\": {},\n  \"last_open_file\": {},\n  \"open_tabs\": [{}],\n  \"editor_font_size\": {},\n  \"editor_font_italic\": {},\n  \"current_language\": \"{}\",\n  \"labels_expanded\": {},\n  \"terminal_expanded\": {},\n  \"sidebar_width\": {},\n  \"terminal_height\": {},\n  \"active_theme_id\": {},\n  \"cursor_blink\": {},\n  \"tab_size\": {},\n  \"compiler_path\": \"{}\",\n  \"compiler_args\": \"{}\",\n  \"emulator_path\": \"{}\",\n  \"emulator_args\": \"{}\",\n  \"toolchain_type\": {},\n  \"large_file_optimizations\": {},\n  \"large_file_soft_limit_mb\": {},\n  \"large_file_soft_limit_lines\": {},\n  \"large_file_hard_limit_mb\": {},\n  \"associate_asm_files\": {}\n}}\n",
         folder_str,
         file_str,
         tabs_str,
@@ -287,7 +319,9 @@ pub fn save_session(session: &AppSession) {
         session.cursor_blink,
         session.tab_size,
         session.compiler_path.replace('\\', "/"),
+        escape_json(&session.compiler_args),
         session.emulator_path.replace('\\', "/"),
+        escape_json(&session.emulator_args),
         session.toolchain_type,
         session.large_file_optimizations,
         session.large_file_soft_limit_mb,
@@ -318,6 +352,14 @@ mod tests {
         assert_eq!(s.toolchain_type, 0);
         assert!(!s.compiler_path.is_empty());
         assert!(!s.emulator_path.is_empty());
+        assert!(!s.compiler_args.is_empty());
+        assert!(!s.emulator_args.is_empty());
+        assert!(s.compiler_args.contains("{output}"));
+        assert!(s.emulator_args.contains("{output}"));
+
+        let escaped = escape_json(&s.compiler_args);
+        let unescaped = unescape_json(&format!("\"{}\"", escaped));
+        assert_eq!(s.compiler_args, unescaped);
         #[cfg(windows)]
         {
             assert!(s.compiler_path.ends_with(".exe"));

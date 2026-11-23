@@ -11,6 +11,8 @@ rfd = "0.18.0"
 intel-8080-kit = "0.1.1"
 dirs = "7.0.0"
 arboard = "3.7.0"
+portable-pty = "0.9.0"
+slint-term = "0.1.0-alpha.1"
 
 [build-dependencies]
 slint-build = "1.19"

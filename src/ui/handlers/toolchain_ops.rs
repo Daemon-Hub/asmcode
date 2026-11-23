@@ -1,9 +1,9 @@
-use crate::compiler::runner::{get_timestamp, CompilerRunner};
+use crate::compiler::runner::CompilerRunner;
 use crate::ui::AppWindow;
-use crate::ui::controller::{IdeController, RunningProcess};
+use crate::ui::controller::IdeController;
 use crate::ui::terminal::sync_logs;
 use slint::{Color, ComponentHandle, SharedString};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
@@ -110,264 +110,64 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
             return;
         }
         ui.set_is_dirty(false);
-        ui.set_status_message(SharedString::from("Assembling & Launching..."));
-        ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
 
+        // 3. Expand and switch bottom panel to Terminal tab
+        ui.set_terminal_expanded(true);
+        ui.set_terminal_active_tab(1);
+        ui.set_term_focused(true);
+        ui.invoke_term_focus_changed(true);
+
+        // 4. Build command line based on toolchain and shell
         let toolchain_type = ui.get_toolchain_type();
         let compiler_path = ui.get_compiler_path().to_string();
+        let compiler_args = ui.get_compiler_args().to_string();
         let emulator_path = ui.get_emulator_path().to_string();
+        let emulator_args = ui.get_emulator_args().to_string();
+        let shell_name = ui.get_term_shell_name().to_string();
 
-        // 2. Assemble and Run on background thread
-        let app_weak_inner = app_weak.clone();
-        let ctrl_clone_inner = Arc::clone(&ctrl_clone);
-        std::thread::spawn(move || {
-            let (report, compile_warn) =
-                CompilerRunner::assemble_file(&target_path, toolchain_type, &compiler_path);
+        if toolchain_type == 0 {
+            // Built-in toolchain: assemble in memory first
+            ui.set_status_message(SharedString::from("Компиляция (.COM)..."));
+            ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
+            let report = CompilerRunner::assemble_file_builtin(&target_path);
+            for log in &report.output_logs {
+                ctrl.append_log(log);
+            }
+            sync_logs(&ui, &ctrl);
 
-            let app_w_report = app_weak_inner.clone();
-            let ctrl_c_report = Arc::clone(&ctrl_clone_inner);
-            let report_logs = report.output_logs.clone();
-            let is_success = report.success;
-
-            let _ = slint::invoke_from_event_loop(move || {
-                if let Some(ui) = app_w_report.upgrade() {
-                    let mut ctrl = ctrl_c_report.lock().unwrap();
-                    for log in &report_logs {
-                        ctrl.append_log(log);
-                    }
-                    if !is_success {
-                        ui.set_status_message(SharedString::from("Build failed, run aborted"));
-                        ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                    }
-                    sync_logs(&ui, &ctrl);
-                }
-            });
-
-            if !is_success {
+            if !report.success {
+                ui.set_status_message(SharedString::from("Ошибка сборки"));
+                ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
                 return;
             }
 
-            let Some(com_path) = report.com_path else {
-                return;
-            };
-
-            // Launch Emulator (Interactive streaming for cpmemu, or builtin for intel-8080-kit)
-            let trimmed = emulator_path.trim().to_string();
-            let cpmemu_path = PathBuf::from(&trimmed);
-            let use_external = toolchain_type == 1 && !trimmed.is_empty() && cpmemu_path.exists();
-
-            if use_external {
-                let parent_dir = com_path.parent().unwrap_or_else(|| Path::new("."));
-                let mut cmd = std::process::Command::new(&cpmemu_path);
-                #[cfg(windows)]
-                {
-                    use std::os::windows::process::CommandExt;
-                    cmd.creation_flags(CREATE_NO_WINDOW);
-                }
-                cmd.current_dir(parent_dir)
-                    .args(["--8080", &com_path.to_string_lossy()])
-                    .stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped());
-
-                let app_w_start = app_weak_inner.clone();
-                let ctrl_c_start = Arc::clone(&ctrl_clone_inner);
-                let cpmemu_display = cpmemu_path.display().to_string();
-                let com_display = com_path.display().to_string();
-
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = app_w_start.upgrade() {
-                        let mut ctrl = ctrl_c_start.lock().unwrap();
-                        ctrl.append_log(&format!(
-                            "[{}] [EMULATOR:cpmemu] Running interactive CP/M 8080: {}",
-                            get_timestamp(),
-                            com_display
-                        ));
-                        ctrl.append_log(&format!(
-                            "[{}] [CMD] {} --8080 {}",
-                            get_timestamp(),
-                            cpmemu_display,
-                            com_display
-                        ));
-                        sync_logs(&ui, &ctrl);
-                    }
-                });
-
-                match cmd.spawn() {
-                    Ok(mut child) => {
-                        let pid = child.id();
-                        let child_stdin = child.stdin.take().expect("Failed to open child stdin");
-                        let mut child_stdout = child.stdout.take().expect("Failed to open child stdout");
-                        let mut child_stderr = child.stderr.take().expect("Failed to open child stderr");
-                        let stdin_arc = Arc::new(Mutex::new(child_stdin));
-
-                        // Store active process in controller
-                        {
-                            let mut ctrl = ctrl_clone_inner.lock().unwrap();
-                            ctrl.running_process = Some(RunningProcess {
-                                pid,
-                                stdin: Arc::clone(&stdin_arc),
-                            });
-                        }
-
-                        let app_w_ui = app_weak_inner.clone();
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = app_w_ui.upgrade() {
-                                ui.set_is_process_running(true);
-                                ui.set_status_message(SharedString::from("Running (cpmemu)..."));
-                                ui.set_status_color(Color::from_rgb_u8(137, 220, 235));
-                            }
-                        });
-
-                        // Stdout background reader thread: real-time chunk streaming (never blocks waiting for newline)
-                        let app_w_out = app_weak_inner.clone();
-                        let ctrl_c_out = Arc::clone(&ctrl_clone_inner);
-                        std::thread::spawn(move || {
-                            use std::io::Read;
-                            let mut buf = [0u8; 1024];
-                            while let Ok(n) = child_stdout.read(&mut buf) {
-                                if n == 0 {
-                                    break;
-                                }
-                                let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                                let w = app_w_out.clone();
-                                let c = Arc::clone(&ctrl_c_out);
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(ui) = w.upgrade() {
-                                        let mut ctrl = c.lock().unwrap();
-                                        for line in text.split_inclusive('\n') {
-                                            let cleaned = line.trim_end_matches(['\r', '\n']);
-                                            if !cleaned.is_empty() {
-                                                ctrl.append_log(&format!("[CPM] {}", cleaned));
-                                            }
-                                        }
-                                        sync_logs(&ui, &ctrl);
-                                    }
-                                });
-                            }
-                        });
-
-                        // Stderr background reader thread: real-time chunk streaming
-                        let app_w_err = app_weak_inner.clone();
-                        let ctrl_c_err = Arc::clone(&ctrl_clone_inner);
-                        std::thread::spawn(move || {
-                            use std::io::Read;
-                            let mut buf = [0u8; 1024];
-                            while let Ok(n) = child_stderr.read(&mut buf) {
-                                if n == 0 {
-                                    break;
-                                }
-                                let text = String::from_utf8_lossy(&buf[..n]).to_string();
-                                let w = app_w_err.clone();
-                                let c = Arc::clone(&ctrl_c_err);
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(ui) = w.upgrade() {
-                                        let mut ctrl = c.lock().unwrap();
-                                        for line in text.split_inclusive('\n') {
-                                            let cleaned = line.trim_end_matches(['\r', '\n']);
-                                            if !cleaned.is_empty() {
-                                                ctrl.append_log(&format!("[CPM ERR] {}", cleaned));
-                                            }
-                                        }
-                                        sync_logs(&ui, &ctrl);
-                                    }
-                                });
-                            }
-                        });
-
-                        // Wait for process completion without locks
-                        let app_w_wait = app_weak_inner.clone();
-                        let ctrl_c_wait = Arc::clone(&ctrl_clone_inner);
-                        std::thread::spawn(move || {
-                            let status = child.wait();
-                            let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = app_w_wait.upgrade() {
-                                    let mut ctrl = ctrl_c_wait.lock().unwrap();
-                                    ctrl.running_process = None;
-                                    ui.set_is_process_running(false);
-                                    match status {
-                                        Ok(s) => {
-                                            ctrl.append_log(&format!(
-                                                "[{}] [EMULATOR:cpmemu] Process finished with exit code {:?}",
-                                                get_timestamp(),
-                                                s.code()
-                                            ));
-                                            ui.set_status_message(SharedString::from("Execution Complete (cpmemu)"));
-                                            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-                                        }
-                                        Err(e) => {
-                                            ctrl.append_log(&format!("[ERROR] Process wait failed: {}", e));
-                                            ui.set_status_message(SharedString::from("Process Terminated"));
-                                            ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                                        }
-                                    }
-                                    sync_logs(&ui, &ctrl);
-                                }
-                            });
-                        });
-                    }
-                    Err(err) => {
-                        let app_w_err = app_weak_inner.clone();
-                        let ctrl_c_err = Arc::clone(&ctrl_clone_inner);
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = app_w_err.upgrade() {
-                                let mut ctrl = ctrl_c_err.lock().unwrap();
-                                ctrl.append_log(&format!(
-                                    "[{}] [ERROR] Failed to run external emulator: {}",
-                                    get_timestamp(),
-                                    err
-                                ));
-                                ui.set_status_message(SharedString::from("Emulator Launch Failed"));
-                                ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                                sync_logs(&ui, &ctrl);
-                            }
-                        });
-                    }
-                }
-            } else {
-                // Built-in Pure-Rust Emulator (intel-8080-kit)
-                let warn = if toolchain_type == 1 {
-                    if trimmed.is_empty() {
-                        Some("[ПРЕДУПРЕЖДЕНИЕ] Путь к внешнему эмулятору не указан. Применен встроенный эмулятор по умолчанию (intel-8080-kit).".to_string())
-                    } else {
-                        Some(format!(
-                            "[ПРЕДУПРЕЖДЕНИЕ] Внешний эмулятор не найден по пути '{}'. Применен встроенный эмулятор по умолчанию (intel-8080-kit).",
-                            trimmed
-                        ))
-                    }
-                } else {
-                    None
-                };
-
-                let mut logs = CompilerRunner::run_emulator_builtin(&com_path);
-                if let Some(w) = warn {
-                    logs.insert(0, w);
-                }
-
-                let app_w_builtin = app_weak_inner.clone();
-                let ctrl_c_builtin = Arc::clone(&ctrl_clone_inner);
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = app_w_builtin.upgrade() {
-                        let mut ctrl = ctrl_c_builtin.lock().unwrap();
-                        for log in logs {
-                            ctrl.append_log(&log);
-                        }
-                        if compile_warn.is_some() {
-                            ui.set_status_message(SharedString::from(
-                                "Выполнено (с предупреждением: бинарник не найден)",
-                            ));
-                            ui.set_status_color(Color::from_rgb_u8(249, 226, 175));
-                        } else {
-                            ui.set_status_message(SharedString::from(
-                                "Execution Complete (intel-8080-kit)",
-                            ));
-                            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-                        }
-                        sync_logs(&ui, &ctrl);
-                    }
-                });
-            }
-        });
+            let cmd = build_emulator_command(
+                &shell_name,
+                &emulator_path,
+                &emulator_args,
+                &target_path,
+            );
+            ctrl.append_log(&format!("[RUN] Terminal: {}", cmd));
+            sync_logs(&ui, &ctrl);
+            ui.invoke_term_send_command(SharedString::from(cmd));
+            ui.set_status_message(SharedString::from("Запущено в терминале"));
+            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+        } else {
+            // External toolchain: send combined compile + run command to terminal
+            let cmd = build_combined_run_command(
+                &shell_name,
+                &compiler_path,
+                &compiler_args,
+                &emulator_path,
+                &emulator_args,
+                &target_path,
+            );
+            ctrl.append_log(&format!("[RUN] Terminal: {}", cmd));
+            sync_logs(&ui, &ctrl);
+            ui.invoke_term_send_command(SharedString::from(cmd));
+            ui.set_status_message(SharedString::from("Запущено в терминале"));
+            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+        }
     });
 
     // Terminal Stdin Input Submitted by User
@@ -452,4 +252,218 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         ctrl.logs.push("[CONSOLE] Output logs cleared.".to_string());
         sync_logs(&ui, &ctrl);
     });
+
+    // Terminal Expanded State Changed (Persist session immediately)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_terminal_expanded_changed(move |expanded| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        ctrl.session.terminal_expanded = expanded;
+        crate::ui::controller::persist_current_session(&ui, &ctrl);
+    });
+}
+
+pub fn build_combined_run_command(
+    shell: &str,
+    compiler_path: &str,
+    compiler_args: &str,
+    emulator_path: &str,
+    emulator_args: &str,
+    target_path: &Path,
+) -> String {
+    let com_path = target_path.with_extension("com");
+    let input_str = target_path.to_string_lossy();
+    let output_str = com_path.to_string_lossy();
+    let stem_str = target_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let dir_str = target_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".into());
+
+    let c_bin = if compiler_path.trim().is_empty() {
+        #[cfg(windows)]
+        {
+            "C:\\bin\\asmx20.exe"
+        }
+        #[cfg(not(windows))]
+        {
+            "/usr/local/bin/asmx20"
+        }
+    } else {
+        compiler_path.trim()
+    };
+
+    let e_bin = if emulator_path.trim().is_empty() {
+        #[cfg(windows)]
+        {
+            "C:\\bin\\cpmemu.exe"
+        }
+        #[cfg(not(windows))]
+        {
+            "/usr/local/bin/cpmemu"
+        }
+    } else {
+        emulator_path.trim()
+    };
+
+    let c_args_tpl = if compiler_args.trim().is_empty() {
+        "-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\""
+    } else {
+        compiler_args.trim()
+    };
+
+    let e_args_tpl = if emulator_args.trim().is_empty() {
+        "--8080 \"{output}\""
+    } else {
+        emulator_args.trim()
+    };
+
+    let mut formatted_c_args = c_args_tpl.to_string();
+    if formatted_c_args.contains("{input}") || formatted_c_args.contains("{file}") {
+        formatted_c_args = formatted_c_args
+            .replace("{input}", &input_str)
+            .replace("{file}", &input_str);
+    } else {
+        formatted_c_args.push_str(&format!(" \"{}\"", input_str));
+    }
+    formatted_c_args = formatted_c_args
+        .replace("{output}", &output_str)
+        .replace("{bin}", &output_str)
+        .replace("{com}", &output_str)
+        .replace("{name}", &stem_str)
+        .replace("{dir}", &dir_str);
+
+    let mut formatted_e_args = e_args_tpl.to_string();
+    if formatted_e_args.contains("{output}")
+        || formatted_e_args.contains("{bin}")
+        || formatted_e_args.contains("{com}")
+    {
+        formatted_e_args = formatted_e_args
+            .replace("{output}", &output_str)
+            .replace("{bin}", &output_str)
+            .replace("{com}", &output_str);
+    } else {
+        formatted_e_args.push_str(&format!(" \"{}\"", output_str));
+    }
+    formatted_e_args = formatted_e_args
+        .replace("{name}", &stem_str)
+        .replace("{dir}", &dir_str);
+
+    let is_powershell = shell.eq_ignore_ascii_case("pwsh")
+        || shell.eq_ignore_ascii_case("powershell")
+        || (!shell.eq_ignore_ascii_case("cmd") && !shell.eq_ignore_ascii_case("sh") && cfg!(windows));
+
+    if is_powershell {
+        format!(
+            "& \"{}\" {}; if ($?) {{ & \"{}\" {} }}",
+            c_bin, formatted_c_args, e_bin, formatted_e_args
+        )
+    } else {
+        format!(
+            "\"{}\" {} && \"{}\" {}",
+            c_bin, formatted_c_args, e_bin, formatted_e_args
+        )
+    }
+}
+
+pub fn build_emulator_command(
+    shell: &str,
+    emulator_path: &str,
+    emulator_args: &str,
+    target_path: &Path,
+) -> String {
+    let com_path = target_path.with_extension("com");
+    let output_str = com_path.to_string_lossy();
+    let stem_str = target_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let dir_str = target_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| ".".into());
+
+    let e_bin = if emulator_path.trim().is_empty() {
+        #[cfg(windows)]
+        {
+            "C:\\bin\\cpmemu.exe"
+        }
+        #[cfg(not(windows))]
+        {
+            "/usr/local/bin/cpmemu"
+        }
+    } else {
+        emulator_path.trim()
+    };
+
+    let e_args_tpl = if emulator_args.trim().is_empty() {
+        "--8080 \"{output}\""
+    } else {
+        emulator_args.trim()
+    };
+
+    let mut formatted_e_args = e_args_tpl.to_string();
+    if formatted_e_args.contains("{output}")
+        || formatted_e_args.contains("{bin}")
+        || formatted_e_args.contains("{com}")
+    {
+        formatted_e_args = formatted_e_args
+            .replace("{output}", &output_str)
+            .replace("{bin}", &output_str)
+            .replace("{com}", &output_str);
+    } else {
+        formatted_e_args.push_str(&format!(" \"{}\"", output_str));
+    }
+    formatted_e_args = formatted_e_args
+        .replace("{name}", &stem_str)
+        .replace("{dir}", &dir_str);
+
+    let is_powershell = shell.eq_ignore_ascii_case("pwsh")
+        || shell.eq_ignore_ascii_case("powershell")
+        || (!shell.eq_ignore_ascii_case("cmd") && !shell.eq_ignore_ascii_case("sh") && cfg!(windows));
+
+    if is_powershell {
+        format!("& \"{}\" {}", e_bin, formatted_e_args)
+    } else {
+        format!("\"{}\" {}", e_bin, formatted_e_args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_combined_run_command_powershell() {
+        let target = Path::new("C:\\bin\\8080.test.asm");
+        let cmd = build_combined_run_command(
+            "pwsh",
+            "C:\\bin\\asmx20.exe",
+            "-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\"",
+            "C:\\bin\\cpmemu.exe",
+            "--8080 \"{output}\"",
+            target,
+        );
+        assert!(cmd.starts_with("& \"C:\\bin\\asmx20.exe\" -C 8080"));
+        assert!(cmd.contains("if ($?) { & \"C:\\bin\\cpmemu.exe\" --8080"));
+    }
+
+    #[test]
+    fn test_build_combined_run_command_cmd() {
+        let target = Path::new("C:\\bin\\8080.test.asm");
+        let cmd = build_combined_run_command(
+            "cmd",
+            "C:\\bin\\asmx20.exe",
+            "-o \"{output}\" \"{input}\"",
+            "C:\\bin\\cpmemu.exe",
+            "\"{output}\"",
+            target,
+        );
+        assert!(cmd.starts_with("\"C:\\bin\\asmx20.exe\" -o "));
+        assert!(cmd.contains(" && \"C:\\bin\\cpmemu.exe\""));
+    }
 }

@@ -112,6 +112,20 @@ impl Memory for KitMemory {
                             .borrow_mut()
                             .push("[CPM] System reset (BDOS 0)".to_string());
                     }
+                    // Function 1: Console input (character)
+                    1 => {
+                        self.output_logs.borrow_mut().push(
+                            "[WARN] Встроенный эмулятор intel-8080-kit не поддерживает интерактивный ввод с клавиатуры (BDOS 01h). Переключитесь на внешний cpmemu в Настройках."
+                                .to_string(),
+                        );
+                    }
+                    // Function 10: Read console buffer
+                    10 => {
+                        self.output_logs.borrow_mut().push(
+                            "[WARN] Встроенный эмулятор intel-8080-kit не поддерживает интерактивный ввод с клавиатуры (BDOS 0Ah). Переключитесь на внешний cpmemu в Настройках."
+                                .to_string(),
+                        );
+                    }
                     _ => {
                         self.output_logs
                             .borrow_mut()
@@ -1186,8 +1200,18 @@ pub fn assemble_file(file_path: &Path) -> CompileReport {
         file_path.display()
     ));
 
-    let content = match fs::read_to_string(file_path) {
-        Ok(s) => s,
+    let content = match fs::read(file_path) {
+        Ok(bytes) => {
+            let slice = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                &bytes[3..]
+            } else {
+                &bytes[..]
+            };
+            match std::str::from_utf8(slice) {
+                Ok(s) => s.to_string(),
+                Err(_) => String::from_utf8_lossy(slice).into_owned(),
+            }
+        }
         Err(e) => {
             logs.push(format!(
                 "[{}] [ERROR] Failed to read source file: {}",

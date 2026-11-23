@@ -16,6 +16,8 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         } else {
             ui.set_editor_mode(2);
         }
+        ui.set_term_focused(false);
+        ui.invoke_term_focus_changed(false);
     });
 
     // Switch Editor Theme (0 = Catppuccin Dark, 1 = Cyberpunk 2077 Red)
@@ -35,6 +37,7 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                 "Catppuccin Dark"
             };
             ctrl.append_log(&format!("[THEME] Active theme: {}", theme_name));
+            ctrl.invalidate_viewport_cache();
             update_highlight_and_labels(&ui, &ctrl.autocomplete, &code, is_asm);
             let lang = ui.get_current_language().to_string();
             crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
@@ -113,6 +116,8 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ui.set_code_text(SharedString::from(&code));
         ui.set_is_dirty(true);
         ui.set_editor_mode(0); // Switch view back to Editor
+        ui.set_term_focused(false);
+        ui.invoke_term_focus_changed(false);
 
         let mut ctrl = ctrl_clone.lock().unwrap();
         crate::ui::editor_bridge::record_editor_mutation(&ui, &mut ctrl, &code, len, false);

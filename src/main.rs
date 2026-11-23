@@ -7,6 +7,7 @@ mod editor;
 mod fs_manager;
 mod session;
 mod syntax;
+mod terminal;
 mod ui;
 
 use slint::ComponentHandle;
@@ -67,10 +68,11 @@ fn main() -> Result<(), slint::PlatformError> {
             .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
     };
 
-    let controller = Arc::new(Mutex::new(IdeController::new(current_dir)));
+    let controller = Arc::new(Mutex::new(IdeController::new(current_dir.clone())));
 
     let app = AppWindow::new()?;
     setup_ui(&app, Arc::clone(&controller), saved_session);
+    let _terminal_bridge = terminal::TerminalUiBridge::setup(&app, current_dir);
 
     maximize_window(&app);
 
@@ -91,6 +93,16 @@ fn main() -> Result<(), slint::PlatformError> {
     if let Some(file_path) = cli_file_arg.filter(|p| p.is_file()) {
         ui::handlers::open_file_internal(&app, &controller, &file_path, false);
     }
+
+    let ctrl_close = Arc::clone(&controller);
+    let app_weak_close = app.as_weak();
+    app.window().on_close_requested(move || {
+        if let Some(ui) = app_weak_close.upgrade() {
+            let ctrl = ctrl_close.lock().unwrap();
+            ui::controller::persist_current_session(&ui, &ctrl);
+        }
+        slint::CloseRequestResponse::HideWindow
+    });
 
     app.run()
 }

@@ -2,6 +2,7 @@ import { TerminalLineItem } from "../models.slint";
 import { IconButton } from "icon_button.slint";
 import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
+import { TerminalView } from "terminal_view.slint";
 
 export component TerminalPanel inherits Rectangle {
     in property <string> current_language: "ru";
@@ -12,11 +13,37 @@ export component TerminalPanel inherits Rectangle {
     in property <string> output_log_text: "";
     in property <[TerminalLineItem]> terminal_lines: [];
     in property <bool> is_process_running: false;
-    in-out property <string> terminal_input_text: "";
+
+    // Active bottom panel tab: 0 = Output, 1 = Terminal
+    in-out property <int> active_tab: 0;
+
+    // TerminalView properties
+    in property <[image]> term_bands: [];
+    in property <length> term_line_height: 18px;
+    in property <length> term_cell_width: 8px;
+    in property <int> term_history_lines: 0;
+    in property <int> term_history_offset: 0;
+    in property <string> term_preedit: "";
+    in property <int> term_cursor_col: 0;
+    in property <int> term_cursor_row: 0;
+    in property <color> term_text_color: #d5d9dd;
+    in property <string> term_status_text: "pwsh";
+
+    out property <length> term_view_width: root.width > 20px ? (root.width - 16px) : 800px;
+    out property <length> term_view_height: root.terminal_height > 20px ? (root.terminal_height - 6px) : 180px;
 
     callback clear_output();
-    callback terminal_input_submitted(string);
     callback stop_process();
+    callback terminal_input_submitted(string);
+
+    callback term_pointer(float, float, int, int, bool, bool, bool);
+    callback term_motion(float, float);
+    callback term_wheel(float, float, float, bool, bool, bool);
+    callback scroll_to(float);
+    callback term_focus_changed(bool);
+    callback term_restart();
+    callback term_clear();
+    callback terminal_expanded_changed(bool);
 
     height: root.terminal_expanded ? (root.terminal_height + 38px) : 38px;
     background: Theme.terminal_bg;
@@ -31,7 +58,7 @@ export component TerminalPanel inherits Rectangle {
             alignment: space-between;
 
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 12px;
 
                 IconButton {
                     icon_source: root.terminal_expanded ? @image-url("../icons/chevron_down.svg") : @image-url("../icons/arrow_up.svg");
@@ -39,20 +66,75 @@ export component TerminalPanel inherits Rectangle {
                     icon_height: 14px;
                     btn_width: 24px;
                     btn_height: 24px;
-                    clicked => { root.terminal_expanded = !root.terminal_expanded; }
+                    clicked => {
+                        root.terminal_expanded = !root.terminal_expanded;
+                        if !root.terminal_expanded {
+                            root.term_focus_changed(false);
+                        }
+                        root.terminal_expanded_changed(root.terminal_expanded);
+                    }
                 }
 
-                Text {
-                    text: root.current_language == "ru"
-                        ? "ТЕРМИНАЛ / ВЫВОД КОМПИЛЯТОРА И ЭМУЛЯТОРА"
-                        : "TERMINAL / COMPILER & EMULATOR OUTPUT";
-                    font-size: 13px;
-                    font-weight: 700;
-                    color: Theme.text_muted;
-                    vertical-alignment: center;
-                }
-
+                // Tab 0: Вывод / Output
                 Rectangle {
+                    background: transparent;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        spacing: 4px;
+                        Text {
+                            text: root.current_language == "ru" ? "ВЫВОД" : "OUTPUT";
+                            font-size: 13px;
+                            font-weight: root.active_tab == 0 ? 700 : 500;
+                            color: root.active_tab == 0 ? Theme.accent_blue : Theme.text_muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.active_tab == 0: Rectangle {
+                        y: parent.height - 2px;
+                        height: 2px;
+                        background: Theme.accent_blue;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.active_tab = 0;
+                            root.term_focus_changed(false);
+                        }
+                    }
+                }
+
+                // Tab 1: Терминал / Terminal
+                Rectangle {
+                    background: transparent;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        padding-right: 4px;
+                        spacing: 4px;
+                        Text {
+                            text: root.current_language == "ru" ? "ТЕРМИНАЛ" : "TERMINAL";
+                            font-size: 13px;
+                            font-weight: root.active_tab == 1 ? 700 : 500;
+                            color: root.active_tab == 1 ? Theme.accent_blue : Theme.text_muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                    if root.active_tab == 1: Rectangle {
+                        y: parent.height - 2px;
+                        height: 2px;
+                        background: Theme.accent_blue;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.active_tab = 1;
+                            root.term_focus_changed(true);
+                        }
+                    }
+                }
+
+                // Status badge
+                if root.active_tab == 0: Rectangle {
                     height: 22px;
                     border-radius: 3px;
                     background: Theme.bg_surface1;
@@ -67,13 +149,30 @@ export component TerminalPanel inherits Rectangle {
                         }
                     }
                 }
+
+                if root.active_tab == 1: Rectangle {
+                    height: 22px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface1;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        Text {
+                            text: root.term_status_text;
+                            font-size: 12px;
+                            color: #89b4fa;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
             }
 
+            // Controls on the right side
             HorizontalLayout {
                 spacing: 6px;
 
-                // Stop button if process is running
-                if root.is_process_running: Rectangle {
+                // Stop button if process is running (in Output tab)
+                if root.active_tab == 0 && root.is_process_running: Rectangle {
                     width: root.current_language == "ru" ? 80px : 70px;
                     height: 26px;
                     border-radius: 3px;
@@ -97,7 +196,30 @@ export component TerminalPanel inherits Rectangle {
                     }
                 }
 
-                // Clear output button
+                // Restart button for Terminal tab
+                if root.active_tab == 1: Rectangle {
+                    width: root.current_language == "ru" ? 104px : 76px;
+                    height: 26px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface;
+                    border-width: 1px;
+                    border-color: Theme.border_normal;
+
+                    Text {
+                        text: root.current_language == "ru" ? "Перезапуск" : "Restart";
+                        font-size: 12px;
+                        color: restart_touch.has-hover ? Theme.accent_blue : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    restart_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.term_restart(); }
+                    }
+                }
+
+                // Clear button (Output or Terminal)
                 Rectangle {
                     width: 80px;
                     height: 26px;
@@ -109,14 +231,20 @@ export component TerminalPanel inherits Rectangle {
                     Text {
                         text: root.current_language == "ru" ? "Очистить" : "Clear";
                         font-size: 12px;
-                        color: Theme.text_primary;
+                        color: clear_touch.has-hover ? Theme.accent_blue : Theme.text_primary;
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
 
-                    TouchArea {
+                    clear_touch := TouchArea {
                         mouse-cursor: pointer;
-                        clicked => { root.clear_output(); }
+                        clicked => {
+                            if root.active_tab == 0 {
+                                root.clear_output();
+                            } else {
+                                root.term_clear();
+                            }
+                        }
                     }
                 }
             }
@@ -127,8 +255,10 @@ export component TerminalPanel inherits Rectangle {
             border-radius: 4px;
             border-width: 1px;
             border-color: Theme.border_normal;
+            clip: true;
 
-            VerticalLayout {
+            // View 0: Output tab (logs only, no stdin line)
+            if root.active_tab == 0: VerticalLayout {
                 padding: 4px;
                 spacing: 4px;
 
@@ -170,82 +300,32 @@ export component TerminalPanel inherits Rectangle {
                         }
                     }
                 }
+            }
 
-                Rectangle {
-                    height: 1px;
-                    background: Theme.border_normal;
-                }
+            // View 1: Embedded TerminalView tab
+            term_container := Rectangle {
+                visible: root.active_tab == 1;
+                background: Theme.terminal_bg;
+                clip: true;
 
-                // Interactive Stdin Input Row
-                HorizontalLayout {
-                    height: 30px;
-                    spacing: 6px;
-                    padding-left: 4px;
-                    padding-right: 4px;
+                if root.active_tab == 1: TerminalView {
+                    width: 100%;
+                    height: 100%;
+                    bands: root.term_bands;
+                    line-height: root.term_line_height;
+                    cell-width: root.term_cell_width;
+                    history-lines: root.term_history_lines;
+                    history-offset: root.term_history_offset;
+                    preedit: root.term_preedit;
+                    cursor-col: root.term_cursor_col;
+                    cursor-row: root.term_cursor_row;
+                    text-color: root.term_text_color;
 
-                    Rectangle {
-                        horizontal-stretch: 1;
-                        background: Theme.bg_surface;
-                        border-radius: 3px;
-                        border-width: 1px;
-                        border-color: Theme.border_normal;
-
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            spacing: 6px;
-
-                            Text {
-                                text: ">";
-                                font-family: Theme.font_mono;
-                                font-size: 13px;
-                                font-weight: 700;
-                                color: Theme.accent_blue;
-                                vertical-alignment: center;
-                            }
-
-                            term_input := TextInput {
-                                text <=> root.terminal_input_text;
-                                font-family: Theme.font_mono;
-                                font-size: 13px;
-                                color: Theme.text_primary;
-                                vertical-alignment: center;
-                                single-line: true;
-                                accepted => {
-                                    if root.terminal_input_text != "" {
-                                        root.terminal_input_submitted(root.terminal_input_text);
-                                        root.terminal_input_text = "";
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        width: 80px;
-                        border-radius: 3px;
-                        background: send_touch.has-hover ? Theme.accent_blue : Theme.bg_surface2;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Ввод" : "Send";
-                            font-family: Theme.font_ui;
-                            font-size: 12px;
-                            font-weight: 600;
-                            color: send_touch.has-hover ? #151518 : Theme.text_primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        send_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                if root.terminal_input_text != "" {
-                                    root.terminal_input_submitted(root.terminal_input_text);
-                                    root.terminal_input_text = "";
-                                }
-                            }
-                        }
-                    }
+                    pointer(x, y, kind, btn, ctrl, alt, shift) => { root.term_pointer(x, y, kind, btn, ctrl, alt, shift); }
+                    motion(x, y) => { root.term_motion(x, y); }
+                    wheel(x, y, delta, ctrl, alt, shift) => { root.term_wheel(x, y, delta, ctrl, alt, shift); }
+                    scroll_to(frac) => { root.scroll_to(frac); }
+                    focus_changed(has_focus) => { root.term_focus_changed(has_focus); }
                 }
             }
         }

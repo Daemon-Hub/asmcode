@@ -1,5 +1,5 @@
 use crate::autocomplete::engine::AutocompleteEngine;
-use crate::syntax::intel8080::highlight_document_range;
+use crate::syntax::intel8080::highlight_document_range_with_offsets;
 use crate::ui::controller::IdeController;
 use crate::ui::{AppWindow, DocItem, HighlightLineItem, LabelItem, SuggestionItem, TokenItem};
 use slint::{ModelRc, SharedString, VecModel};
@@ -27,20 +27,23 @@ fn push_usize(buf: &mut String, mut n: usize) {
 pub fn update_viewport_highlight(
     app: &AppWindow,
     code: &str,
+    line_starts: Option<&[usize]>,
     scroll_line: usize,
     visible_count: usize,
     is_asm: bool,
-) {
-    if !is_asm || code.is_empty() {
+) -> (usize, usize) {
+    if !is_asm || code.is_empty() || app.get_is_large_file_mode() {
         app.set_highlight_lines(ModelRc::default());
-        return;
+        return (0, 0);
     }
 
     let theme_id = app.get_active_theme_id();
-    let buffered_start = scroll_line.saturating_sub(8);
-    let count = (visible_count + 16).max(60);
+    let pad = 35;
+    let buffered_start = scroll_line.saturating_sub(pad);
+    let count = (visible_count + pad * 2).clamp(60, 150);
 
-    let lines = highlight_document_range(code, theme_id, buffered_start, count);
+    let lines = highlight_document_range_with_offsets(code, line_starts, theme_id, buffered_start, count);
+    let rendered_count = lines.len();
     let line_models: Vec<HighlightLineItem> = lines
         .into_iter()
         .map(|line| {
@@ -64,6 +67,8 @@ pub fn update_viewport_highlight(
 
     app.set_highlight_start_line(buffered_start as i32);
     app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
+
+    (buffered_start, buffered_start + rendered_count)
 }
 
 pub fn update_highlight_and_labels(
@@ -85,19 +90,20 @@ pub fn update_highlight_and_labels(
     }
     app.set_line_numbers_text(SharedString::from(numbers_str));
 
-    if !is_asm {
+    if !is_asm || app.get_is_large_file_mode() {
         app.set_highlight_lines(ModelRc::default());
         app.set_label_list(ModelRc::default());
         return;
     }
 
     let scroll_line = app.get_visible_scroll_line().max(0) as usize;
-    let visible_count = (app.get_visible_line_count().max(40) as usize).min(120);
-    update_viewport_highlight(app, code, scroll_line, visible_count, is_asm);
+    let visible_count = (app.get_visible_line_count().max(30) as usize).min(100);
+    update_viewport_highlight(app, code, None, scroll_line, visible_count, is_asm);
 
     let labels = autocomplete.get_user_labels(code);
     let label_items: Vec<LabelItem> = labels
         .into_iter()
+        .take(150)
         .map(|l| LabelItem {
             name: SharedString::from(l.name),
             line_number: l.line_number as i32,
@@ -286,15 +292,8 @@ pub fn record_editor_mutation(
     ctrl.undo_manager
         .record_edit(new_code, cursor_pos, is_group);
     if let Some(path) = &ctrl.file_manager.active_file_path {
-        ctrl.dirty_tabs.insert(path.clone());
-        match ctrl.tab_buffers.get_mut(path) {
-            Some(buf) => {
-                buf.clear();
-                buf.push_str(new_code);
-            }
-            None => {
-                ctrl.tab_buffers.insert(path.clone(), new_code.to_string());
-            }
-        }
+        let p = path.clone();
+        ctrl.dirty_tabs.insert(p.clone());
+        ctrl.set_tab_buffer(p, new_code.to_string());
     }
 }

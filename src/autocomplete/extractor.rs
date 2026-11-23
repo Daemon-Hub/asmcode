@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SymbolKind {
@@ -16,6 +18,7 @@ pub struct UserSymbol {
 
 pub fn extract_user_labels(source: &str) -> Vec<UserSymbol> {
     let mut symbols = Vec::with_capacity(32);
+    let mut seen_names = HashSet::with_capacity(32);
 
     for (line_idx, line) in source.lines().enumerate() {
         let trimmed = line.trim();
@@ -36,75 +39,74 @@ pub fn extract_user_labels(source: &str) -> Vec<UserSymbol> {
             let label_candidate = code_part[..colon_idx].trim();
             let after_colon = code_part[colon_idx + 1..].trim();
 
-            if is_valid_identifier(label_candidate)
-                && !symbols
-                    .iter()
-                    .any(|s: &UserSymbol| s.name.eq_ignore_ascii_case(label_candidate))
-            {
-                let mut after_words = after_colon.split_whitespace();
-                let first_word = after_words.next().unwrap_or("");
+            if is_valid_identifier(label_candidate) {
+                let lower = label_candidate.to_ascii_lowercase();
+                if seen_names.insert(lower) {
+                    let mut after_words = after_colon.split_whitespace();
+                    let first_word = after_words.next().unwrap_or("");
 
-                let (kind, detail) = if first_word.eq_ignore_ascii_case("DB")
-                    || first_word.eq_ignore_ascii_case("DW")
-                    || first_word.eq_ignore_ascii_case("DS")
-                {
-                    (SymbolKind::Data, after_colon.to_string())
-                } else if first_word.eq_ignore_ascii_case("EQU")
-                    || first_word.eq_ignore_ascii_case("SET")
-                {
-                    let val = after_colon[first_word.len()..].trim();
-                    (SymbolKind::Constant, val.to_string())
-                } else {
-                    (
-                        SymbolKind::Code,
-                        if after_colon.is_empty() {
-                            "Подпрограмма / метка".to_string()
-                        } else {
-                            after_colon.to_string()
-                        },
-                    )
-                };
+                    let (kind, detail) = if first_word.eq_ignore_ascii_case("DB")
+                        || first_word.eq_ignore_ascii_case("DW")
+                        || first_word.eq_ignore_ascii_case("DS")
+                    {
+                        (SymbolKind::Data, after_colon.to_string())
+                    } else if first_word.eq_ignore_ascii_case("EQU")
+                        || first_word.eq_ignore_ascii_case("SET")
+                    {
+                        let val = after_colon[first_word.len()..].trim();
+                        (SymbolKind::Constant, val.to_string())
+                    } else {
+                        (
+                            SymbolKind::Code,
+                            if after_colon.is_empty() {
+                                "Подпрограмма / метка".to_string()
+                            } else {
+                                after_colon.to_string()
+                            },
+                        )
+                    };
 
-                symbols.push(UserSymbol {
-                    name: label_candidate.to_string(),
-                    line_number: line_idx + 1,
-                    kind,
-                    detail,
-                });
+                    symbols.push(UserSymbol {
+                        name: label_candidate.to_string(),
+                        line_number: line_idx + 1,
+                        kind,
+                        detail,
+                    });
+                }
             }
         } else {
             // Case 2: Statement without colon (e.g. "TPA equ 100h", "BUFFER ds 64", "TABLE dw 1000h")
             let mut words = code_part.split_whitespace();
             if let (Some(first), Some(second)) = (words.next(), words.next())
                 && is_valid_identifier(first)
-                && !symbols
-                    .iter()
-                    .any(|s: &UserSymbol| s.name.eq_ignore_ascii_case(first))
             {
-                if second.eq_ignore_ascii_case("EQU") || second.eq_ignore_ascii_case("SET") {
-                    let rest = code_part[first.len()..].trim_start();
-                    let val = rest[second.len()..].trim();
-                    symbols.push(UserSymbol {
-                        name: first.to_string(),
-                        line_number: line_idx + 1,
-                        kind: SymbolKind::Constant,
-                        detail: if val.is_empty() {
-                            "EQU".to_string()
-                        } else {
-                            val.to_string()
-                        },
-                    });
-                } else if second.eq_ignore_ascii_case("DB")
-                    || second.eq_ignore_ascii_case("DW")
-                    || second.eq_ignore_ascii_case("DS")
-                {
-                    let rest = code_part[first.len()..].trim_start();
-                    symbols.push(UserSymbol {
-                        name: first.to_string(),
-                        line_number: line_idx + 1,
-                        kind: SymbolKind::Data,
-                        detail: rest.to_string(),
-                    });
+                let lower = first.to_ascii_lowercase();
+                if seen_names.insert(lower) {
+                    if second.eq_ignore_ascii_case("EQU") || second.eq_ignore_ascii_case("SET") {
+                        let rest = code_part[first.len()..].trim_start();
+                        let val = rest[second.len()..].trim();
+                        symbols.push(UserSymbol {
+                            name: first.to_string(),
+                            line_number: line_idx + 1,
+                            kind: SymbolKind::Constant,
+                            detail: if val.is_empty() {
+                                "EQU".to_string()
+                            } else {
+                                val.to_string()
+                            },
+                        });
+                    } else if second.eq_ignore_ascii_case("DB")
+                        || second.eq_ignore_ascii_case("DW")
+                        || second.eq_ignore_ascii_case("DS")
+                    {
+                        let rest = code_part[first.len()..].trim_start();
+                        symbols.push(UserSymbol {
+                            name: first.to_string(),
+                            line_number: line_idx + 1,
+                            kind: SymbolKind::Data,
+                            detail: rest.to_string(),
+                        });
+                    }
                 }
             }
         }

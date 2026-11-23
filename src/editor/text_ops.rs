@@ -213,9 +213,195 @@ pub fn apply_completion_to_code(code: &str, line_idx: usize, insert_text: &str) 
     result
 }
 
+#[inline]
+pub fn move_lines_up(
+    code: &str,
+    cursor_offset: usize,
+    anchor_offset: usize,
+) -> Option<(String, usize, usize)> {
+    let len = code.len();
+    if len == 0 {
+        return None;
+    }
+    let cur = cursor_offset.min(len);
+    let anc = anchor_offset.min(len);
+    let min_off = cur.min(anc);
+    let max_off = cur.max(anc);
+
+    let first_line_start = code[..min_off].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    if first_line_start == 0 {
+        return None;
+    }
+
+    let last_line_end = if max_off > min_off && code.as_bytes().get(max_off.saturating_sub(1)) == Some(&b'\n') {
+        max_off - 1
+    } else {
+        code[max_off..].find('\n').map(|p| max_off + p).unwrap_or(len)
+    };
+
+    let prev_line_start = code[..first_line_start - 1].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let prev_line_end = first_line_start - 1;
+
+    let prev_line = &code[prev_line_start..prev_line_end];
+    let block = &code[first_line_start..last_line_end];
+
+    let mut new_code = String::with_capacity(len + 1);
+    new_code.push_str(&code[..prev_line_start]);
+    new_code.push_str(block);
+    new_code.push('\n');
+    new_code.push_str(prev_line);
+    new_code.push_str(&code[last_line_end..]);
+
+    let shift = first_line_start - prev_line_start;
+    let new_cur = cur.saturating_sub(shift);
+    let new_anc = anc.saturating_sub(shift);
+
+    Some((new_code, new_cur, new_anc))
+}
+
+#[inline]
+pub fn move_lines_down(
+    code: &str,
+    cursor_offset: usize,
+    anchor_offset: usize,
+) -> Option<(String, usize, usize)> {
+    let len = code.len();
+    if len == 0 {
+        return None;
+    }
+    let cur = cursor_offset.min(len);
+    let anc = anchor_offset.min(len);
+    let min_off = cur.min(anc);
+    let max_off = cur.max(anc);
+
+    let first_line_start = code[..min_off].rfind('\n').map(|p| p + 1).unwrap_or(0);
+    let last_line_end = if max_off > min_off && code.as_bytes().get(max_off.saturating_sub(1)) == Some(&b'\n') {
+        max_off - 1
+    } else {
+        code[max_off..].find('\n').map(|p| max_off + p).unwrap_or(len)
+    };
+
+    if last_line_end >= len {
+        return None;
+    }
+
+    let next_line_start = last_line_end + 1;
+    let next_line_end = code[next_line_start..].find('\n').map(|p| next_line_start + p).unwrap_or(len);
+
+    let next_line = &code[next_line_start..next_line_end];
+    let block = &code[first_line_start..last_line_end];
+
+    let mut new_code = String::with_capacity(len + 1);
+    new_code.push_str(&code[..first_line_start]);
+    new_code.push_str(next_line);
+    new_code.push('\n');
+    new_code.push_str(block);
+    new_code.push_str(&code[next_line_end..]);
+
+    let shift = next_line.len() + 1;
+    let new_cur = cur + shift;
+    let new_anc = anc + shift;
+
+    Some((new_code, new_cur, new_anc))
+}
+
+#[inline]
+pub fn duplicate_selection_or_line(
+    code: &str,
+    cursor_offset: usize,
+    anchor_offset: usize,
+) -> (String, usize, usize) {
+    let len = code.len();
+    let cur = cursor_offset.min(len);
+    let anc = anchor_offset.min(len);
+
+    if cur != anc {
+        let s = cur.min(anc);
+        let e = cur.max(anc);
+        let selected = &code[s..e];
+        let duplicate = format!("\n{}", selected);
+        let mut new_code = String::with_capacity(len + duplicate.len());
+        new_code.push_str(&code[..e]);
+        new_code.push_str(&duplicate);
+        new_code.push_str(&code[e..]);
+
+        let new_s = e + 1;
+        let new_e = new_s + selected.len();
+        if cur > anc {
+            (new_code, new_e, new_s)
+        } else {
+            (new_code, new_s, new_e)
+        }
+    } else {
+        let line_start = code[..cur].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let line_end = code[cur..].find('\n').map(|p| cur + p).unwrap_or(len);
+        let current_line = &code[line_start..line_end];
+        let duplicate = format!("\n{}", current_line);
+        let mut new_code = String::with_capacity(len + duplicate.len());
+        new_code.push_str(&code[..line_end]);
+        new_code.push_str(&duplicate);
+        new_code.push_str(&code[line_end..]);
+
+        let col = cur - line_start;
+        let new_pos = line_end + 1 + col;
+        (new_code, new_pos, new_pos)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_move_lines_up_single_line() {
+        let code = "line1\nline2\nline3";
+        // cursor on line2 ("line2" starts at 6)
+        let (new_code, new_cur, new_anc) = move_lines_up(code, 8, 8).unwrap();
+        assert_eq!(new_code, "line2\nline1\nline3");
+        assert_eq!(new_cur, 2);
+        assert_eq!(new_anc, 2);
+    }
+
+    #[test]
+    fn test_move_lines_up_at_top() {
+        let code = "line1\nline2";
+        assert!(move_lines_up(code, 2, 2).is_none());
+    }
+
+    #[test]
+    fn test_move_lines_down_single_line() {
+        let code = "line1\nline2\nline3";
+        // cursor on line2
+        let (new_code, new_cur, new_anc) = move_lines_down(code, 8, 8).unwrap();
+        assert_eq!(new_code, "line1\nline3\nline2");
+        assert_eq!(new_cur, 14);
+        assert_eq!(new_anc, 14);
+    }
+
+    #[test]
+    fn test_move_lines_down_at_bottom() {
+        let code = "line1\nline2";
+        assert!(move_lines_down(code, 8, 8).is_none());
+    }
+
+    #[test]
+    fn test_duplicate_line_no_selection() {
+        let code = "mvi a, 05h\nhlt";
+        let (new_code, new_cur, new_anc) = duplicate_selection_or_line(code, 4, 4);
+        assert_eq!(new_code, "mvi a, 05h\nmvi a, 05h\nhlt");
+        assert_eq!(new_cur, 15);
+        assert_eq!(new_anc, 15);
+    }
+
+    #[test]
+    fn test_duplicate_selection_down() {
+        let code = "start:\n  mvi a, 05h\n  hlt";
+        // select "  mvi a, 05h" from 7 to 19
+        let (new_code, new_cur, new_anc) = duplicate_selection_or_line(code, 19, 7);
+        assert_eq!(new_code, "start:\n  mvi a, 05h\n  mvi a, 05h\n  hlt");
+        assert_eq!(new_cur, 32);
+        assert_eq!(new_anc, 20);
+    }
 
     #[test]
     fn test_extract_prefix_at_offset() {

@@ -23,6 +23,13 @@ pub struct FindState {
     pub current_idx: usize,
 }
 
+#[derive(Clone, Debug)]
+pub struct ViewportCache {
+    pub buffer_start: usize,
+    pub buffer_end: usize,
+    pub path: Option<PathBuf>,
+}
+
 pub struct IdeController {
     pub file_manager: FileManager,
     pub autocomplete: AutocompleteEngine,
@@ -34,12 +41,15 @@ pub struct IdeController {
     pub deleted_open_tabs: HashSet<PathBuf>,
     pub untitled_drafts: HashSet<PathBuf>,
     pub tab_buffers: HashMap<PathBuf, String>,
+    pub tab_line_starts: HashMap<PathBuf, Vec<usize>>,
+    pub viewport_cache: Option<ViewportCache>,
     pub dirty_tabs: HashSet<PathBuf>,
     pub find_state: FindState,
     pub session: AppSession,
     pub is_large_file_mode: bool,
     pub force_full_features: bool,
     pub running_process: Option<RunningProcess>,
+    pub terminal_partial_line: bool,
 }
 
 impl IdeController {
@@ -58,17 +68,84 @@ impl IdeController {
             deleted_open_tabs: HashSet::new(),
             untitled_drafts: HashSet::new(),
             tab_buffers: HashMap::new(),
+            tab_line_starts: HashMap::new(),
+            viewport_cache: None,
             dirty_tabs: HashSet::new(),
             find_state: FindState::default(),
             session: AppSession::default(),
             is_large_file_mode: false,
             force_full_features: false,
             running_process: None,
+            terminal_partial_line: false,
         }
     }
 
+    pub fn set_tab_buffer(&mut self, path: PathBuf, content: String) {
+        let starts = crate::syntax::intel8080::build_line_starts(&content);
+        self.tab_line_starts.insert(path.clone(), starts);
+        self.tab_buffers.insert(path, content);
+        self.viewport_cache = None;
+    }
+
+    pub fn remove_tab_buffer(&mut self, path: &Path) {
+        self.tab_line_starts.remove(path);
+        self.tab_buffers.remove(path);
+        self.viewport_cache = None;
+    }
+
+    pub fn invalidate_viewport_cache(&mut self) {
+        self.viewport_cache = None;
+    }
+
     pub fn append_log(&mut self, message: &str) {
+        self.terminal_partial_line = false;
         self.logs.push(message.to_string());
+    }
+
+    #[allow(dead_code)]
+    pub fn append_terminal_stream(&mut self, text: &str) {
+        for line in text.split_inclusive('\n') {
+            let has_newline = line.ends_with('\n');
+            let content = line.trim_end_matches(['\r', '\n']);
+            if content.is_empty() && !has_newline {
+                continue;
+            }
+
+            if self.terminal_partial_line {
+                if let Some(last) = self.logs.last_mut() {
+                    last.push_str(content);
+                } else {
+                    self.logs.push(format!("[CPM] {}", content));
+                }
+            } else if !content.is_empty() {
+                self.logs.push(format!("[CPM] {}", content));
+            }
+
+            self.terminal_partial_line = !has_newline;
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn append_terminal_err_stream(&mut self, text: &str) {
+        for line in text.split_inclusive('\n') {
+            let has_newline = line.ends_with('\n');
+            let content = line.trim_end_matches(['\r', '\n']);
+            if content.is_empty() && !has_newline {
+                continue;
+            }
+
+            if self.terminal_partial_line {
+                if let Some(last) = self.logs.last_mut() {
+                    last.push_str(content);
+                } else {
+                    self.logs.push(format!("[CPM ERR] {}", content));
+                }
+            } else if !content.is_empty() {
+                self.logs.push(format!("[CPM ERR] {}", content));
+            }
+
+            self.terminal_partial_line = !has_newline;
+        }
     }
 
     pub fn get_combined_logs(&self) -> String {
@@ -104,7 +181,9 @@ pub fn persist_current_session(app: &AppWindow, ctrl: &IdeController) {
         cursor_blink: app.get_cursor_blink(),
         tab_size: app.get_tab_size(),
         compiler_path: app.get_compiler_path().to_string(),
+        compiler_args: app.get_compiler_args().to_string(),
         emulator_path: app.get_emulator_path().to_string(),
+        emulator_args: app.get_emulator_args().to_string(),
         toolchain_type: app.get_toolchain_type(),
         large_file_optimizations: ctrl.session.large_file_optimizations,
         large_file_soft_limit_mb: ctrl.session.large_file_soft_limit_mb,

@@ -159,7 +159,7 @@ pub fn open_file_internal(
             let mut ctrl = ctrl_rc.lock().unwrap();
             if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
                 let current_code = ui.get_code_text().to_string();
-                ctrl.tab_buffers.insert(curr.clone(), current_code);
+                ctrl.set_tab_buffer(curr.clone(), current_code);
                 if ui.get_is_dirty() {
                     ctrl.dirty_tabs.insert(curr);
                 } else {
@@ -259,7 +259,7 @@ pub fn open_file_internal(
     };
 
     let mut ctrl = ctrl_rc.lock().unwrap();
-    ctrl.tab_buffers.insert(path.clone(), content.clone());
+    ctrl.set_tab_buffer(path.clone(), content.clone());
 
     let (large_opt_enabled, soft_limit_bytes) = (
         ctrl.session.large_file_optimizations,
@@ -356,7 +356,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             ctrl.deleted_open_tabs.remove(&curr);
             ctrl.untitled_drafts.remove(&curr);
             ctrl.dirty_tabs.remove(&curr);
-            ctrl.tab_buffers.remove(&curr);
+            ctrl.remove_tab_buffer(&curr);
             ctrl.open_tabs.retain(|p| p != &curr);
         }
         if let Some(next_path) = ctrl.open_tabs.last().cloned() {
@@ -390,7 +390,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             }
             if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
                 let current_code = ui.get_code_text().to_string();
-                ctrl.tab_buffers.insert(curr.clone(), current_code);
+                ctrl.set_tab_buffer(curr.clone(), current_code);
                 if ui.get_is_dirty() {
                     ctrl.dirty_tabs.insert(curr);
                 } else {
@@ -423,7 +423,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ctrl.deleted_open_tabs.remove(&path);
         ctrl.untitled_drafts.remove(&path);
         ctrl.dirty_tabs.remove(&path);
-        ctrl.tab_buffers.remove(&path);
+        ctrl.remove_tab_buffer(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
 
@@ -459,7 +459,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ctrl.pinned_tabs.remove(&path);
         ctrl.untitled_drafts.remove(&path);
         ctrl.dirty_tabs.remove(&path);
-        ctrl.tab_buffers.remove(&path);
+        ctrl.remove_tab_buffer(&path);
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         ctrl.open_tabs.retain(|p| p != &path);
 
@@ -503,6 +503,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
         ctrl.untitled_drafts.retain(|p| open_set.contains(p));
         ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
+        ctrl.tab_line_starts.retain(|p, _| open_set.contains(p));
+        ctrl.viewport_cache = None;
         let was_active = ctrl.file_manager.active_file_path.as_ref() == Some(&path);
         if !was_active {
             drop(ctrl);
@@ -542,6 +544,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
         ctrl.untitled_drafts.retain(|p| open_set.contains(p));
         ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
+        ctrl.tab_line_starts.retain(|p, _| open_set.contains(p));
+        ctrl.viewport_cache = None;
         sync_tabs_ui(&ui, &ctrl);
         persist_current_session(&ui, &ctrl);
     });
@@ -557,6 +561,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let open_set: HashSet<PathBuf> = ctrl.open_tabs.iter().cloned().collect();
         ctrl.untitled_drafts.retain(|p| open_set.contains(p));
         ctrl.tab_buffers.retain(|p, _| open_set.contains(p));
+        ctrl.tab_line_starts.retain(|p, _| open_set.contains(p));
+        ctrl.viewport_cache = None;
         if let Some(_active) = ctrl
             .file_manager
             .active_file_path
@@ -893,7 +899,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             Ok(()) => {
                 ctrl.untitled_drafts.remove(&save_path);
                 ctrl.dirty_tabs.remove(&save_path);
-                ctrl.tab_buffers.insert(save_path.clone(), text.clone());
+                ctrl.set_tab_buffer(save_path.clone(), text.clone());
                 ui.set_is_dirty(false);
                 let saved_name = save_path
                     .file_name()
@@ -977,7 +983,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                             if let Some(ref old) = old_path {
                                 ctrl.untitled_drafts.remove(old);
                                 ctrl.dirty_tabs.remove(old);
-                                ctrl.tab_buffers.remove(old);
+                                ctrl.remove_tab_buffer(old);
                                 if old != &target_path {
                                     if let Some(idx) = ctrl.open_tabs.iter().position(|p| p == old)
                                     {
@@ -996,8 +1002,7 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
                             ctrl.file_manager.active_file_path = Some(target_path.clone());
                             ctrl.dirty_tabs.remove(&target_path);
-                            ctrl.tab_buffers
-                                .insert(target_path.clone(), current_text.clone());
+                            ctrl.set_tab_buffer(target_path.clone(), current_text.clone());
                             ctrl.undo_manager.reset(current_text.clone(), 0);
 
                             ui.set_active_file_name(SharedString::from(&new_file_name));
@@ -1178,6 +1183,8 @@ pub fn attach_file_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         ui.set_editor_font_size(18.0);
         ui.set_editor_font_italic(true);
         ui.set_active_theme_id(1);
+        ui.set_compiler_args(SharedString::from("-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\""));
+        ui.set_emulator_args(SharedString::from("--8080 \"{output}\""));
         let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.append_log(
             "[SETTINGS] Defaults restored (18px, italic directives, Cyberpunk 2077 Red)",

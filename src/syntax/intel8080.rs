@@ -553,8 +553,21 @@ pub fn highlight_document(document: &str, theme_id: i32) -> Vec<HighlightLine> {
     }
 }
 
-pub fn highlight_document_range(
+pub fn build_line_starts(document: &str) -> Vec<usize> {
+    let bytes = document.as_bytes();
+    let mut starts = Vec::with_capacity(bytes.len() / 32 + 16);
+    starts.push(0);
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' {
+            starts.push(i + 1);
+        }
+    }
+    starts
+}
+
+pub fn highlight_document_range_with_offsets(
     document: &str,
+    line_starts: Option<&[usize]>,
     theme_id: i32,
     start_line: usize,
     count: usize,
@@ -562,20 +575,73 @@ pub fn highlight_document_range(
     if document.is_empty() {
         return vec![parse_line("", 1, theme_id)];
     }
-    let mut lines = Vec::with_capacity(count.min(128));
-    for (current_idx, raw_line) in document.split('\n').enumerate() {
-        if current_idx >= start_line {
-            let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-            lines.push(parse_line(clean, (current_idx + 1) as i32, theme_id));
-            if lines.len() >= count {
-                break;
+
+    if let Some(starts) = line_starts {
+        if !starts.is_empty() {
+            if start_line >= starts.len() {
+                return vec![parse_line("", (start_line + 1) as i32, theme_id)];
             }
+            let start_byte = starts[start_line];
+            let end_line_idx = (start_line + count).min(starts.len());
+            let end_byte = if end_line_idx < starts.len() {
+                starts[end_line_idx]
+            } else {
+                document.len()
+            };
+
+            let slice = &document[start_byte..end_byte];
+            let mut lines = Vec::with_capacity(count.min(128));
+            for (idx, raw_line) in slice.split('\n').enumerate() {
+                if lines.len() >= count {
+                    break;
+                }
+                let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+                lines.push(parse_line(clean, (start_line + idx + 1) as i32, theme_id));
+            }
+            if lines.is_empty() {
+                lines.push(parse_line("", (start_line + 1) as i32, theme_id));
+            }
+            return lines;
+        }
+    }
+
+    let bytes = document.as_bytes();
+    let mut current_line = 0;
+    let mut start_byte = 0;
+    while current_line < start_line && start_byte < bytes.len() {
+        if bytes[start_byte] == b'\n' {
+            current_line += 1;
+        }
+        start_byte += 1;
+    }
+
+    if start_byte >= bytes.len() && current_line < start_line {
+        return vec![parse_line("", (start_line + 1) as i32, theme_id)];
+    }
+
+    let slice = &document[start_byte..];
+    let mut lines = Vec::with_capacity(count.min(128));
+    for (idx, raw_line) in slice.split('\n').enumerate() {
+        let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+        lines.push(parse_line(clean, (start_line + idx + 1) as i32, theme_id));
+        if lines.len() >= count {
+            break;
         }
     }
     if lines.is_empty() {
         lines.push(parse_line("", (start_line + 1) as i32, theme_id));
     }
     lines
+}
+
+#[allow(dead_code)]
+pub fn highlight_document_range(
+    document: &str,
+    theme_id: i32,
+    start_line: usize,
+    count: usize,
+) -> Vec<HighlightLine> {
+    highlight_document_range_with_offsets(document, None, theme_id, start_line, count)
 }
 
 #[cfg(test)]
@@ -634,5 +700,22 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_highlight_document_range_with_offsets() {
+        let doc = "line1: nop\nline2: hlt\nline3: mov a, b\nline4: ret\nline5: end";
+        let starts = build_line_starts(doc);
+        assert_eq!(starts.len(), 5);
+
+        let slice_lines = highlight_document_range_with_offsets(doc, Some(&starts), 0, 2, 2);
+        assert_eq!(slice_lines.len(), 2);
+        assert_eq!(slice_lines[0].line_number, 3);
+        assert_eq!(slice_lines[1].line_number, 4);
+
+        let fallback_lines = highlight_document_range_with_offsets(doc, None, 0, 2, 2);
+        assert_eq!(fallback_lines.len(), 2);
+        assert_eq!(fallback_lines[0].line_number, 3);
+        assert_eq!(fallback_lines[1].line_number, 4);
     }
 }

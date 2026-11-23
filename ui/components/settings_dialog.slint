@@ -23,7 +23,9 @@ export component SettingsDialog inherits Rectangle {
     // Toolchain
     in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
     in-out property <string> compiler_path: "";
+    in-out property <string> compiler_args: "";
     in-out property <string> emulator_path: "";
+    in-out property <string> emulator_args: "";
 
     // File association
     in-out property <bool> associate_asm_files: false;
@@ -826,6 +828,40 @@ export component SettingsDialog inherits Rectangle {
                                 }
                             }
 
+                            // Compiler Arguments
+                            Rectangle {
+                                height: 58px;
+                                border-radius: 4px;
+                                background: Theme.bg_surface1;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 4px;
+                                    Text {
+                                        text: root.current_language == "ru" ? "Аргументы компилятора ({input}, {output}):" : "Compiler Arguments ({input}, {output}):";
+                                        font-size: 12px;
+                                        color: Theme.text_muted;
+                                    }
+                                    Rectangle {
+                                        height: 28px;
+                                        background: Theme.editor_bg;
+                                        border-radius: 3px;
+                                        border-width: 1px;
+                                        border-color: Theme.border_normal;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            TextInput {
+                                                text <=> root.compiler_args;
+                                                font-size: 12px;
+                                                color: Theme.text_primary;
+                                                vertical-alignment: center;
+                                                single-line: true;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Emulator Path
                             Rectangle {
                                 height: 58px;
@@ -870,6 +906,40 @@ export component SettingsDialog inherits Rectangle {
                                                 vertical-alignment: center;
                                             }
                                             TouchArea { clicked => { root.browse_emulator(); } }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Emulator Arguments
+                            Rectangle {
+                                height: 58px;
+                                border-radius: 4px;
+                                background: Theme.bg_surface1;
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 4px;
+                                    Text {
+                                        text: root.current_language == "ru" ? "Аргументы эмулятора ({output}):" : "Emulator Arguments ({output}):";
+                                        font-size: 12px;
+                                        color: Theme.text_muted;
+                                    }
+                                    Rectangle {
+                                        height: 28px;
+                                        background: Theme.editor_bg;
+                                        border-radius: 3px;
+                                        border-width: 1px;
+                                        border-color: Theme.border_normal;
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            TextInput {
+                                                text <=> root.emulator_args;
+                                                font-size: 12px;
+                                                color: Theme.text_primary;
+                                                vertical-alignment: center;
+                                                single-line: true;
+                                            }
                                         }
                                     }
                                 }

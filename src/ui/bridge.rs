@@ -32,8 +32,14 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
     if !session.compiler_path.is_empty() {
         app.set_compiler_path(SharedString::from(&session.compiler_path));
     }
+    if !session.compiler_args.is_empty() {
+        app.set_compiler_args(SharedString::from(&session.compiler_args));
+    }
     if !session.emulator_path.is_empty() {
         app.set_emulator_path(SharedString::from(&session.emulator_path));
+    }
+    if !session.emulator_args.is_empty() {
+        app.set_emulator_args(SharedString::from(&session.emulator_args));
     }
     app.set_toolchain_type(session.toolchain_type);
     app.set_associate_asm_files(crate::fs_manager::associations::is_asm_associated());

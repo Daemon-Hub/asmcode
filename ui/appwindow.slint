@@ -6,13 +6,13 @@ import "./fonts/CaskaydiaCoveNerdFontPropo-SemiBoldItalic.ttf";
 export {
     FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem,
     BdosItem, FcbFieldItem, BufferFieldItem, MemoryMapItem, RegisterItem, FlagItem, FlagRuleItem, AsciiItem,
-    JumpConditionItem, CodePatternItem, FindMatchItem
+    JumpConditionItem, CodePatternItem, FindMatchItem, TextSelectionItem
 } from "./models.slint";
 
 import {
     FileItem, TokenItem, HighlightLineItem, LabelItem, SuggestionItem, DocItem, TerminalLineItem, FileTabItem,
     BdosItem, FcbFieldItem, BufferFieldItem, MemoryMapItem, RegisterItem, FlagItem, FlagRuleItem, AsciiItem,
-    JumpConditionItem, CodePatternItem, FindMatchItem
+    JumpConditionItem, CodePatternItem, FindMatchItem, TextSelectionItem
 } from "./models.slint";
 import { Theme } from "./components/theme.slint";
 import { Header } from "./components/header.slint";
@@ -66,7 +66,9 @@ export component AppWindow inherits Window {
     in-out property <length> explorer_menu_y: 100px;
     in-out property <bool> show_settings_dialog: false;
     in-out property <string> compiler_path: "";
+    in-out property <string> compiler_args: "-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\"";
     in-out property <string> emulator_path: "";
+    in-out property <string> emulator_args: "--8080 \"{output}\"";
     in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
     in-out property <bool> cursor_blink: true;
     in-out property <int> tab_size: 4;
@@ -221,6 +223,34 @@ export component AppWindow inherits Window {
     callback file_dropped_in_folder(string, data-transfer);
     pure callback make_file_transfer(string) -> data-transfer;
 
+    // Integrated PTY Terminal properties
+    in-out property <int> terminal_active_tab: 0;
+    in-out property <bool> term_focused: false;
+    in property <[image]> term_bands: [];
+    in property <length> term_line_height: 18px;
+    in property <length> term_cell_width: 8px;
+    in property <int> term_history_lines: 0;
+    in property <int> term_history_offset: 0;
+    in property <string> term_preedit: "";
+    in property <int> term_cursor_col: 0;
+    in property <int> term_cursor_row: 0;
+    in property <color> term_text_color: #d5d9dd;
+    in property <string> term_status_text: "pwsh";
+    in property <string> term_shell_name: "pwsh";
+
+    out property <length> term_view_width <=> bottom_panel.term_view_width;
+    out property <length> term_view_height <=> bottom_panel.term_view_height;
+
+    callback term_pointer(float, float, int, int, bool, bool, bool);
+    callback term_motion(float, float);
+    callback term_wheel(float, float, float, bool, bool, bool);
+    callback term_scroll_to(float);
+    callback term_focus_changed(bool);
+    callback term_restart();
+    callback term_clear();
+    callback term_send_command(string);
+    callback terminal_expanded_changed(bool);
+
     // Callbacks
     callback file_clicked(string, bool);
     callback navigate_parent();
@@ -299,6 +329,9 @@ export component AppWindow inherits Window {
     callback editor_replace(string);
     callback editor_replace_all(string);
     callback request_open_find(int, int, bool);
+    callback move_lines_up(int, int) -> TextSelectionItem;
+    callback move_lines_down(int, int) -> TextSelectionItem;
+    callback duplicate_selection_or_line(int, int) -> TextSelectionItem;
 
     in-out property <string> docs_search_query: "";
     in-out property <string> docs_selected_category: "Все";
@@ -399,12 +432,12 @@ export component AppWindow inherits Window {
                 show_rename_dialog <=> root.show_rename_dialog;
                 rename_target_name: root.rename_target_name;
                 selected_explorer_path: root.selected_explorer_path;
-                navigate_parent => { root.navigate_parent(); }
-                refresh_files => { root.refresh_files(); }
-                create_file(text) => { root.create_file(text); }
-                create_new_folder(text) => { root.create_new_folder(text); }
-                rename_file(path, text) => { root.rename_file(path, text); }
-                file_clicked(path, is_dir) => { root.file_clicked(path, is_dir); }
+                navigate_parent => { root.term_focused = false; root.term_focus_changed(false); root.navigate_parent(); }
+                refresh_files => { root.term_focused = false; root.term_focus_changed(false); root.refresh_files(); }
+                create_file(text) => { root.term_focused = false; root.term_focus_changed(false); root.create_file(text); }
+                create_new_folder(text) => { root.term_focused = false; root.term_focus_changed(false); root.create_new_folder(text); }
+                rename_file(path, text) => { root.term_focused = false; root.term_focus_changed(false); root.rename_file(path, text); }
+                file_clicked(path, is_dir) => { root.term_focused = false; root.term_focus_changed(false); root.file_clicked(path, is_dir); }
                 file_right_clicked(path, name, mx, my) => {
                     root.selected_explorer_path = path;
                     root.selected_explorer_name = name;
@@ -419,7 +452,7 @@ export component AppWindow inherits Window {
                     root.explorer_menu_y = my;
                     root.show_explorer_context_menu = true;
                 }
-                label_clicked(line_num) => { root.label_clicked(line_num); }
+                label_clicked(line_num) => { root.term_focused = false; root.term_focus_changed(false); root.label_clicked(line_num); }
                 explorer_undo => { root.explorer_undo(); }
                 dnd_hover_target: root.dnd_hover_target;
                 dnd_target_folder_path: root.dnd_target_folder_path;
@@ -473,10 +506,14 @@ export component AppWindow inherits Window {
                 is_active_asm: root.is_active_asm;
                 highlight_lines: root.highlight_lines;
                 highlight_start_line: root.highlight_start_line;
-                visible_scroll_line <=> root.visible_scroll_line;
-                visible_line_count <=> root.visible_line_count;
-                editor_viewport_scrolled(s, c) => { root.editor_viewport_scrolled(s, c); }
+                editor_viewport_scrolled(s, c) => {
+                    root.visible_scroll_line = s;
+                    root.visible_line_count = c;
+                    root.editor_viewport_scrolled(s, c);
+                }
                 suggestion_list: root.suggestion_list;
+                bdos_list: root.bdos_list;
+                ascii_list: root.ascii_list;
                 selected_sugg_name <=> root.selected_sugg_name;
                 selected_sugg_category <=> root.selected_sugg_category;
                 selected_sugg_syntax <=> root.selected_sugg_syntax;
@@ -536,8 +573,15 @@ export component AppWindow inherits Window {
                 editor_find_prev => { root.editor_find_prev(); }
                 editor_replace(rep) => { root.editor_replace(rep); }
                 editor_replace_all(rep) => { root.editor_replace_all(rep); }
+                move_lines_up(c, a) => { root.move_lines_up(c, a) }
+                move_lines_down(c, a) => { root.move_lines_down(c, a) }
+                duplicate_selection_or_line(c, a) => { root.duplicate_selection_or_line(c, a) }
                 select_range_start: root.select_range_start;
                 select_range_end: root.select_range_end;
+                editor_focused => {
+                    root.term_focused = false;
+                    root.term_focus_changed(false);
+                }
             }
 
             if root.editor_mode == 2: DocsPage {
@@ -584,7 +628,7 @@ export component AppWindow inherits Window {
         if !root.terminal_expanded: Rectangle { height: 1px; background: #313244; }
 
         // Bottom Panel: Output / Terminal Console
-        TerminalPanel {
+        bottom_panel := TerminalPanel {
             vertical-stretch: 0;
             current_language: root.current_language;
             terminal_expanded <=> root.terminal_expanded;
@@ -594,9 +638,34 @@ export component AppWindow inherits Window {
             output_log_text: root.output_log_text;
             terminal_lines: root.terminal_lines;
             is_process_running: root.is_process_running;
+            active_tab <=> root.terminal_active_tab;
+
+            term_bands: root.term_bands;
+            term_line_height: root.term_line_height;
+            term_cell_width: root.term_cell_width;
+            term_history_lines: root.term_history_lines;
+            term_history_offset: root.term_history_offset;
+            term_preedit: root.term_preedit;
+            term_cursor_col: root.term_cursor_col;
+            term_cursor_row: root.term_cursor_row;
+            term_text_color: root.term_text_color;
+            term_status_text: root.term_status_text;
+
             clear_output => { root.clear_output(); }
             terminal_input_submitted(txt) => { root.terminal_input_submitted(txt); }
             stop_process => { root.stop_process(); }
+
+            term_pointer(x, y, kind, btn, ctrl, alt, shift) => { root.term_pointer(x, y, kind, btn, ctrl, alt, shift); }
+            term_motion(x, y) => { root.term_motion(x, y); }
+            term_wheel(x, y, delta, ctrl, alt, shift) => { root.term_wheel(x, y, delta, ctrl, alt, shift); }
+            scroll_to(frac) => { root.term_scroll_to(frac); }
+            term_focus_changed(has_focus) => {
+                root.term_focused = has_focus;
+                root.term_focus_changed(has_focus);
+            }
+            term_restart => { root.term_restart(); }
+            term_clear => { root.term_clear(); }
+            terminal_expanded_changed(exp) => { root.terminal_expanded_changed(exp); }
         }
     }
 
@@ -885,7 +954,9 @@ export component AppWindow inherits Window {
         active_theme_id <=> root.active_theme_id;
         selected_language <=> root.current_language;
         compiler_path <=> root.compiler_path;
+        compiler_args <=> root.compiler_args;
         emulator_path <=> root.emulator_path;
+        emulator_args <=> root.emulator_args;
         toolchain_type <=> root.toolchain_type;
         associate_asm_files <=> root.associate_asm_files;
         close_dialog => { root.show_settings_dialog = false; }

@@ -1,4 +1,4 @@
-import { SuggestionItem } from "../models.slint";
+import { SuggestionItem, BdosItem, AsciiItem } from "../models.slint";
 import { IconButton } from "icon_button.slint";
 import { Theme } from "theme.slint";
 import { LineEdit, ListView } from "std-widgets.slint";
@@ -7,8 +7,14 @@ export component RightDrawer inherits Rectangle {
     in property <string> current_language: "ru";
     in-out property <bool> right_drawer_expanded: true;
     in property <[SuggestionItem]> suggestion_list: [];
+    in property <[BdosItem]> bdos_list: [];
+    in property <[AsciiItem]> ascii_list: [];
     in-out property <string> search_filter: "";
 
+    // Tab state: 0 = Мнемоники, 1 = BDOS, 2 = ASCII
+    in-out property <int> active_tab: 0;
+
+    // Selected suggestion details (Tab 0)
     in property <string> selected_sugg_name: "MOV";
     in property <string> selected_sugg_category: "Пересылка данных";
     in property <string> selected_sugg_syntax: "MOV r1, r2";
@@ -18,26 +24,45 @@ export component RightDrawer inherits Rectangle {
     in property <string> selected_sugg_icon_kind: "transfer";
     in property <string> selected_sugg_example: "mov a, b        ; Копировать B в A";
 
+    // Selected BDOS details (Tab 1)
+    in-out property <string> selected_bdos_name: "C_WRITE";
+    in-out property <string> selected_bdos_hex: "02h";
+    in-out property <int> selected_bdos_num: 2;
+    in-out property <string> selected_bdos_title: "Вывод символа";
+    in-out property <string> selected_bdos_category: "Консоль";
+    in-out property <string> selected_bdos_entry: "C=02h, E=код символа";
+    in-out property <string> selected_bdos_exit: "A=-";
+    in-out property <string> selected_bdos_desc: "Выводит одиночный ASCII символ из регистра E на экран консоли.";
+    in-out property <string> selected_bdos_snippet: "        mvi c, 02h\n        mvi e, 'A'\n        call 0005h";
+
+    // Selected ASCII details (Tab 2)
+    in-out property <int> selected_ascii_dec: 65;
+    in-out property <string> selected_ascii_hex: "41h";
+    in-out property <string> selected_ascii_char: "'A'";
+    in-out property <string> selected_ascii_name: "Латинская буква A";
+    in-out property <string> selected_ascii_desc: "Заглавная буква A";
+    in-out property <bool> selected_ascii_cpm: false;
+
     callback filter_changed(string);
     callback select_suggestion(int);
     callback insert_suggestion(string);
 
     horizontal-stretch: 0;
     vertical-stretch: 1;
-    width: root.right_drawer_expanded ? 340px : 38px;
+    width: root.right_drawer_expanded ? 380px : 38px;
     background: Theme.sidebar_bg;
 
     VerticalLayout {
         width: 100%;
         height: 100%;
         padding: 8px;
-        spacing: 8px;
+        spacing: 6px;
 
         // Drawer Header with Chevron Arrow
         HorizontalLayout {
             alignment: space-between;
             if root.right_drawer_expanded: Text {
-                text: root.current_language == "ru" ? "АВТОДОПОЛНЕНИЕ / ПОДСКАЗКИ" : "INTELLISENSE";
+                text: root.current_language == "ru" ? "ПОДСКАЗКИ И СПРАВОЧНИК" : "INTELLISENSE & DOCS";
                 font-size: 12px;
                 font-weight: 700;
                 color: Theme.accent_blue;
@@ -54,14 +79,94 @@ export component RightDrawer inherits Rectangle {
             }
         }
 
+        // Tab Selector: Мнемоники | BDOS | ASCII
+        if root.right_drawer_expanded: Rectangle {
+            height: 30px;
+            background: Theme.terminal_bg;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+
+                // Tab 0: Мнемоники
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 24px;
+                    border-radius: 3px;
+                    background: root.active_tab == 0 ? Theme.accent_blue : (tab0_touch.has-hover ? Theme.bg_surface2 : #00000000);
+                    tab0_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.active_tab = 0; }
+                    }
+                    Text {
+                        text: root.current_language == "ru" ? "Мнемоники" : "Mnemonics";
+                        font-size: 12px;
+                        font-weight: root.active_tab == 0 ? 700 : 500;
+                        color: root.active_tab == 0 ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Tab 1: Вызовы BDOS
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 24px;
+                    border-radius: 3px;
+                    background: root.active_tab == 1 ? Theme.accent_blue : (tab1_touch.has-hover ? Theme.bg_surface2 : #00000000);
+                    tab1_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.active_tab = 1; }
+                    }
+                    Text {
+                        text: "BDOS";
+                        font-size: 12px;
+                        font-weight: root.active_tab == 1 ? 700 : 500;
+                        color: root.active_tab == 1 ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Tab 2: ASCII
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 24px;
+                    border-radius: 3px;
+                    background: root.active_tab == 2 ? Theme.accent_blue : (tab2_touch.has-hover ? Theme.bg_surface2 : #00000000);
+                    tab2_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.active_tab = 2; }
+                    }
+                    Text {
+                        text: "ASCII";
+                        font-size: 12px;
+                        font-weight: root.active_tab == 2 ? 700 : 500;
+                        color: root.active_tab == 2 ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Unified Search Bar
         if root.right_drawer_expanded: LineEdit {
-            placeholder-text: root.current_language == "ru" ? "Поиск команд 8080 (Ctrl+Пробел)..." : "Filter 8080 opcodes (Ctrl+Space)...";
-            font-size: 14px;
+            placeholder-text: root.active_tab == 0
+                ? (root.current_language == "ru" ? "Поиск команд (MOV, JMP, MVI)..." : "Filter opcodes (MOV, JMP)...")
+                : (root.active_tab == 1
+                    ? (root.current_language == "ru" ? "Поиск BDOS (02h, C_WRITE, печать)..." : "Filter BDOS calls...")
+                    : (root.current_language == "ru" ? "Поиск ASCII (код, символ, hex)..." : "Filter ASCII codes..."));
+            font-size: 13px;
             text <=> root.search_filter;
             edited(q) => { root.filter_changed(q); }
         }
 
-        if root.right_drawer_expanded: Rectangle {
+        // TAB 0: Мнемоники (Mnemonics)
+        if root.right_drawer_expanded && root.active_tab == 0: Rectangle {
             vertical-stretch: 1;
             background: Theme.terminal_bg;
             border-radius: 4px;
@@ -121,8 +226,8 @@ export component RightDrawer inherits Rectangle {
             }
         }
 
-        // Instruction Tooltip Card
-        if root.right_drawer_expanded: Rectangle {
+        // TAB 0 Detail Card
+        if root.right_drawer_expanded && root.active_tab == 0: Rectangle {
             vertical-stretch: 0;
             height: card_layout.preferred-height;
             background: Theme.terminal_bg;
@@ -214,6 +319,366 @@ export component RightDrawer inherits Rectangle {
                     TouchArea {
                         clicked => {
                             root.insert_suggestion(root.selected_sugg_syntax);
+                        }
+                    }
+                }
+            }
+        }
+
+        // TAB 1: Вызовы BDOS (BDOS Calls)
+        if root.right_drawer_expanded && root.active_tab == 1: Rectangle {
+            vertical-stretch: 1;
+            background: Theme.terminal_bg;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+            clip: true;
+
+            ListView {
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+
+                for bdos[idx] in root.bdos_list: Rectangle {
+                    height: 34px;
+                    border-radius: 3px;
+                    background: (root.selected_bdos_name == bdos.name) ? Theme.bg_surface2 : (bdos_touch.has-hover ? Theme.bg_surface1 : #00000000);
+
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        // Hex badge
+                        Rectangle {
+                            width: 38px;
+                            height: 22px;
+                            y: 6px;
+                            border-radius: 3px;
+                            background: #89dceb;
+                            Text {
+                                text: bdos.func_hex;
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #11111b;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Name
+                        Text {
+                            text: bdos.name;
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.accent_yellow;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle { }
+
+                        // Category
+                        Text {
+                            text: bdos.category;
+                            font-size: 11px;
+                            color: Theme.text_muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    bdos_touch := TouchArea {
+                        clicked => {
+                            root.selected_bdos_name = bdos.name;
+                            root.selected_bdos_hex = bdos.func_hex;
+                            root.selected_bdos_num = bdos.func_num;
+                            root.selected_bdos_title = bdos.title;
+                            root.selected_bdos_category = bdos.category;
+                            root.selected_bdos_entry = "C=" + bdos.entry_c + (bdos.entry_de != "-" ? (", DE=" + bdos.entry_de) : "");
+                            root.selected_bdos_exit = "A=" + bdos.exit_a + (bdos.exit_hl != "-" ? (", HL=" + bdos.exit_hl) : "");
+                            root.selected_bdos_desc = bdos.description;
+                            root.selected_bdos_snippet = bdos.raw_snippet;
+                        }
+                    }
+                }
+            }
+        }
+
+        // TAB 1 Detail Card (BDOS Details)
+        if root.right_drawer_expanded && root.active_tab == 1: Rectangle {
+            vertical-stretch: 0;
+            height: bdos_card_layout.preferred-height;
+            background: Theme.terminal_bg;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            bdos_card_layout := VerticalLayout {
+                padding: 10px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: root.selected_bdos_hex + " (" + root.selected_bdos_num + ") " + root.selected_bdos_name;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.accent_blue;
+                    }
+
+                    Rectangle {
+                        height: 22px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface1;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: root.selected_bdos_category;
+                                font-size: 11px;
+                                color: Theme.accent_yellow;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.selected_bdos_title;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text_primary;
+                }
+
+                Text {
+                    text: (root.current_language == "ru" ? "Вход: " : "Entry: ") + root.selected_bdos_entry;
+                    font-size: 12px;
+                    color: Theme.accent_green;
+                }
+
+                Text {
+                    text: (root.current_language == "ru" ? "Выход: " : "Exit: ") + root.selected_bdos_exit;
+                    font-size: 12px;
+                    color: Theme.accent_yellow;
+                }
+
+                Text {
+                    text: root.selected_bdos_desc;
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                    wrap: word-wrap;
+                }
+
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: Theme.accent_blue;
+                    Text {
+                        text: root.current_language == "ru" ? "Вставить вызов BDOS" : "Insert BDOS Call";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: #151518;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        clicked => {
+                            root.insert_suggestion(root.selected_bdos_snippet);
+                        }
+                    }
+                }
+            }
+        }
+
+        // TAB 2: Таблица ASCII
+        if root.right_drawer_expanded && root.active_tab == 2: Rectangle {
+            vertical-stretch: 1;
+            background: Theme.terminal_bg;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+            clip: true;
+
+            VerticalLayout {
+                // ASCII Column Headers
+                Rectangle {
+                    height: 26px;
+                    background: Theme.bg_surface1;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 12px;
+
+                        Text { width: 44px; text: "Dec"; font-size: 11px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+                        Text { width: 48px; text: "Hex"; font-size: 11px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+                        Text { text: root.current_language == "ru" ? "Символ" : "Char"; font-size: 11px; font-weight: 700; color: Theme.text_muted; vertical-alignment: center; }
+                    }
+                }
+
+                ListView {
+                    for a in root.ascii_list: Rectangle {
+                        height: 28px;
+                        border-radius: 2px;
+                        background: (root.selected_ascii_dec == a.code_dec)
+                            ? Theme.bg_surface2
+                            : (a.is_cpm_special ? (ascii_touch.has-hover ? #3a2528 : #281d22) : (ascii_touch.has-hover ? Theme.bg_surface1 : #00000000));
+
+                        HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 12px;
+
+                            // Dec
+                            Text {
+                                width: 44px;
+                                text: a.code_dec;
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.accent_yellow;
+                                vertical-alignment: center;
+                            }
+
+                            // Hex
+                            Text {
+                                width: 48px;
+                                text: a.code_hex;
+                                font-size: 12px;
+                                font-weight: 700;
+                                color: Theme.accent_blue;
+                                vertical-alignment: center;
+                            }
+
+                            // Char Badge
+                            Rectangle {
+                                width: 56px;
+                                height: 20px;
+                                y: 4px;
+                                border-radius: 3px;
+                                background: a.is_cpm_special ? #ff5555 : Theme.bg_surface;
+                                Text {
+                                    text: a.char_display;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: a.is_cpm_special ? #ffffff : Theme.text_primary;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        ascii_touch := TouchArea {
+                            clicked => {
+                                root.selected_ascii_dec = a.code_dec;
+                                root.selected_ascii_hex = a.code_hex;
+                                root.selected_ascii_char = a.char_display;
+                                root.selected_ascii_name = a.name;
+                                root.selected_ascii_desc = a.description;
+                                root.selected_ascii_cpm = a.is_cpm_special;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // TAB 2 Detail Card (ASCII Details)
+        if root.right_drawer_expanded && root.active_tab == 2: Rectangle {
+            vertical-stretch: 0;
+            height: ascii_card_layout.preferred-height;
+            background: Theme.terminal_bg;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Theme.border_normal;
+
+            ascii_card_layout := VerticalLayout {
+                padding: 10px;
+                spacing: 6px;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "ASCII " + root.selected_ascii_dec + " (" + root.selected_ascii_hex + ")  " + root.selected_ascii_char;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.accent_blue;
+                    }
+
+                    if root.selected_ascii_cpm: Rectangle {
+                        height: 22px;
+                        border-radius: 3px;
+                        background: #ff5555;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: root.current_language == "ru" ? "Спец CP/M" : "CP/M Special";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #ffffff;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.selected_ascii_name;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text_primary;
+                }
+
+                if root.selected_ascii_desc != "": Text {
+                    text: root.selected_ascii_desc;
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    // Button 1: Insert char or hex
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: Theme.accent_blue;
+                        Text {
+                            text: (root.current_language == "ru" ? "Вставить " : "Insert ") + root.selected_ascii_hex;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: #151518;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => {
+                                root.insert_suggestion(root.selected_ascii_hex);
+                            }
+                        }
+                    }
+
+                    // Button 2: Insert DB
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 32px;
+                        border-radius: 4px;
+                        background: Theme.bg_surface2;
+                        border-width: 1px;
+                        border-color: Theme.accent_blue;
+                        Text {
+                            text: "Вставить DB " + root.selected_ascii_hex;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.accent_blue;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => {
+                                root.insert_suggestion("db " + root.selected_ascii_hex);
+                            }
                         }
                     }
                 }

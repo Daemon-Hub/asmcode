@@ -80,8 +80,30 @@ impl FileManager {
 
     pub fn read_file_content<P: AsRef<Path>>(&mut self, path: P) -> io::Result<String> {
         let path_ref = path.as_ref();
-        let content = fs::read_to_string(path_ref)?;
-        let content = content.replace("\r\n", "\n");
+        let bytes = fs::read(path_ref)?;
+        let slice = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            &bytes[3..]
+        } else {
+            &bytes[..]
+        };
+
+        let content = match std::str::from_utf8(slice) {
+            Ok(valid_str) => {
+                if valid_str.contains('\r') {
+                    valid_str.replace("\r\n", "\n").replace('\r', "\n")
+                } else {
+                    valid_str.to_string()
+                }
+            }
+            Err(_) => {
+                let lossy = String::from_utf8_lossy(slice);
+                if lossy.contains('\r') {
+                    lossy.replace("\r\n", "\n").replace('\r', "\n")
+                } else {
+                    lossy.into_owned()
+                }
+            }
+        };
         self.active_file_path = Some(path_ref.to_path_buf());
         Ok(content)
     }
