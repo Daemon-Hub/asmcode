@@ -1,6 +1,7 @@
 use crate::editor::{
-    delete_word_left, duplicate_selection_or_line, find_all_matches, move_lines_down,
-    move_lines_up, replace_all_matches, replace_current_match, toggle_comment_in_code,
+    delete_word_left, duplicate_selection_or_line, find_all_matches, indent_selection_or_tab,
+    move_lines_down, move_lines_up, replace_all_matches, replace_current_match,
+    toggle_comment_in_code, unindent_selection_or_line,
 };
 use crate::ui::{AppWindow, TextSelectionItem};
 use crate::ui::controller::IdeController;
@@ -80,17 +81,17 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let mut ctrl = ctrl_scroll.lock().unwrap();
         let active_path = ctrl.file_manager.active_file_path.clone();
 
-        if let Some(cache) = &ctrl.viewport_cache {
-            if cache.path == active_path {
-                let viewport_start = s_line;
-                let viewport_end = s_line + v_count;
-                let margin = 15;
-                let top_ok = (cache.buffer_start == 0 && viewport_start == 0)
-                    || (viewport_start >= cache.buffer_start + margin);
-                let bottom_ok = viewport_end + margin <= cache.buffer_end;
-                if top_ok && bottom_ok {
-                    return;
-                }
+        if let Some(cache) = &ctrl.viewport_cache
+            && cache.path == active_path
+        {
+            let viewport_start = s_line;
+            let viewport_end = s_line + v_count;
+            let margin = 15;
+            let top_ok = (cache.buffer_start == 0 && viewport_start == 0)
+                || (viewport_start >= cache.buffer_start + margin);
+            let bottom_ok = viewport_end + margin <= cache.buffer_end;
+            if top_ok && bottom_ok {
+                return;
             }
         }
 
@@ -136,33 +137,79 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         });
     });
 
-    // Insert Tab (Inserts 4 spaces without losing focus)
-    let ctrl_clone = Arc::clone(controller_rc);
-    let app_weak = app.as_weak();
-    app.on_insert_tab(move |byte_offset| {
-        let Some(ui) = app_weak.upgrade() else {
-            return 0;
-        };
+    fn apply_indent_edit(
+        ui: &AppWindow,
+        ctrl_rc: &Arc<Mutex<IdeController>>,
+        cursor_offset: i32,
+        anchor_offset: i32,
+        op: fn(&str, usize, usize, usize) -> (String, usize, usize),
+    ) -> TextSelectionItem {
         let code = ui.get_code_text().to_string();
-        let offset = (byte_offset as usize).min(code.len());
-
-        let tab_spaces = "    ";
-        let mut new_code = String::with_capacity(code.len() + tab_spaces.len());
-        new_code.push_str(&code[..offset]);
-        new_code.push_str(tab_spaces);
-        new_code.push_str(&code[offset..]);
+        let tab_size = ui.get_tab_size().max(1) as usize;
+        let (new_code, new_cur, new_anc) = op(
+            &code,
+            cursor_offset.max(0) as usize,
+            anchor_offset.max(0) as usize,
+            tab_size,
+        );
+        if new_code == code {
+            return TextSelectionItem {
+                cursor_offset: new_cur as i32,
+                anchor_offset: new_anc as i32,
+            };
+        }
 
         ui.set_code_text(SharedString::from(&new_code));
         ui.set_is_dirty(true);
 
-        let final_pos = (offset + tab_spaces.len()) as i32;
-        let mut ctrl = ctrl_clone.lock().unwrap();
-        record_editor_mutation(&ui, &mut ctrl, &new_code, final_pos, false);
-        sync_tabs_ui(&ui, &ctrl);
+        let mut ctrl = ctrl_rc.lock().unwrap();
+        record_editor_mutation(ui, &mut ctrl, &new_code, new_cur as i32, true);
+        sync_tabs_ui(ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        update_highlight_and_labels(ui, &ctrl.autocomplete, &new_code, is_asm);
 
-        final_pos
+        TextSelectionItem {
+            cursor_offset: new_cur as i32,
+            anchor_offset: new_anc as i32,
+        }
+    }
+
+    // Insert Tab or indent all selected lines
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_insert_tab(move |cursor_offset, anchor_offset| {
+        let Some(ui) = app_weak.upgrade() else {
+            return TextSelectionItem {
+                cursor_offset,
+                anchor_offset,
+            };
+        };
+        apply_indent_edit(
+            &ui,
+            &ctrl_clone,
+            cursor_offset,
+            anchor_offset,
+            indent_selection_or_tab,
+        )
+    });
+
+    // Unindent current or selected lines (Shift+Tab)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_unindent_lines(move |cursor_offset, anchor_offset| {
+        let Some(ui) = app_weak.upgrade() else {
+            return TextSelectionItem {
+                cursor_offset,
+                anchor_offset,
+            };
+        };
+        apply_indent_edit(
+            &ui,
+            &ctrl_clone,
+            cursor_offset,
+            anchor_offset,
+            unindent_selection_or_line,
+        )
     });
 
     // Insert Newline (Preserving leading indentation / Auto-indent)

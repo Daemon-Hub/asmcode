@@ -8,6 +8,7 @@ export component TerminalView inherits Rectangle {
     in property <int> cursor-col;
     in property <int> cursor-row;
     in property <color> text-color: #d5d9dd;
+    in property <bool> should_focus: false;
 
     callback pointer(float, float, int, int, bool, bool, bool);
     callback motion(float, float);
@@ -19,6 +20,18 @@ export component TerminalView inherits Rectangle {
     forward-focus: keys;
     clip: true;
     background: transparent;
+
+    init => {
+        if root.should_focus {
+            keys.focus();
+        }
+    }
+
+    changed should_focus => {
+        if self.should_focus {
+            keys.focus();
+        }
+    }
 
     for band[n] in bands: Image {
         x: 0;

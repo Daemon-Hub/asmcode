@@ -82,6 +82,28 @@ pub fn delete_word_left(code: &str, byte_offset: usize) -> (String, usize) {
 }
 
 #[inline]
+fn selection_line_bounds(code: &str, min_off: usize, max_off: usize) -> (usize, usize) {
+    let bytes = code.as_bytes();
+    let first_line_start = bytes[..min_off]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map(|p| p + 1)
+        .unwrap_or(0);
+
+    let last_line_end =
+        if max_off > min_off && bytes.get(max_off.saturating_sub(1)) == Some(&b'\n') {
+            max_off.saturating_sub(1)
+        } else {
+            bytes[max_off..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .map(|p| max_off + p)
+                .unwrap_or(bytes.len())
+        };
+    (first_line_start, last_line_end)
+}
+
+#[inline]
 pub fn toggle_comment_in_code(
     code: &str,
     cursor_offset: usize,
@@ -91,22 +113,7 @@ pub fn toggle_comment_in_code(
     let min_off = cursor_offset.min(anchor_offset).min(bytes.len());
     let max_off = cursor_offset.max(anchor_offset).min(bytes.len());
 
-    let first_line_start = bytes[..min_off]
-        .iter()
-        .rposition(|&b| b == b'\n')
-        .map(|p| p + 1)
-        .unwrap_or(0);
-
-    let last_line_end = if max_off > min_off && bytes.get(max_off.saturating_sub(1)) == Some(&b'\n')
-    {
-        max_off.saturating_sub(1)
-    } else {
-        bytes[max_off..]
-            .iter()
-            .position(|&b| b == b'\n')
-            .map(|p| max_off + p)
-            .unwrap_or(bytes.len())
-    };
+    let (first_line_start, last_line_end) = selection_line_bounds(code, min_off, max_off);
 
     let target_section = &code[first_line_start..last_line_end];
 
@@ -348,6 +355,140 @@ pub fn duplicate_selection_or_line(
     }
 }
 
+/// Inserts indentation spaces at the cursor, or indents every line touched by a selection.
+pub fn indent_selection_or_tab(
+    code: &str,
+    cursor_offset: usize,
+    anchor_offset: usize,
+    tab_size: usize,
+) -> (String, usize, usize) {
+    let len = code.len();
+    let cur = cursor_offset.min(len);
+    let anc = anchor_offset.min(len);
+    let indent_width = tab_size.clamp(1, 8);
+    let spaces = "        ";
+    let indent = &spaces[..indent_width];
+
+    if cur == anc {
+        let mut new_code = String::with_capacity(len + indent_width);
+        new_code.push_str(&code[..cur]);
+        new_code.push_str(indent);
+        new_code.push_str(&code[cur..]);
+        let new_pos = cur + indent_width;
+        return (new_code, new_pos, new_pos);
+    }
+
+    let min_off = cur.min(anc);
+    let max_off = cur.max(anc);
+    let (first_line_start, last_line_end) = selection_line_bounds(code, min_off, max_off);
+    let section = &code[first_line_start..last_line_end];
+    let is_single_line = !section.as_bytes().contains(&b'\n');
+    let line_count = section.bytes().filter(|&b| b == b'\n').count() + 1;
+
+    let mut result_section = String::with_capacity(section.len() + line_count * indent_width);
+    let mut added_for_min = 0usize;
+    let mut added_for_max = 0usize;
+    let mut rel_pos = 0usize;
+
+    for (idx, line) in section.split('\n').enumerate() {
+        if idx > 0 {
+            result_section.push('\n');
+            rel_pos += 1;
+        }
+        let line_abs_start = first_line_start + rel_pos;
+        let should_indent = is_single_line || !line.trim_end_matches('\r').is_empty();
+        if should_indent {
+            result_section.push_str(indent);
+            // Preserve col-0 anchor/cursor when selection begins at the start of the first line
+            if line_abs_start < min_off || (line_abs_start == min_off && min_off > first_line_start) {
+                added_for_min += indent_width;
+            }
+            if line_abs_start < max_off {
+                added_for_max += indent_width;
+            }
+        }
+        result_section.push_str(line);
+        rel_pos += line.len();
+    }
+
+    let mut new_code = String::with_capacity(len + added_for_max);
+    new_code.push_str(&code[..first_line_start]);
+    new_code.push_str(&result_section);
+    new_code.push_str(&code[last_line_end..]);
+
+    let new_min = min_off + added_for_min;
+    let new_max = max_off + added_for_max;
+    if cur >= anc {
+        (new_code, new_max, new_min)
+    } else {
+        (new_code, new_min, new_max)
+    }
+}
+
+/// Removes up to `tab_size` leading spaces (or one leading tab) from the current or selected lines.
+pub fn unindent_selection_or_line(
+    code: &str,
+    cursor_offset: usize,
+    anchor_offset: usize,
+    tab_size: usize,
+) -> (String, usize, usize) {
+    let len = code.len();
+    let cur = cursor_offset.min(len);
+    let anc = anchor_offset.min(len);
+    let min_off = cur.min(anc);
+    let max_off = cur.max(anc);
+    let indent_width = tab_size.clamp(1, 8);
+
+    let (first_line_start, last_line_end) = selection_line_bounds(code, min_off, max_off);
+    let section = &code[first_line_start..last_line_end];
+
+    let mut result_section = String::with_capacity(section.len());
+    let mut removed_for_min = 0usize;
+    let mut removed_for_max = 0usize;
+    let mut rel_pos = 0usize;
+
+    for (idx, line) in section.split('\n').enumerate() {
+        if idx > 0 {
+            result_section.push('\n');
+            rel_pos += 1;
+        }
+        let line_abs_start = first_line_start + rel_pos;
+        let line_bytes = line.as_bytes();
+        let remove_len = if line_bytes.first() == Some(&b'\t') {
+            1
+        } else {
+            line_bytes
+                .iter()
+                .take(indent_width)
+                .take_while(|&&b| b == b' ')
+                .count()
+        };
+
+        if line_abs_start < min_off {
+            removed_for_min += remove_len.min(min_off - line_abs_start);
+        }
+        if line_abs_start < max_off {
+            removed_for_max += remove_len.min(max_off - line_abs_start);
+        }
+
+        result_section.push_str(&line[remove_len..]);
+        rel_pos += line.len();
+    }
+
+    let mut new_code = String::with_capacity(len);
+    new_code.push_str(&code[..first_line_start]);
+    new_code.push_str(&result_section);
+    new_code.push_str(&code[last_line_end..]);
+
+    let new_min = min_off.saturating_sub(removed_for_min);
+    let new_max = max_off.saturating_sub(removed_for_max);
+    if cur >= anc {
+        (new_code, new_max, new_min)
+    } else {
+        (new_code, new_min, new_max)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +585,48 @@ mod tests {
         let code = "start:\n    mv";
         let completed = apply_completion_to_code(code, 1, "mvi a, ");
         assert_eq!(completed, "start:\n    mvi a, ");
+    }
+
+    #[test]
+    fn test_indent_single_cursor_inserts_spaces() {
+        let code = "mvi a, 05h";
+        let (new_code, cur, anc) = indent_selection_or_tab(code, 3, 3, 4);
+        assert_eq!(new_code, "mvi     a, 05h");
+        assert_eq!(cur, 7);
+        assert_eq!(anc, 7);
+    }
+
+    #[test]
+    fn test_indent_multiline_selection_with_empty_line_and_trailing_newline() {
+        let code = "start:\nmov a, b\n\nmov c, d\nhlt";
+        // Select from "mov a, b" (7) through trailing newline after "mov c, d" (25)
+        let (new_code, cur, anc) = indent_selection_or_tab(code, 25, 7, 4);
+        assert_eq!(new_code, "start:\n    mov a, b\n\n    mov c, d\nhlt");
+        assert_eq!(anc, 7);
+        assert_eq!(cur, 33);
+    }
+
+    #[test]
+    fn test_indent_multiline_reverse_selection() {
+        let code = "mvi a, 1\nmvi b, 2";
+        // Reverse selection: cursor at col 2 of line 0, anchor at col 5 of line 1
+        let (new_code, cur, anc) = indent_selection_or_tab(code, 2, 14, 4);
+        assert_eq!(new_code, "    mvi a, 1\n    mvi b, 2");
+        assert_eq!(cur, 6);
+        assert_eq!(anc, 22);
+    }
+
+    #[test]
+    fn test_unindent_multiline_and_single_line() {
+        let code = "    mvi a, 1\n  mvi b, 2\nhlt";
+        let (new_code, cur, anc) = unindent_selection_or_line(code, 22, 0, 4);
+        assert_eq!(new_code, "mvi a, 1\nmvi b, 2\nhlt");
+        assert_eq!(anc, 0);
+        assert_eq!(cur, 16);
+
+        let (single, s_cur, s_anc) = unindent_selection_or_line("    nop", 5, 5, 4);
+        assert_eq!(single, "nop");
+        assert_eq!(s_cur, 1);
+        assert_eq!(s_anc, 1);
     }
 }

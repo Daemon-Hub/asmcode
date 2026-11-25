@@ -40,6 +40,7 @@ export component EditorPage inherits HorizontalLayout {
     callback move_lines_down(int, int) -> TextSelectionItem;
     callback duplicate_selection_or_line(int, int) -> TextSelectionItem;
     callback editor_focused();
+    in property <bool> term_focused: false;
 
     in property <int> select_range_start: -1;
     in property <int> select_range_end: -1;
@@ -147,7 +148,8 @@ export component EditorPage inherits HorizontalLayout {
     callback delete_word_left(int) -> int;
     callback toggle_comment_range(int, int) -> int;
     callback duplicate_line(int) -> int;
-    callback insert_tab(int) -> int;
+    callback insert_tab(int, int) -> TextSelectionItem;
+    callback unindent_lines(int, int) -> TextSelectionItem;
     callback insert_newline(int) -> int;
     callback apply_completion_at(string, int) -> int;
     callback apply_completion(string);
@@ -363,10 +365,14 @@ export component EditorPage inherits HorizontalLayout {
                         color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : Theme.text_primary;
                         wrap: no-wrap;
                         single-line: false;
+                        text-cursor-width: 0px;
                         selection-background-color: Theme.selection_bg;
                         selection-foreground-color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : #ffffff;
 
                         cursor-position-changed(cpos) => {
+                            if root.term_focused {
+                                root.editor_focused();
+                            }
                             root.cursor_x = cpos.x + 8px;
                             root.cursor_y = cpos.y;
                             if root.editor_line_height > 0 {
@@ -384,6 +390,9 @@ export component EditorPage inherits HorizontalLayout {
                         }
 
                         edited => {
+                            if root.term_focused {
+                                root.editor_focused();
+                            }
                             root.cursor_visible = true;
                             root.cursor_idle_ticks = 0;
                             root.code_edited(self.text, self.cursor-position-byte-offset);
@@ -529,15 +538,18 @@ export component EditorPage inherits HorizontalLayout {
                                 return EventResult.accept;
                             }
 
-                            // Tab key
+                            // Tab / Shift+Tab key
                             if (e.text == Key.Tab) {
-                                if root.show_autocomplete_popup && root.suggestion_list.length > 0 {
+                                if (!e.modifiers.shift && root.show_autocomplete_popup && root.suggestion_list.length > 0) {
                                     let new_pos = root.apply_completion_at(root.selected_sugg_insert_text, code_input.cursor-position-byte-offset);
                                     code_input.set-selection-offsets(new_pos, new_pos);
                                     root.show_autocomplete_popup = false;
+                                } else if (e.modifiers.shift) {
+                                    let res = root.unindent_lines(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                    code_input.set-selection-offsets(res.anchor-offset, res.cursor-offset);
                                 } else {
-                                    let new_pos = root.insert_tab(code_input.cursor-position-byte-offset);
-                                    code_input.set-selection-offsets(new_pos, new_pos);
+                                    let res = root.insert_tab(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+                                    code_input.set-selection-offsets(res.anchor-offset, res.cursor-offset);
                                 }
                                 return EventResult.accept;
                             }
@@ -654,7 +666,7 @@ export component EditorPage inherits HorizontalLayout {
                     }
 
                     // Layer 4: Vertical Blinking Caret (VS Code standard: strictly vertical, fixed 2px width, exact advance width, rendered on top)
-                    if code_input.has-focus && root.cursor_visible: Rectangle {
+                    if code_input.has-focus && !root.term_focused && root.cursor_visible: Rectangle {
                         x: root.cursor_x;
                         y: root.cursor_y;
                         width: 2px;

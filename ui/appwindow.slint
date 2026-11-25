@@ -287,7 +287,8 @@ export component AppWindow inherits Window {
     callback trigger_autocomplete(int);
     callback apply_completion(string);
     callback apply_completion_at(string, int) -> int;
-    callback insert_tab(int) -> int;
+    callback insert_tab(int, int) -> TextSelectionItem;
+    callback unindent_lines(int, int) -> TextSelectionItem;
     callback insert_newline(int) -> int;
     callback delete_word_left(int) -> int;
     callback toggle_comment(int) -> int;
@@ -538,7 +539,8 @@ export component AppWindow inherits Window {
                 delete_word_left(o) => { return root.delete_word_left(o); }
                 toggle_comment_range(c, a) => { return root.toggle_comment_range(c, a); }
                 duplicate_line(o) => { return root.duplicate_line(o); }
-                insert_tab(o) => { return root.insert_tab(o); }
+                insert_tab(c, a) => { return root.insert_tab(c, a); }
+                unindent_lines(c, a) => { return root.unindent_lines(c, a); }
                 insert_newline(o) => { return root.insert_newline(o); }
                 apply_completion_at(s, o) => { return root.apply_completion_at(s, o); }
                 apply_completion(s) => { root.apply_completion(s); }
@@ -578,6 +580,7 @@ export component AppWindow inherits Window {
                 duplicate_selection_or_line(c, a) => { root.duplicate_selection_or_line(c, a) }
                 select_range_start: root.select_range_start;
                 select_range_end: root.select_range_end;
+                term_focused: root.term_focused;
                 editor_focused => {
                     root.term_focused = false;
                     root.term_focus_changed(false);
@@ -639,6 +642,7 @@ export component AppWindow inherits Window {
             terminal_lines: root.terminal_lines;
             is_process_running: root.is_process_running;
             active_tab <=> root.terminal_active_tab;
+            term_focused: root.term_focused;
 
             term_bands: root.term_bands;
             term_line_height: root.term_line_height;

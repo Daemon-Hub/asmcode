@@ -16,6 +16,7 @@ export component TerminalPanel inherits Rectangle {
 
     // Active bottom panel tab: 0 = Output, 1 = Terminal
     in-out property <int> active_tab: 0;
+    in property <bool> term_focused: false;
 
     // TerminalView properties
     in property <[image]> term_bands: [];
@@ -308,7 +309,7 @@ export component TerminalPanel inherits Rectangle {
                 background: Theme.terminal_bg;
                 clip: true;
 
-                if root.active_tab == 1: TerminalView {
+                TerminalView {
                     width: 100%;
                     height: 100%;
                     bands: root.term_bands;
@@ -320,6 +321,7 @@ export component TerminalPanel inherits Rectangle {
                     cursor-col: root.term_cursor_col;
                     cursor-row: root.term_cursor_row;
                     text-color: root.term_text_color;
+                    should_focus: root.term_focused && root.active_tab == 1 && root.terminal_expanded;
 
                     pointer(x, y, kind, btn, ctrl, alt, shift) => { root.term_pointer(x, y, kind, btn, ctrl, alt, shift); }
                     motion(x, y) => { root.term_motion(x, y); }

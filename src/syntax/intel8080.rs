@@ -576,33 +576,33 @@ pub fn highlight_document_range_with_offsets(
         return vec![parse_line("", 1, theme_id)];
     }
 
-    if let Some(starts) = line_starts {
-        if !starts.is_empty() {
-            if start_line >= starts.len() {
-                return vec![parse_line("", (start_line + 1) as i32, theme_id)];
-            }
-            let start_byte = starts[start_line];
-            let end_line_idx = (start_line + count).min(starts.len());
-            let end_byte = if end_line_idx < starts.len() {
-                starts[end_line_idx]
-            } else {
-                document.len()
-            };
-
-            let slice = &document[start_byte..end_byte];
-            let mut lines = Vec::with_capacity(count.min(128));
-            for (idx, raw_line) in slice.split('\n').enumerate() {
-                if lines.len() >= count {
-                    break;
-                }
-                let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-                lines.push(parse_line(clean, (start_line + idx + 1) as i32, theme_id));
-            }
-            if lines.is_empty() {
-                lines.push(parse_line("", (start_line + 1) as i32, theme_id));
-            }
-            return lines;
+    if let Some(starts) = line_starts
+        && !starts.is_empty()
+    {
+        if start_line >= starts.len() {
+            return vec![parse_line("", (start_line + 1) as i32, theme_id)];
         }
+        let start_byte = starts[start_line];
+        let end_line_idx = (start_line + count).min(starts.len());
+        let end_byte = if end_line_idx < starts.len() {
+            starts[end_line_idx]
+        } else {
+            document.len()
+        };
+
+        let slice = &document[start_byte..end_byte];
+        let mut lines = Vec::with_capacity(count.min(128));
+        for (idx, raw_line) in slice.split('\n').enumerate() {
+            if lines.len() >= count {
+                break;
+            }
+            let clean = raw_line.strip_suffix('\r').unwrap_or(raw_line);
+            lines.push(parse_line(clean, (start_line + idx + 1) as i32, theme_id));
+        }
+        if lines.is_empty() {
+            lines.push(parse_line("", (start_line + 1) as i32, theme_id));
+        }
+        return lines;
     }
 
     let bytes = document.as_bytes();
