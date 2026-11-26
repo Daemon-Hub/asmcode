@@ -1,6 +1,6 @@
 use crate::editor::{apply_completion_to_code, extract_prefix_at_offset};
 use crate::ui::AppWindow;
-use crate::ui::controller::IdeController;
+use crate::ui::controller::{IdeController, persist_current_session};
 use crate::ui::editor_bridge::{
     populate_docs_ui, record_editor_mutation, refresh_suggestions_ui, update_highlight_and_labels,
 };
@@ -20,6 +20,9 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
+        if ui.get_window_read_only() {
+            return byte_offset;
+        }
         let code = ui.get_code_text().to_string();
         let bytes = code.as_bytes();
         let offset = (byte_offset as usize).min(bytes.len());
@@ -71,6 +74,9 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     let label_debounce_timer = Rc::new(slint::Timer::default());
     app.on_code_edited(move |new_code, cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_window_read_only() {
+            return;
+        }
         if !ui.get_is_dirty() {
             ui.set_is_dirty(true);
         }
@@ -103,36 +109,46 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
                 sync_tabs_ui(&ui, &ctrl);
             }
 
-            let line_starts = ctrl
-                .file_manager
-                .active_file_path
+            let active_path_clone = ctrl.file_manager.active_file_path.clone();
+            let new_lines = active_path_clone
                 .as_ref()
-                .and_then(|p| ctrl.tab_line_starts.get(p))
-                .map(|v| v.as_slice());
-            let new_lines = line_starts.map(|s| s.len()).unwrap_or(0);
+                .and_then(|p| ctrl.tab_line_starts.get(p).map(|v| v.len()))
+                .unwrap_or(0);
             let refresh_numbers = prev_lines == 0 || prev_lines != new_lines;
 
-            if new_code.len() < 32 * 1024 {
+            let is_windowed = ctrl.large_window.is_some();
+            if new_code.len() < 32 * 1024 && !is_windowed {
                 label_debounce_timer.stop();
-                let labels = crate::ui::editor_bridge::update_highlight_and_labels_opts(
+                let labels = crate::ui::editor_bridge::refresh_active_editor_highlight_and_labels(
                     &ui,
-                    &ctrl.autocomplete,
-                    new_code.as_str(),
-                    line_starts,
+                    &ctrl,
                     is_asm,
                     refresh_numbers,
                 );
-                ctrl.cached_symbols_path = ctrl.file_manager.active_file_path.clone();
+                ctrl.cached_symbols_path = active_path_clone;
                 ctrl.cached_user_symbols = Arc::new(labels);
             } else {
-                crate::ui::editor_bridge::update_highlight_only_opts(
-                    &ui,
-                    new_code.as_str(),
-                    line_starts,
-                    is_asm,
-                    refresh_numbers,
-                );
-                if is_asm && !ui.get_is_large_file_mode() {
+                if let Some(ref ap) = active_path_clone
+                    && let Some(buf) = ctrl.tab_buffers.get(ap)
+                {
+                    let line_starts = ctrl.tab_line_starts.get(ap).map(Vec::as_slice);
+                    crate::ui::editor_bridge::update_highlight_only_opts(
+                        &ui,
+                        buf.as_str(),
+                        line_starts,
+                        is_asm,
+                        refresh_numbers,
+                    );
+                } else {
+                    crate::ui::editor_bridge::update_highlight_only_opts(
+                        &ui,
+                        new_code.as_str(),
+                        None,
+                        is_asm,
+                        refresh_numbers,
+                    );
+                }
+                if is_asm && !ui.get_is_large_file_mode() && !is_windowed {
                     let app_weak_timer = app_weak.clone();
                     let ctrl_timer = Arc::clone(&ctrl_clone);
                     label_debounce_timer.start(
@@ -165,7 +181,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
                 }
             }
 
-            if ui.get_show_find_replace() {
+            if ui.get_show_find_replace() && !is_windowed {
                 let query = ctrl.find_state.query.clone();
                 if !query.is_empty() {
                     let match_case = ctrl.find_state.match_case;
@@ -336,6 +352,24 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         }
     });
 
+    fn apply_language_change(
+        ui: &AppWindow,
+        ctrl_clone: &Arc<Mutex<IdeController>>,
+        next_lang: &str,
+    ) {
+        let lang = if next_lang == "en" { "en" } else { "ru" };
+        ui.set_current_language(SharedString::from(lang));
+        populate_docs_ui(ui, lang);
+        refresh_suggestions_ui(ui, ctrl_clone, ui.get_search_filter().as_str(), lang);
+        if lang == "ru" {
+            ui.set_status_message(SharedString::from("Язык изменён на Русский"));
+        } else {
+            ui.set_status_message(SharedString::from("Language set to English"));
+        }
+        let ctrl = ctrl_clone.lock().unwrap();
+        persist_current_session(ui, &ctrl);
+    }
+
     // Toggle Language (RU / EN)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
@@ -343,14 +377,15 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let Some(ui) = app_weak.upgrade() else { return };
         let cur = ui.get_current_language().to_string();
         let next_lang = if cur == "ru" { "en" } else { "ru" };
-        ui.set_current_language(SharedString::from(next_lang));
-        populate_docs_ui(&ui, next_lang);
-        refresh_suggestions_ui(&ui, &ctrl_clone, ui.get_search_filter().as_str(), next_lang);
-        if next_lang == "ru" {
-            ui.set_status_message(SharedString::from("Язык изменён на Русский"));
-        } else {
-            ui.set_status_message(SharedString::from("Language set to English"));
-        }
+        apply_language_change(&ui, &ctrl_clone, next_lang);
+    });
+
+    // Direct Language Selection (Settings -> Appearance)
+    let ctrl_clone = Arc::clone(controller_rc);
+    let app_weak = app.as_weak();
+    app.on_language_selected(move |lang| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        apply_language_change(&ui, &ctrl_clone, lang.as_str());
     });
 
     // Filter Changed in Autocomplete Drawer
@@ -412,6 +447,9 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     let prev_len_insert = Arc::clone(&prev_code_len);
     app.on_insert_suggestion(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_window_read_only() || ui.get_is_windowed_large_file() {
+            return;
+        }
         let mut current_code = ui.get_code_text().to_string();
         if !current_code.is_empty() && !current_code.ends_with('\n') {
             current_code.push('\n');
@@ -440,6 +478,8 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let Some(ui) = app_weak.upgrade() else { return };
         if !ui.get_is_active_asm()
             || ui.get_editor_mode() == 2
+            || ui.get_is_large_file_mode()
+            || ui.get_is_windowed_large_file()
             || ui.get_show_autocomplete_popup()
             || ui.get_show_context_menu()
             || line < 0

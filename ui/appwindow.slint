@@ -26,7 +26,7 @@ import { EditorPage } from "./pages/editor_page.slint";
 import { DocsPage } from "./pages/docs_page.slint";
 import { TabBar } from "./components/tab_bar.slint";
 import { SettingsDialog } from "./components/settings_dialog.slint";
-import { LargeFileModal, DeletedTabModal, DndConflictModal } from "./components/modals.slint";
+import { LargeFileModal, DeletedTabModal, DndConflictModal, BinaryFileModal } from "./components/modals.slint";
 
 export component AppWindow inherits Window {
     title: "ASM Code - Intel 8080 IDE";
@@ -46,9 +46,9 @@ export component AppWindow inherits Window {
 
     // Dynamic Zoom & Font properties
     in-out property <length> editor_font_size: 18px;
-    in-out property <bool> editor_font_italic: true;
-    out property <length> editor_line_height: (measure_20_lines.preferred-height - measure_1_line.preferred-height) / 19;
-    out property <length> char_advance: measure_10_chars.preferred-width / 10;
+    in-out property <bool> editor_font_italic: false;
+    out property <length> editor_line_height: (measure_50_lines.preferred-height - measure_1_line.preferred-height) / 49;
+    out property <length> char_advance: measure_40_chars.preferred-width / 40;
 
     // Resizable Layout Dimensions
     in-out property <length> sidebar_width: 320px;
@@ -106,7 +106,15 @@ export component AppWindow inherits Window {
     in-out property <string> emulator_args: "--8080 \"{output}\"";
     in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
     in-out property <bool> cursor_blink: true;
+    changed cursor_blink => {
+        if !self.cursor_blink {
+            self.cursor_visible = true;
+        }
+    }
     in-out property <int> tab_size: 4;
+    in-out property <bool> large_file_optimizations: true;
+    in-out property <int> large_file_soft_limit_mb: 20;
+    in-out property <int> large_file_hard_limit_mb: 500;
     in-out property <bool> associate_asm_files: false;
     in-out property <bool> show_deleted_tab_modal: false;
     in-out property <string> pending_deleted_tab_path: "";
@@ -136,29 +144,41 @@ export component AppWindow inherits Window {
         }
     }
 
-    measure_20_lines := Text {
+    measure_50_lines := TextInput {
         visible: false;
-        font-family: "CaskaydiaCove Nerd Font";
+        enabled: false;
+        read-only: true;
+        wrap: no-wrap;
+        single-line: false;
+        font-family: Theme.font_mono;
         font-size: root.editor_font_size;
         font-weight: 600;
         font-italic: false;
-        text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20";
+        text: "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50";
     }
-    measure_1_line := Text {
+    measure_1_line := TextInput {
         visible: false;
-        font-family: "CaskaydiaCove Nerd Font";
+        enabled: false;
+        read-only: true;
+        wrap: no-wrap;
+        single-line: false;
+        font-family: Theme.font_mono;
         font-size: root.editor_font_size;
         font-weight: 600;
         font-italic: false;
         text: "1";
     }
-    measure_10_chars := Text {
+    measure_40_chars := TextInput {
         visible: false;
-        font-family: "CaskaydiaCove Nerd Font";
+        enabled: false;
+        read-only: true;
+        wrap: no-wrap;
+        single-line: false;
+        font-family: Theme.font_mono;
         font-size: root.editor_font_size;
         font-weight: 600;
         font-italic: false;
-        text: "0123456789";
+        text: "0123456789012345678901234567890123456789";
     }
 
     // State properties
@@ -225,11 +245,19 @@ export component AppWindow inherits Window {
     in property <[CodePatternItem]> patterns_list: [];
     in-out property <[FileTabItem]> open_tabs: [];
 
-    // Large File Optimizations
+    // Large File Optimizations & Binary Guard
     in-out property <bool> is_large_file_mode: false;
+    in-out property <bool> is_windowed_large_file: false;
+    in-out property <bool> window_read_only: false;
+    in-out property <int> total_line_count: 1;
+    in-out property <int> text_window_start_line: 0;
+    in-out property <int> scroll_to_line_request: -1;
+    in-out property <int> scroll_to_line_tick: 0;
     in-out property <bool> show_large_file_modal: false;
     in-out property <string> pending_large_file_path: "";
     in-out property <string> large_file_modal_text: "";
+    in-out property <bool> show_binary_file_modal: false;
+    in-out property <string> binary_file_modal_text: "";
     in-out property <bool> is_process_running: false;
 
     // Selected suggestion details
@@ -335,6 +363,7 @@ export component AppWindow inherits Window {
     callback zoom_out();
     callback zoom_reset();
     callback toggle_language();
+    callback language_selected(string);
     callback trigger_autocomplete(int);
     callback apply_completion(string);
     callback apply_completion_at(string, int) -> int;
@@ -553,6 +582,12 @@ export component AppWindow inherits Window {
                 line_numbers_text: root.line_numbers_text;
                 gutter_start_line: root.gutter_start_line;
                 is_large_file_mode: root.is_large_file_mode;
+                is_windowed_large_file: root.is_windowed_large_file;
+                window_read_only: root.window_read_only;
+                total_line_count: root.total_line_count;
+                text_window_start_line: root.text_window_start_line;
+                scroll_to_line_request: root.scroll_to_line_request;
+                scroll_to_line_tick: root.scroll_to_line_tick;
                 switch_tab(p) => { root.switch_tab(p); }
                 close_tab(p) => { root.close_tab(p); }
                 close_other_tabs(p) => { root.close_other_tabs(p); }
@@ -1109,6 +1144,9 @@ export component AppWindow inherits Window {
         emulator_path <=> root.emulator_path;
         emulator_args <=> root.emulator_args;
         toolchain_type <=> root.toolchain_type;
+        large_file_optimizations <=> root.large_file_optimizations;
+        soft_limit_mb <=> root.large_file_soft_limit_mb;
+        hard_limit_mb <=> root.large_file_hard_limit_mb;
         associate_asm_files <=> root.associate_asm_files;
         close_dialog => { root.show_settings_dialog = false; }
         save_settings => {
@@ -1121,6 +1159,8 @@ export component AppWindow inherits Window {
         browse_compiler => { root.browse_compiler(); }
         browse_emulator => { root.browse_emulator(); }
         toggle_associate_asm => { root.toggle_associate_asm(); }
+        language_selected(lang) => { root.language_selected(lang); }
+        theme_selected(id) => { root.switch_theme(id); }
     }
 
     // Deleted File Tab Close Confirmation Modal Dialog
@@ -1154,6 +1194,16 @@ export component AppWindow inherits Window {
         save_with_new_name => {
             root.show_dnd_conflict_modal = false;
             root.dnd_conflict_rename(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir, root.dnd_conflict_new_name);
+        }
+    }
+
+    // Binary / Unsupported File Modal Dialog
+    if root.show_binary_file_modal: BinaryFileModal {
+        z: 360;
+        current_language: root.current_language;
+        message_text: root.binary_file_modal_text;
+        close_modal => {
+            root.show_binary_file_modal = false;
         }
     }
 }

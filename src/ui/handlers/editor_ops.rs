@@ -3,7 +3,9 @@ use crate::editor::{
     move_lines_up, toggle_comment_in_code, unindent_selection_or_line,
 };
 use crate::ui::controller::IdeController;
-use crate::ui::editor_bridge::{record_editor_mutation, update_highlight_and_labels};
+use crate::ui::editor_bridge::{
+    record_editor_mutation, refresh_active_editor_highlight_and_labels, update_highlight_and_labels,
+};
 use crate::ui::handlers::find_ops::attach_find_handlers;
 use crate::ui::handlers::tab_ops::sync_tabs_ui;
 use crate::ui::{AppWindow, TextSelectionItem};
@@ -18,6 +20,8 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
     app.on_editor_viewport_scrolled(move |scroll_line, visible_count| {
         let Some(ui) = app_weak.upgrade() else { return };
         let is_asm = ui.get_is_active_asm();
+        let theme_id = ui.get_active_theme_id();
+        let is_large_mode = ui.get_is_large_file_mode();
 
         let s_line = scroll_line.max(0) as usize;
         let v_count = (visible_count.max(20) as usize).min(100);
@@ -25,58 +29,112 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let mut ctrl = ctrl_scroll.lock().unwrap();
         let active_path = ctrl.file_manager.active_file_path.clone();
 
+        if let Some(ref active_p) = active_path
+            && let Some(win) = ctrl.large_window.clone()
+            && &win.path == active_p
+        {
+            let margin = crate::ui::controller::TEXT_WINDOW_MARGIN_LINES;
+            let top_win_ok = win.start_line == 0 || s_line >= win.start_line + margin;
+            let bottom_win_ok =
+                win.end_line >= win.total_lines || (s_line + v_count + margin) <= win.end_line;
+            if !(top_win_ok && bottom_win_ok)
+                && let (Some(buf), Some(starts)) = (
+                    ctrl.tab_buffers.get(active_p).map(String::as_str),
+                    ctrl.tab_line_starts.get(active_p).map(Vec::as_slice),
+                )
+            {
+                let (win_text, new_win, _) = crate::ui::controller::build_window_slice_for_path(
+                    active_p.clone(),
+                    buf,
+                    starts,
+                    s_line,
+                );
+                ui.set_window_read_only(new_win.read_only);
+                ui.set_total_line_count(new_win.total_lines as i32);
+                ui.set_text_window_start_line(new_win.start_line as i32);
+                ui.set_code_text(SharedString::from(win_text));
+                ctrl.large_window = Some(new_win);
+            }
+        }
+
         if let Some(cache) = &ctrl.viewport_cache
             && cache.path == active_path
+            && cache.theme_id == theme_id
+            && cache.is_large_mode == is_large_mode
         {
             let viewport_start = s_line;
             let viewport_end = s_line + v_count;
-            let margin = 15;
-            let top_ok = (cache.buffer_start == 0 && viewport_start == 0)
-                || (viewport_start >= cache.buffer_start + margin);
-            let bottom_ok = viewport_end + margin <= cache.buffer_end;
+            let margin = 18;
+            let top_ok = cache.buffer_start == 0 || viewport_start >= cache.buffer_start + margin;
+            let bottom_ok =
+                cache.buffer_end >= cache.total_lines || viewport_end + margin <= cache.buffer_end;
             if top_ok && bottom_ok {
                 return;
             }
         }
 
-        let (buf_start, buf_end) = if let Some(path) = &active_path {
-            let code = ctrl.tab_buffers.get(path);
-            let line_starts = ctrl.tab_line_starts.get(path);
-            if let Some(c) = code {
-                crate::ui::editor_bridge::update_viewport_highlight(
+        let (buf_start, buf_end, total_lines) = if let Some(path) = &active_path {
+            if let Some(c) = ctrl.tab_buffers.get(path) {
+                let line_starts = ctrl.tab_line_starts.get(path).map(Vec::as_slice);
+                let total = if c.is_empty() {
+                    1
+                } else {
+                    line_starts.map(|v| v.len().max(1)).unwrap_or(1)
+                };
+                let (bs, be) = crate::ui::editor_bridge::update_viewport_highlight_for_total(
                     &ui,
                     c.as_str(),
-                    line_starts.map(|v| v.as_slice()),
-                    s_line,
-                    v_count,
-                    is_asm,
-                )
+                    line_starts,
+                    crate::ui::editor_bridge::ViewportRenderRequest {
+                        total_lines: Some(total),
+                        scroll_line: s_line,
+                        visible_count: v_count,
+                        is_asm,
+                        force_reparse: false,
+                    },
+                );
+                (bs, be, total)
             } else {
                 let code_str = ui.get_code_text().to_string();
-                crate::ui::editor_bridge::update_viewport_highlight(
+                let total = code_str.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1;
+                let (bs, be) = crate::ui::editor_bridge::update_viewport_highlight_for_total(
                     &ui,
                     &code_str,
                     None,
-                    s_line,
-                    v_count,
-                    is_asm,
-                )
+                    crate::ui::editor_bridge::ViewportRenderRequest {
+                        total_lines: Some(total),
+                        scroll_line: s_line,
+                        visible_count: v_count,
+                        is_asm,
+                        force_reparse: false,
+                    },
+                );
+                (bs, be, total)
             }
         } else {
             let code_str = ui.get_code_text().to_string();
-            crate::ui::editor_bridge::update_viewport_highlight(
+            let total = code_str.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1;
+            let (bs, be) = crate::ui::editor_bridge::update_viewport_highlight_for_total(
                 &ui,
                 &code_str,
                 None,
-                s_line,
-                v_count,
-                is_asm,
-            )
+                crate::ui::editor_bridge::ViewportRenderRequest {
+                    total_lines: Some(total),
+                    scroll_line: s_line,
+                    visible_count: v_count,
+                    is_asm,
+                    force_reparse: false,
+                },
+            );
+            (bs, be, total)
         };
 
         ctrl.viewport_cache = Some(crate::ui::controller::ViewportCache {
             buffer_start: buf_start,
             buffer_end: buf_end,
+            total_lines,
+            theme_id,
+            is_large_mode,
             path: active_path,
         });
     });
@@ -88,6 +146,12 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         anchor_offset: i32,
         op: fn(&str, usize, usize, usize) -> (String, usize, usize),
     ) -> TextSelectionItem {
+        if ui.get_window_read_only() {
+            return TextSelectionItem {
+                cursor_offset,
+                anchor_offset,
+            };
+        }
         let code = ui.get_code_text().to_string();
         let tab_size = ui.get_tab_size().max(1) as usize;
         let (new_code, new_cur, new_anc) = op(
@@ -110,7 +174,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(ui, &mut ctrl, &new_code, new_cur as i32, true);
         sync_tabs_ui(ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(ui, &ctrl, is_asm, true);
 
         TextSelectionItem {
             cursor_offset: new_cur as i32,
@@ -163,6 +227,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
+        if ui.get_window_read_only() {
+            return byte_offset;
+        }
         let code = ui.get_code_text().to_string();
         let offset = (byte_offset as usize).min(code.len());
 
@@ -190,7 +257,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(&ui, &mut ctrl, &new_code, final_pos, false);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         final_pos
     });
@@ -202,6 +269,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
+        if ui.get_window_read_only() {
+            return byte_offset;
+        }
         let code = ui.get_code_text().to_string();
         let (new_code, final_from) = delete_word_left(&code, byte_offset as usize);
 
@@ -212,7 +282,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(&ui, &mut ctrl, &new_code, final_from as i32, false);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         final_from as i32
     });
@@ -278,6 +348,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
+        if ui.get_window_read_only() {
+            return cursor_offset;
+        }
         let code = ui.get_code_text().to_string();
         let (new_code, new_pos) =
             toggle_comment_in_code(&code, cursor_offset as usize, anchor_offset as usize);
@@ -289,7 +362,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         new_pos
     });
@@ -301,6 +374,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return 0;
         };
+        if ui.get_window_read_only() {
+            return byte_offset;
+        }
         let code = ui.get_code_text().to_string();
         let (new_code, new_pos) =
             toggle_comment_in_code(&code, byte_offset as usize, byte_offset as usize);
@@ -312,7 +388,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos, true);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         new_pos
     });
@@ -327,6 +403,12 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
                 anchor_offset,
             };
         };
+        if ui.get_window_read_only() {
+            return TextSelectionItem {
+                cursor_offset,
+                anchor_offset,
+            };
+        }
         let code = ui.get_code_text().to_string();
         let cur = cursor_offset.max(0) as usize;
         let anc = anchor_offset.max(0) as usize;
@@ -339,7 +421,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         TextSelectionItem {
             cursor_offset: new_cur as i32,
@@ -358,6 +440,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return fallback;
         };
+        if ui.get_window_read_only() {
+            return fallback;
+        }
         let code = ui.get_code_text().to_string();
         let cur = cursor_offset.max(0) as usize;
         let anc = anchor_offset.max(0) as usize;
@@ -370,7 +455,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
             sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
-            update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+            refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
             TextSelectionItem {
                 cursor_offset: new_cur as i32,
@@ -392,6 +477,9 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
         let Some(ui) = app_weak.upgrade() else {
             return fallback;
         };
+        if ui.get_window_read_only() {
+            return fallback;
+        }
         let code = ui.get_code_text().to_string();
         let cur = cursor_offset.max(0) as usize;
         let anc = anchor_offset.max(0) as usize;
@@ -404,7 +492,7 @@ pub fn attach_editor_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCont
             record_editor_mutation(&ui, &mut ctrl, &new_code, new_cur as i32, true);
             sync_tabs_ui(&ui, &ctrl);
             let is_asm = ui.get_is_active_asm();
-            update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+            refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
             TextSelectionItem {
                 cursor_offset: new_cur as i32,

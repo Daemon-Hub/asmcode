@@ -147,14 +147,15 @@ pub fn attach_dnd_handlers(
         let Some(ui) = app_weak.upgrade() else { return };
         let paths = extract_paths_from_transfer(&data);
         for path in paths {
-            open_file_internal(&ui, &ctrl_clone, &path, false);
-            let mut ctrl = ctrl_clone.lock().unwrap();
-            let file_name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            ctrl.append_log(&format!("[FILE] Opened '{}' via drag and drop", file_name));
-            sync_logs(&ui, &ctrl);
+            if open_file_internal(&ui, &ctrl_clone, &path, false) {
+                let mut ctrl = ctrl_clone.lock().unwrap();
+                let file_name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                ctrl.append_log(&format!("[FILE] Opened '{}' via drag and drop", file_name));
+                sync_logs(&ui, &ctrl);
+            }
         }
     });
 

@@ -384,11 +384,17 @@ pub fn resolve_hover(source: &str, line_idx: usize, col_idx: usize, lang: &str) 
         let role = if is_ru { reg.role_ru } else { reg.role_en };
         let desc = if is_ru { reg.desc_ru } else { reg.desc_en };
 
+        let pair_name = if is_ru {
+            reg.pair_name_ru
+        } else {
+            reg.pair_name_en
+        };
+
         return Some(HoverInfo {
             span,
             title: reg.name.to_string(),
             category,
-            badge: reg.pair_name.to_string(),
+            badge: pair_name.to_string(),
             syntax: role.to_string(),
             flags: String::new(),
             summary: desc.to_string(),

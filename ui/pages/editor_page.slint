@@ -80,7 +80,21 @@ export component EditorPage inherits HorizontalLayout {
     in property <string> active_file_path: "";
     in property <string> line_numbers_text: "";
     in property <bool> is_large_file_mode: false;
+    in property <bool> is_windowed_large_file: false;
+    in property <bool> window_read_only: false;
+    in property <int> total_line_count: 1;
+    in property <int> text_window_start_line: 0;
+    in property <int> scroll_to_line_request: -1;
+    in property <int> scroll_to_line_tick: 0;
     in-out property <bool> show_tab_context_menu: false;
+
+    changed scroll_to_line_tick => {
+        if root.scroll_to_line_request >= 0 && root.editor_line_height > 0px {
+            let target_y = -(root.scroll_to_line_request * root.editor_line_height) + editor_scroll.visible-height / 3;
+            let max_scroll = max(0px, editor_scroll.content-height - editor_scroll.visible-height);
+            editor_scroll.content-y = max(-max_scroll, min(0px, target_y));
+        }
+    }
     in property <string> editor_ctx_action: "";
     in property <int> editor_ctx_action_tick: 0;
     in property <string> dnd_hover_target: "";
@@ -142,7 +156,9 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <int> visible_line_count: root.editor_line_height > 0px ? max(30, ceil(editor_scroll.visible-height / root.editor_line_height) + 10) : 30;
 
     changed visible_scroll_line => {
-        root.show_hover_popup = false;
+        if root.show_hover_popup {
+            root.show_hover_popup = false;
+        }
         root.editor_viewport_scrolled(self.visible_scroll_line, self.visible_line_count);
     }
 
@@ -318,7 +334,7 @@ export component EditorPage inherits HorizontalLayout {
             }
 
         // Large File Optimizations Toast / Banner
-        if root.is_large_file_mode: Rectangle {
+        if root.is_large_file_mode && root.is_active_asm: Rectangle {
             height: 34px;
             background: Theme.bg_surface1;
 
@@ -393,7 +409,7 @@ export component EditorPage inherits HorizontalLayout {
 
                 // Line Numbers Gutter: Virtualized & Synchronized Row-by-Row with Code Lines
                 Rectangle {
-                    width: root.gutter_start_line >= 9850 ? 78px : 62px;
+                    width: root.gutter_start_line >= 99850 ? 94px : (root.gutter_start_line >= 9850 ? 78px : 62px);
                     background: Theme.gutter_bg;
                     clip: true;
 
@@ -416,6 +432,9 @@ export component EditorPage inherits HorizontalLayout {
                         font-family: Theme.font_mono;
                         font-size: root.editor_font_size;
                         font-weight: 600;
+                        font-italic: false;
+                        wrap: no-wrap;
+                        vertical-alignment: top;
                         color: Theme.line_number_color;
                         horizontal-alignment: right;
                     }
@@ -430,7 +449,9 @@ export component EditorPage inherits HorizontalLayout {
 
                     editor_scroll := ScrollView {
                     content-width: max(self.visible-width, 1600px);
-                    content-height: max(self.visible-height, code_input.preferred-height);
+                    content-height: root.is_windowed_large_file
+                        ? max(self.visible-height, root.total_line_count * root.editor_line_height + 24px)
+                        : max(self.visible-height, code_input.preferred-height);
 
                     // Background Click & Right-Click Detector
                     editor_touch := TouchArea {
@@ -460,13 +481,14 @@ export component EditorPage inherits HorizontalLayout {
                             }
                         }
                         x: 8px;
-                        y: 0px;
+                        y: root.is_windowed_large_file ? (root.text_window_start_line * root.editor_line_height) : 0px;
                         width: parent.content-width - 8px;
-                        height: max(parent.visible-height, self.preferred-height);
+                        height: root.is_windowed_large_file ? max(200px, self.preferred-height) : max(parent.visible-height, self.preferred-height);
                         font-family: Theme.font_mono;
                         font-size: root.editor_font_size;
                         font-weight: 600;
                         font-italic: false;
+                        read-only: root.window_read_only;
                         color: (root.is_active_asm && root.highlight_lines.length > 0) ? #00000001 : Theme.text_primary;
                         wrap: no-wrap;
                         single-line: false;
@@ -479,9 +501,9 @@ export component EditorPage inherits HorizontalLayout {
                                 root.editor_focused();
                             }
                             root.cursor_x = cpos.x + 8px;
-                            root.cursor_y = cpos.y;
+                            root.cursor_y = code_input.y + cpos.y;
                             if root.editor_line_height > 0 {
-                                root.cursor_line = round(cpos.y / root.editor_line_height);
+                                root.cursor_line = round((code_input.y + cpos.y) / root.editor_line_height);
                             }
                             root.cursor_visible = true;
                             root.cursor_idle_ticks = 0;

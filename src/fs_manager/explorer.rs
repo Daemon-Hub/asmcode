@@ -1,4 +1,4 @@
-use rayon::prelude::*;
+use rayon::prelude::ParallelSliceMut;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
@@ -80,34 +80,20 @@ impl FileManager {
 
     pub fn read_file_content<P: AsRef<Path>>(&mut self, path: P) -> io::Result<String> {
         let path_ref = path.as_ref();
-        let bytes = fs::read(path_ref)?;
-        let has_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
-        let has_cr = contains_cr(if has_bom { &bytes[3..] } else { &bytes[..] });
+        let mut bytes = fs::read(path_ref)?;
 
-        let content = if !has_bom && !has_cr {
-            match String::from_utf8(bytes) {
-                Ok(s) => s,
-                Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
-            }
-        } else {
-            let slice = if has_bom { &bytes[3..] } else { &bytes[..] };
-            match std::str::from_utf8(slice) {
-                Ok(valid_str) => {
-                    if has_cr {
-                        normalize_line_endings_fast(valid_str)
-                    } else {
-                        valid_str.to_string()
-                    }
-                }
-                Err(_) => {
-                    let lossy = String::from_utf8_lossy(slice);
-                    if contains_cr(lossy.as_bytes()) {
-                        normalize_line_endings_fast(&lossy)
-                    } else {
-                        lossy.into_owned()
-                    }
-                }
-            }
+        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            bytes.copy_within(3.., 0);
+            bytes.truncate(bytes.len() - 3);
+        }
+
+        if contains_cr(&bytes) {
+            normalize_crlf_bytes_in_place(&mut bytes);
+        }
+
+        let content = match String::from_utf8(bytes) {
+            Ok(s) => s,
+            Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
         };
         self.active_file_path = Some(path_ref.to_path_buf());
         Ok(content)
@@ -137,32 +123,10 @@ impl FileManager {
             ));
         }
 
-        let initial_template = format!(
-            "; ==================================================================\n\
-             ; File: {}\n\
-             ; Target: Intel 8080 CPU\n\
-             ; ==================================================================\n\
-             \n\
-                     org     0100h       ; CP/M or base TPA address\n\
-             \n\
-             start:  lxi     sp, 0ffffh  ; Initialize stack pointer\n\
-                     mvi     a, 05h      ; Load value 5 into Accumulator\n\
-                     mvi     b, 03h      ; Load value 3 into Register B\n\
-                     add     b           ; A = A + B (A = 8)\n\
-                     sta     result      ; Save result to memory\n\
-             \n\
-                     hlt                 ; Halt CPU\n\
-             \n\
-             ; Data segment\n\
-             result: db      00h\n\
-             \n\
-                     end     start\n",
-            clean_name
-        );
-
-        fs::write(&target_path, &initial_template)?;
+        let initial_content = String::new();
+        fs::write(&target_path, &initial_content)?;
         self.active_file_path = Some(target_path.clone());
-        Ok((target_path, initial_template))
+        Ok((target_path, initial_content))
     }
 
     pub fn create_new_folder(&mut self, folder_name: &str) -> io::Result<PathBuf> {
@@ -289,6 +253,12 @@ pub fn remap_path_with_prefix(path: &Path, old_prefix: &Path, new_prefix: &Path)
         .map(|rel| new_prefix.join(rel))
 }
 
+/// Detects binary files without reading full payloads via `binaryornot-rs`.
+#[inline]
+pub fn is_binary_file(path: &Path) -> io::Result<bool> {
+    binaryornot_rs::check::is_binary(path, true)
+}
+
 #[inline]
 fn contains_cr(bytes: &[u8]) -> bool {
     const CR_MASK: u64 = 0x0D0D_0D0D_0D0D_0D0D;
@@ -306,60 +276,30 @@ fn contains_cr(bytes: &[u8]) -> bool {
     rem.contains(&b'\r')
 }
 
-fn normalize_cr_chunk(chunk: &[u8], skip_leading_lf: bool) -> Vec<u8> {
-    let mut out = Vec::with_capacity(chunk.len());
-    let mut i = if skip_leading_lf && chunk.first() == Some(&b'\n') {
-        1
-    } else {
-        0
+fn normalize_crlf_bytes_in_place(bytes: &mut Vec<u8>) {
+    let Some(first_cr) = bytes.iter().position(|&b| b == b'\r') else {
+        return;
     };
-    while i < chunk.len() {
-        let slice = &chunk[i..];
-        if let Some(pos) = slice.iter().position(|&b| b == b'\r') {
-            out.extend_from_slice(&slice[..pos]);
-            out.push(b'\n');
-            let after_cr = i + pos + 1;
-            if after_cr < chunk.len() && chunk[after_cr] == b'\n' {
-                i = after_cr + 1;
-            } else {
-                i = after_cr;
+    let len = bytes.len();
+    let mut read = first_cr;
+    let mut write = first_cr;
+    while read < len {
+        let b = bytes[read];
+        if b == b'\r' {
+            if read + 1 < len && bytes[read + 1] == b'\n' {
+                read += 1;
+                continue;
             }
+            bytes[write] = b'\n';
+            write += 1;
+            read += 1;
         } else {
-            out.extend_from_slice(slice);
-            break;
+            bytes[write] = b;
+            write += 1;
+            read += 1;
         }
     }
-    out
-}
-
-fn normalize_line_endings_fast(input: &str) -> String {
-    let bytes = input.as_bytes();
-    const PAR_THRESHOLD: usize = 128 * 1024;
-    const CHUNK_SIZE: usize = 128 * 1024;
-
-    let out_bytes = if bytes.len() < PAR_THRESHOLD {
-        normalize_cr_chunk(bytes, false)
-    } else {
-        let num_chunks = bytes.len().div_ceil(CHUNK_SIZE);
-        let chunk_vecs: Vec<Vec<u8>> = (0..num_chunks)
-            .into_par_iter()
-            .map(|idx| {
-                let start = idx * CHUNK_SIZE;
-                let end = (start + CHUNK_SIZE).min(bytes.len());
-                let skip_lf = idx > 0 && bytes[start - 1] == b'\r';
-                normalize_cr_chunk(&bytes[start..end], skip_lf)
-            })
-            .collect();
-        let total_len: usize = chunk_vecs.iter().map(Vec::len).sum();
-        let mut combined = Vec::with_capacity(total_len);
-        for v in chunk_vecs {
-            combined.extend_from_slice(&v);
-        }
-        combined
-    };
-
-    // SAFETY: input is valid UTF-8 and we only removed ASCII '\r' bytes or replaced them with ASCII '\n'.
-    unsafe { String::from_utf8_unchecked(out_bytes) }
+    bytes.truncate(write);
 }
 
 #[inline]
@@ -547,13 +487,58 @@ mod tests {
     }
 
     #[test]
-    fn test_parallel_crlf_normalization_cross_boundary() {
+    fn test_crlf_normalization_cross_boundary() {
         let mut raw = vec![b'a'; 128 * 1024 - 1];
         raw.push(b'\r');
         raw.push(b'\n');
         raw.extend_from_slice(b"tail\rline\r\nend");
-        let input = std::str::from_utf8(&raw).unwrap();
-        let normalized = normalize_line_endings_fast(input);
-        assert_eq!(normalized, input.replace("\r\n", "\n").replace('\r', "\n"));
+        let expected = std::str::from_utf8(&raw)
+            .unwrap()
+            .replace("\r\n", "\n")
+            .replace('\r', "\n");
+
+        normalize_crlf_bytes_in_place(&mut raw);
+        assert_eq!(std::str::from_utf8(&raw).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_binary_detection_samples_and_extensions() {
+        let temp_dir = std::env::temp_dir().join("asmcode_test_binary_guard");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let txt_path = temp_dir.join("notes.asm");
+        fs::write(&txt_path, "mvi a, 1\n; Привет мир\nret\n").unwrap();
+        assert!(!is_binary_file(&txt_path).unwrap());
+
+        let bin_path = temp_dir.join("payload.dat");
+        let binary_bytes: Vec<u8> = (0..512).map(|i| (i * 7 + 3) as u8).collect();
+        fs::write(&bin_path, binary_bytes).unwrap();
+        assert!(is_binary_file(&bin_path).unwrap());
+
+        let png_header = temp_dir.join("image_no_ext");
+        fs::write(&png_header, b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR").unwrap();
+        assert!(is_binary_file(&png_header).unwrap());
+
+        let com_path = temp_dir.join("prog.com");
+        fs::write(&com_path, b"ASCII_OPCODES").unwrap();
+        assert!(is_binary_file(&com_path).unwrap());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_create_new_file_is_empty() {
+        let temp_dir = std::env::temp_dir().join("asmcode_test_empty_new_file");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let mut fm = FileManager::new(&temp_dir);
+        let (path, content) = fm.create_new_file("clean_test").unwrap();
+        assert!(path.ends_with("clean_test.asm"));
+        assert!(content.is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

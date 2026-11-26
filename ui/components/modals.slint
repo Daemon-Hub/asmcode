@@ -378,3 +378,97 @@ export component DndConflictModal inherits Rectangle {
         }
     }
 }
+
+export component BinaryFileModal inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <string> message_text: "";
+    callback close_modal();
+
+    x: 0px;
+    y: 0px;
+    width: 100%;
+    height: 100%;
+    background: #000000aa;
+
+    TouchArea {
+        clicked => { root.close_modal(); }
+    }
+
+    Rectangle {
+        width: 480px;
+        height: bin_modal_col.preferred-height;
+        background: Theme.menu_bg;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: Theme.accent_yellow;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #000000cc;
+
+        TouchArea { }
+
+        bin_modal_col := VerticalLayout {
+            padding: 24px;
+            spacing: 16px;
+
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../icons/info.svg");
+                        width: 22px;
+                        height: 22px;
+                        colorize: Theme.accent_yellow;
+                    }
+                }
+                Text {
+                    text: root.current_language == "ru"
+                        ? "Файл не поддерживается"
+                        : "Unsupported File Format";
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: Theme.accent_yellow;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                text: root.message_text != ""
+                    ? root.message_text
+                    : (root.current_language == "ru"
+                        ? "Этот файл является бинарным или не отображается в текстовом редакторе."
+                        : "This file appears to be binary and cannot be opened in the text editor.");
+                font-size: 13px;
+                color: Theme.text_primary;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                Rectangle {
+                    width: 110px;
+                    height: 32px;
+                    border-radius: 4px;
+                    background: bin_ok_touch.has-hover ? Theme.accent_blue : Theme.bg_surface2;
+                    border-width: 1px;
+                    border-color: Theme.border_normal;
+
+                    Text {
+                        text: root.current_language == "ru" ? "Понятно" : "OK";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: bin_ok_touch.has-hover ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    bin_ok_touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.close_modal(); }
+                    }
+                }
+            }
+        }
+    }
+}

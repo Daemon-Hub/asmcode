@@ -1,6 +1,9 @@
 use crate::ui::AppWindow;
 use crate::ui::controller::{IdeController, persist_current_session};
-use crate::ui::editor_bridge::update_highlight_and_labels;
+use crate::ui::editor_bridge::{
+    refresh_active_editor_highlight_and_labels, reset_editor_ui_caches, update_highlight_and_labels,
+};
+use crate::ui::handlers::tab_ops::sync_tabs_ui;
 use crate::ui::terminal::sync_logs;
 use slint::{Color, ComponentHandle, SharedString};
 use std::sync::{Arc, Mutex};
@@ -27,7 +30,6 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let Some(ui) = app_weak.upgrade() else { return };
         ui.set_active_theme_id(new_theme_id);
 
-        let code = ui.get_code_text().to_string();
         let is_asm = ui.get_is_active_asm();
         {
             let mut ctrl = ctrl_clone.lock().unwrap();
@@ -38,7 +40,8 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             };
             ctrl.append_log(&format!("[THEME] Active theme: {}", theme_name));
             ctrl.invalidate_viewport_cache();
-            update_highlight_and_labels(&ui, &ctrl.autocomplete, &code, is_asm);
+            reset_editor_ui_caches();
+            refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
             let lang = ui.get_current_language().to_string();
             crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
             persist_current_session(&ui, &ctrl);
@@ -105,6 +108,45 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_insert_doc_snippet(move |snippet| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_window_read_only() {
+            return;
+        }
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        if let Some(win) = ctrl.large_window.clone() {
+            if let Some(buf) = ctrl.tab_buffers.get_mut(&win.path) {
+                if !buf.is_empty() && !buf.ends_with('\n') {
+                    buf.push('\n');
+                }
+                buf.push_str(&snippet);
+                buf.push('\n');
+                let starts = crate::syntax::intel8080::build_line_starts(buf);
+                let total = starts.len().max(1);
+                let (win_text, new_win, _) = crate::ui::controller::build_window_slice_for_path(
+                    win.path.clone(),
+                    buf,
+                    &starts,
+                    total.saturating_sub(1),
+                );
+                ctrl.tab_line_starts.insert(win.path.clone(), starts);
+                ctrl.dirty_tabs.insert(win.path.clone());
+                ctrl.large_window = Some(new_win.clone());
+                ui.set_window_read_only(new_win.read_only);
+                ui.set_total_line_count(total as i32);
+                ui.set_text_window_start_line(new_win.start_line as i32);
+                ui.set_code_text(SharedString::from(win_text));
+                ui.set_is_dirty(true);
+                ui.set_editor_mode(0);
+                ui.set_term_focused(false);
+                ui.invoke_term_focus_changed(false);
+                let is_asm = ui.get_is_active_asm();
+                refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
+                ctrl.append_log(&format!("[DOCS] Inserted snippet: {}", snippet));
+                sync_logs(&ui, &ctrl);
+                sync_tabs_ui(&ui, &ctrl);
+            }
+            return;
+        }
+
         let mut code = ui.get_code_text().to_string();
         if !code.is_empty() && !code.ends_with('\n') {
             code.push('\n');
@@ -115,11 +157,10 @@ pub fn attach_view_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
         let len = code.len() as i32;
         ui.set_code_text(SharedString::from(&code));
         ui.set_is_dirty(true);
-        ui.set_editor_mode(0); // Switch view back to Editor
+        ui.set_editor_mode(0);
         ui.set_term_focused(false);
         ui.invoke_term_focus_changed(false);
 
-        let mut ctrl = ctrl_clone.lock().unwrap();
         crate::ui::editor_bridge::record_editor_mutation(&ui, &mut ctrl, &code, len, false);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &code, is_asm);

@@ -5,6 +5,9 @@ export component AppearanceSettingsTab inherits VerticalLayout {
     in-out property <int> active_theme_id: 1;
     in-out property <string> selected_language: "ru";
 
+    callback language_selected(string);
+    callback theme_selected(int);
+
     spacing: 14px;
     alignment: start;
 
@@ -34,7 +37,13 @@ export component AppearanceSettingsTab inherits VerticalLayout {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.active_theme_id = 1; } }
+                    TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.active_theme_id = 1;
+                        root.theme_selected(1);
+                    }
+                }
                 }
                 Rectangle {
                     height: 32px;
@@ -48,7 +57,13 @@ export component AppearanceSettingsTab inherits VerticalLayout {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.active_theme_id = 0; } }
+                    TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.active_theme_id = 0;
+                        root.theme_selected(0);
+                    }
+                }
                 }
             }
         }
@@ -80,7 +95,13 @@ export component AppearanceSettingsTab inherits VerticalLayout {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.selected_language = "ru"; } }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_language = "ru";
+                            root.language_selected("ru");
+                        }
+                    }
                 }
                 Rectangle {
                     height: 32px;
@@ -94,7 +115,13 @@ export component AppearanceSettingsTab inherits VerticalLayout {
                         horizontal-alignment: center;
                         vertical-alignment: center;
                     }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.selected_language = "en"; } }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.selected_language = "en";
+                            root.language_selected("en");
+                        }
+                    }
                 }
             }
         }

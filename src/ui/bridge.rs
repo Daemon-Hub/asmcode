@@ -48,6 +48,9 @@ pub fn setup_ui(
         app.set_emulator_args(SharedString::from(&session.emulator_args));
     }
     app.set_toolchain_type(session.toolchain_type);
+    app.set_large_file_optimizations(session.large_file_optimizations);
+    app.set_large_file_soft_limit_mb(session.large_file_soft_limit_mb as i32);
+    app.set_large_file_hard_limit_mb(session.large_file_hard_limit_mb as i32);
     app.set_associate_asm_files(crate::fs_manager::associations::is_asm_associated());
 
     {

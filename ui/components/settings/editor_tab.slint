@@ -63,12 +63,6 @@ export component EditorSettingsTab inherits VerticalLayout {
     }
 
     SettingsToggleRow {
-        label: root.current_language == "ru" ? "Курсивный шрифт для директив" : "Italic font for directives";
-        checked <=> root.editor_font_italic;
-        active_color: Theme.accent_blue;
-    }
-
-    SettingsToggleRow {
         label: root.current_language == "ru" ? "Анимация мигания курсора" : "Cursor blinking animation";
         checked <=> root.cursor_blink;
         active_color: Theme.accent_green;

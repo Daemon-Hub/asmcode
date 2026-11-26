@@ -1,8 +1,9 @@
 [package]
 name = "asmcode"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2024"
 description = "ASMCode is a cross-platform, open-source IDE for Intel8080 Assembler built with Rust and Slint."
+rust-version = "1.100"
 
 [dependencies]
 slint = { version = "1.19.1", features = ["unstable-winit-030"] }
@@ -13,6 +14,7 @@ dirs = "7.0.0"
 arboard = "3.7.0"
 portable-pty = "0.9.0"
 slint-term = "0.1.0-alpha.1"
+binaryornot-rs = "0.6.1"
 
 [build-dependencies]
 slint-build = "1.19.1"

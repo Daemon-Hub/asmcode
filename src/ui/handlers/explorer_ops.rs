@@ -98,9 +98,24 @@ pub fn attach_explorer_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
 
                 ui.set_active_file_name(SharedString::from(&file_name));
                 ui.set_active_file_path(SharedString::from(new_path.to_string_lossy().to_string()));
+                ctrl.large_window = None;
+                ctrl.is_large_file_mode = false;
+                ctrl.viewport_cache = None;
+                crate::ui::editor_bridge::reset_editor_ui_caches();
+                ui.set_is_large_file_mode(false);
+                ui.set_is_windowed_large_file(false);
+                ui.set_window_read_only(false);
+                ui.set_total_line_count(1);
+                ui.set_text_window_start_line(0);
+                let is_asm = new_path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                    e.eq_ignore_ascii_case("asm")
+                        || e.eq_ignore_ascii_case("inc")
+                        || e.eq_ignore_ascii_case("s")
+                        || e.eq_ignore_ascii_case("mac")
+                });
                 ui.set_code_text(SharedString::from(&initial_content));
                 ui.set_is_dirty(false);
-                ui.set_is_active_asm(true);
+                ui.set_is_active_asm(is_asm);
                 ctrl.undo_manager.reset(initial_content.clone(), 0);
                 if !ctrl.open_tabs.contains(&new_path) {
                     ctrl.open_tabs.push(new_path.clone());
@@ -115,7 +130,7 @@ pub fn attach_explorer_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
                 let auto = ctrl.autocomplete.clone();
                 drop(ctrl);
                 refresh_files_ui(&ui, &ctrl_clone);
-                update_highlight_and_labels(&ui, &auto, &initial_content, true);
+                update_highlight_and_labels(&ui, &auto, &initial_content, is_asm);
             }
             Err(err) => {
                 ctrl.append_log(&format!("[ERROR] Could not create file: {}", err));
@@ -187,12 +202,10 @@ pub fn attach_explorer_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
 
                 if active_was_renamed {
                     let is_asm = ui.get_is_active_asm();
-                    let code = ui.get_code_text().to_string();
-                    crate::ui::editor_bridge::update_highlight_and_labels(
-                        &ui,
-                        &ctrl.autocomplete,
-                        &code,
-                        is_asm,
+                    ctrl.invalidate_viewport_cache();
+                    crate::ui::editor_bridge::reset_editor_ui_caches();
+                    crate::ui::editor_bridge::refresh_active_editor_highlight_and_labels(
+                        &ui, &ctrl, is_asm, true,
                     );
                 }
 
@@ -244,6 +257,15 @@ pub fn attach_explorer_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
                     }
                     sync_tabs_ui(&ui, &ctrl);
                 } else if ctrl.open_tabs.is_empty() {
+                    ctrl.large_window = None;
+                    ctrl.is_large_file_mode = false;
+                    ctrl.viewport_cache = None;
+                    crate::ui::editor_bridge::reset_editor_ui_caches();
+                    ui.set_is_large_file_mode(false);
+                    ui.set_is_windowed_large_file(false);
+                    ui.set_window_read_only(false);
+                    ui.set_total_line_count(1);
+                    ui.set_text_window_start_line(0);
                     ui.set_code_text(SharedString::default());
                     ui.set_active_file_name(SharedString::default());
                     ui.set_active_file_path(SharedString::default());

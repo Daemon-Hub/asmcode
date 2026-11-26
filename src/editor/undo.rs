@@ -4,6 +4,7 @@ use std::time::Instant;
 
 const MAX_HISTORY: usize = 120;
 const DEBOUNCE_MILLIS: u128 = 450;
+const MAX_UNDO_DOC_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct TextSnapshot {
@@ -16,32 +17,51 @@ pub struct UndoManager {
     redo_stack: Vec<TextSnapshot>,
     current_snapshot: TextSnapshot,
     last_record_time: Instant,
+    enabled: bool,
 }
 
 impl UndoManager {
     pub fn new(initial_text: String, initial_cursor: i32) -> Self {
+        let enabled = initial_text.len() <= MAX_UNDO_DOC_BYTES;
         Self {
             undo_stack: VecDeque::with_capacity(64),
             redo_stack: Vec::with_capacity(32),
             current_snapshot: TextSnapshot {
-                text: initial_text,
+                text: if enabled { initial_text } else { String::new() },
                 cursor_offset: initial_cursor,
             },
             last_record_time: Instant::now(),
+            enabled,
         }
     }
 
     pub fn reset(&mut self, text: String, cursor: i32) {
         self.undo_stack.clear();
         self.redo_stack.clear();
+        let enabled = text.len() <= MAX_UNDO_DOC_BYTES;
+        self.enabled = enabled;
         self.current_snapshot = TextSnapshot {
-            text,
+            text: if enabled { text } else { String::new() },
             cursor_offset: cursor,
         };
         self.last_record_time = Instant::now();
     }
 
+    pub fn disable(&mut self) {
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.current_snapshot.text = String::new();
+        self.current_snapshot.cursor_offset = 0;
+        self.enabled = false;
+    }
+
     pub fn record_edit(&mut self, new_text: &str, cursor: i32, force_snapshot: bool) {
+        if !self.enabled || new_text.len() > MAX_UNDO_DOC_BYTES {
+            if self.enabled {
+                self.disable();
+            }
+            return;
+        }
         if new_text == self.current_snapshot.text {
             self.current_snapshot.cursor_offset = cursor;
             return;
@@ -76,6 +96,9 @@ impl UndoManager {
     }
 
     pub fn undo(&mut self) -> Option<TextSnapshot> {
+        if !self.enabled {
+            return None;
+        }
         let previous = self.undo_stack.pop_back()?;
         if previous.text.is_empty()
             && self.current_snapshot.text.trim().len() > 10
@@ -90,6 +113,9 @@ impl UndoManager {
     }
 
     pub fn redo(&mut self) -> Option<TextSnapshot> {
+        if !self.enabled {
+            return None;
+        }
         let next = self.redo_stack.pop()?;
         self.undo_stack.push_back(self.current_snapshot.clone());
         self.current_snapshot = next.clone();

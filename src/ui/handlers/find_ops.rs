@@ -2,7 +2,9 @@ use crate::editor::{find_all_matches, replace_all_matches, replace_current_match
 use crate::syntax::intel8080::build_line_starts;
 use crate::ui::AppWindow;
 use crate::ui::controller::IdeController;
-use crate::ui::editor_bridge::{record_editor_mutation, update_highlight_and_labels};
+use crate::ui::editor_bridge::{
+    record_editor_mutation, refresh_active_editor_highlight_and_labels,
+};
 use crate::ui::handlers::tab_ops::sync_tabs_ui;
 use rayon::prelude::*;
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
@@ -109,8 +111,65 @@ pub fn sync_find_matches_to_ui(ui: &AppWindow, ctrl: &IdeController, code: &str)
     ui.set_find_matches(ModelRc::from(Rc::new(VecModel::from(items))));
 }
 
+fn reveal_doc_range(
+    ui: &AppWindow,
+    ctrl: &mut IdeController,
+    doc_start: usize,
+    doc_end: usize,
+) {
+    if let Some(win) = ctrl.large_window.clone() {
+        let line_num = if let Some(starts) = ctrl.tab_line_starts.get(&win.path) {
+            match starts.binary_search(&doc_start) {
+                Ok(i) => i,
+                Err(i) => i.saturating_sub(1),
+            }
+        } else {
+            0
+        };
+
+        let active_win = if line_num < win.start_line || line_num + 2 > win.end_line {
+            if let (Some(buf), Some(starts)) = (
+                ctrl.tab_buffers.get(&win.path).map(String::as_str),
+                ctrl.tab_line_starts.get(&win.path).map(Vec::as_slice),
+            ) {
+                let (win_text, new_win, _) = crate::ui::controller::build_window_slice_for_path(
+                    win.path.clone(),
+                    buf,
+                    starts,
+                    line_num,
+                );
+                ui.set_window_read_only(new_win.read_only);
+                ui.set_total_line_count(new_win.total_lines as i32);
+                ui.set_text_window_start_line(new_win.start_line as i32);
+                ui.set_code_text(SharedString::from(win_text));
+                ctrl.large_window = Some(new_win.clone());
+                new_win
+            } else {
+                win
+            }
+        } else {
+            win
+        };
+
+        let rel_start = doc_start
+            .saturating_sub(active_win.start_byte)
+            .min(active_win.end_byte.saturating_sub(active_win.start_byte));
+        let rel_end = doc_end
+            .saturating_sub(active_win.start_byte)
+            .min(active_win.end_byte.saturating_sub(active_win.start_byte));
+        ui.set_scroll_to_line_request(line_num as i32);
+        ui.set_scroll_to_line_tick(ui.get_scroll_to_line_tick().wrapping_add(1));
+        ui.set_select_range_start(-1);
+        ui.set_select_range_start(rel_start as i32);
+        ui.set_select_range_end(rel_end as i32);
+    } else {
+        ui.set_select_range_start(-1);
+        ui.set_select_range_start(doc_start as i32);
+        ui.set_select_range_end(doc_end as i32);
+    }
+}
+
 fn step_find_match(ui: &AppWindow, ctrl_rc: &Arc<Mutex<IdeController>>, forward: bool) {
-    let code = ui.get_code_text().to_string();
     let mut ctrl = ctrl_rc.lock().unwrap();
     let count = ctrl.find_state.matches.len();
     if count == 0 {
@@ -126,9 +185,8 @@ fn step_find_match(ui: &AppWindow, ctrl_rc: &Arc<Mutex<IdeController>>, forward:
     let range = ctrl.find_state.matches[idx];
 
     ui.set_find_match_index((idx + 1) as i32);
-    ui.set_select_range_start(-1);
-    ui.set_select_range_start(range.0 as i32);
-    ui.set_select_range_end(range.1 as i32);
+    reveal_doc_range(ui, &mut ctrl, range.0, range.1);
+    let code = ctrl.active_document_text_cow(ui).into_owned();
     sync_find_matches_to_ui(ui, &ctrl, &code);
 }
 
@@ -138,15 +196,16 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_request_open_find(move |sel_start, sel_end, is_replace| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let code = ui.get_code_text().to_string();
         let mut ctrl = ctrl_clone.lock().unwrap();
+        let win_base = ctrl.large_window.as_ref().map_or(0, |w| w.start_byte);
+        let code = ctrl.active_document_text_cow(&ui).into_owned();
 
-        let s = (sel_start.max(0) as usize).min(code.len());
-        let e = (sel_end.max(0) as usize).min(code.len());
+        let s = (win_base + sel_start.max(0) as usize).min(code.len());
+        let e = (win_base + sel_end.max(0) as usize).min(code.len());
 
         let mut query_to_run = ctrl.find_state.query.clone();
 
-        if s < e {
+        if s < e && code.is_char_boundary(s) && code.is_char_boundary(e) {
             let selected = &code[s..e];
             if !selected.is_empty() && !selected.contains('\n') && selected.len() <= 200 {
                 query_to_run = selected.to_string();
@@ -176,9 +235,7 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
                 let range = ctrl.find_state.matches[target_idx];
                 ui.set_find_match_count(count as i32);
                 ui.set_find_match_index((target_idx + 1) as i32);
-                ui.set_select_range_start(-1);
-                ui.set_select_range_start(range.0 as i32);
-                ui.set_select_range_end(range.1 as i32);
+                reveal_doc_range(&ui, &mut ctrl, range.0, range.1);
             } else {
                 ctrl.find_state.current_idx = 0;
                 ui.set_find_match_count(0);
@@ -195,13 +252,13 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_editor_find(move |query, match_case, whole_word| {
         let Some(ui) = app_weak.upgrade() else { return };
-        let code = ui.get_code_text().to_string();
         let q = query.to_string();
 
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        let code = ctrl.active_document_text_cow(&ui).into_owned();
         let matches = find_all_matches(&code, &q, match_case, whole_word);
         let count = matches.len();
 
-        let mut ctrl = ctrl_clone.lock().unwrap();
         ctrl.find_state.query = q;
         ctrl.find_state.match_case = match_case;
         ctrl.find_state.whole_word = whole_word;
@@ -221,9 +278,7 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
         ui.set_find_match_count(count as i32);
         ui.set_find_match_index(1);
-        ui.set_select_range_start(-1);
-        ui.set_select_range_start(range.0 as i32);
-        ui.set_select_range_end(range.1 as i32);
+        reveal_doc_range(&ui, &mut ctrl, range.0, range.1);
         sync_find_matches_to_ui(&ui, &ctrl, &code);
     });
 
@@ -250,6 +305,9 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_editor_replace(move |replace_with| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_window_read_only() {
+            return;
+        }
         let mut ctrl = ctrl_clone.lock().unwrap();
         let count = ctrl.find_state.matches.len();
         if count == 0 {
@@ -258,21 +316,51 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
 
         let idx = ctrl.find_state.current_idx.min(count - 1);
         let range = ctrl.find_state.matches[idx];
-        let code = ui.get_code_text().to_string();
-
+        let code = ctrl.active_document_text_cow(&ui).into_owned();
         let (new_code, new_pos) = replace_current_match(&code, range, replace_with.as_str());
-        ui.set_code_text(SharedString::from(&new_code));
-        ui.set_is_dirty(true);
 
-        record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos as i32, false);
+        if let Some(win) = ctrl.large_window.clone() {
+            let line_num = {
+                ctrl.set_tab_buffer(win.path.clone(), new_code);
+                ctrl.dirty_tabs.insert(win.path.clone());
+                let starts = ctrl.tab_line_starts.get(&win.path).map(Vec::as_slice).unwrap_or(&[0]);
+                match starts.binary_search(&new_pos) {
+                    Ok(i) => i,
+                    Err(i) => i.saturating_sub(1),
+                }
+            };
+            if let (Some(buf), Some(starts)) = (
+                ctrl.tab_buffers.get(&win.path).map(String::as_str),
+                ctrl.tab_line_starts.get(&win.path).map(Vec::as_slice),
+            ) {
+                let (win_text, new_win, _) = crate::ui::controller::build_window_slice_for_path(
+                    win.path.clone(),
+                    buf,
+                    starts,
+                    line_num,
+                );
+                ui.set_window_read_only(new_win.read_only);
+                ui.set_total_line_count(new_win.total_lines as i32);
+                ui.set_text_window_start_line(new_win.start_line as i32);
+                ui.set_code_text(SharedString::from(win_text));
+                ctrl.large_window = Some(new_win);
+            }
+            ui.set_is_dirty(true);
+        } else {
+            ui.set_code_text(SharedString::from(&new_code));
+            ui.set_is_dirty(true);
+            record_editor_mutation(&ui, &mut ctrl, &new_code, new_pos as i32, false);
+        }
+
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
+        let updated_code = ctrl.active_document_text_cow(&ui).into_owned();
         let query = ctrl.find_state.query.clone();
         let match_case = ctrl.find_state.match_case;
         let whole_word = ctrl.find_state.whole_word;
-        let new_matches = find_all_matches(&new_code, &query, match_case, whole_word);
+        let new_matches = find_all_matches(&updated_code, &query, match_case, whole_word);
         let new_count = new_matches.len();
         ctrl.find_state.matches = new_matches;
 
@@ -287,10 +375,8 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
             let next_range = ctrl.find_state.matches[next_idx];
             ui.set_find_match_count(new_count as i32);
             ui.set_find_match_index((next_idx + 1) as i32);
-            ui.set_select_range_start(-1);
-            ui.set_select_range_start(next_range.0 as i32);
-            ui.set_select_range_end(next_range.1 as i32);
-            sync_find_matches_to_ui(&ui, &ctrl, &new_code);
+            reveal_doc_range(&ui, &mut ctrl, next_range.0, next_range.1);
+            sync_find_matches_to_ui(&ui, &ctrl, &updated_code);
         }
     });
 
@@ -299,22 +385,48 @@ pub fn attach_find_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeContro
     let app_weak = app.as_weak();
     app.on_editor_replace_all(move |replace_with| {
         let Some(ui) = app_weak.upgrade() else { return };
+        if ui.get_window_read_only() {
+            return;
+        }
         let mut ctrl = ctrl_clone.lock().unwrap();
         if ctrl.find_state.matches.is_empty() {
             return;
         }
 
-        let code = ui.get_code_text().to_string();
+        let code = ctrl.active_document_text_cow(&ui).into_owned();
         let (new_code, replaced_count) =
             replace_all_matches(&code, &ctrl.find_state.matches, replace_with.as_str());
 
-        ui.set_code_text(SharedString::from(&new_code));
-        ui.set_is_dirty(true);
+        if let Some(win) = ctrl.large_window.clone() {
+            let cur_scroll = ui.get_visible_scroll_line().max(0) as usize;
+            ctrl.set_tab_buffer(win.path.clone(), new_code);
+            ctrl.dirty_tabs.insert(win.path.clone());
+            if let (Some(buf), Some(starts)) = (
+                ctrl.tab_buffers.get(&win.path).map(String::as_str),
+                ctrl.tab_line_starts.get(&win.path).map(Vec::as_slice),
+            ) {
+                let (win_text, new_win, _) = crate::ui::controller::build_window_slice_for_path(
+                    win.path.clone(),
+                    buf,
+                    starts,
+                    cur_scroll,
+                );
+                ui.set_window_read_only(new_win.read_only);
+                ui.set_total_line_count(new_win.total_lines as i32);
+                ui.set_text_window_start_line(new_win.start_line as i32);
+                ui.set_code_text(SharedString::from(win_text));
+                ctrl.large_window = Some(new_win);
+            }
+            ui.set_is_dirty(true);
+        } else {
+            ui.set_code_text(SharedString::from(&new_code));
+            ui.set_is_dirty(true);
+            record_editor_mutation(&ui, &mut ctrl, &new_code, 0, false);
+        }
 
-        record_editor_mutation(&ui, &mut ctrl, &new_code, 0, false);
         sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
-        update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
+        refresh_active_editor_highlight_and_labels(&ui, &ctrl, is_asm, true);
 
         ctrl.find_state.matches.clear();
         ctrl.find_state.current_idx = 0;

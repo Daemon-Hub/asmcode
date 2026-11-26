@@ -4,6 +4,13 @@ use crate::ui::terminal::sync_logs;
 use slint::{Color, ComponentHandle, SharedString, Weak};
 use std::sync::{Arc, Mutex};
 
+fn sync_and_persist_settings(ui: &AppWindow, ctrl: &mut IdeController) {
+    ctrl.session.large_file_optimizations = ui.get_large_file_optimizations();
+    ctrl.session.large_file_soft_limit_mb = ui.get_large_file_soft_limit_mb().max(1) as u64;
+    ctrl.session.large_file_hard_limit_mb = ui.get_large_file_hard_limit_mb().max(1) as u64;
+    persist_current_session(ui, ctrl);
+}
+
 fn pick_executable_async(
     app_weak: Weak<AppWindow>,
     ctrl_rc: Arc<Mutex<IdeController>>,
@@ -32,7 +39,7 @@ fn pick_executable_async(
                 let mut ctrl = ctrl_rc.lock().unwrap();
                 ctrl.append_log(&format!("[TOOLCHAIN] Selected {}: {}", log_label, path_str));
                 sync_logs(&ui, &ctrl);
-                persist_current_session(&ui, &ctrl);
+                sync_and_persist_settings(&ui, &mut ctrl);
             });
         }
     });
@@ -44,19 +51,33 @@ pub fn attach_settings_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
     let app_weak = app.as_weak();
     app.on_save_settings(move || {
         let Some(ui) = app_weak.upgrade() else { return };
-        let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.append_log("[SETTINGS] Configuration updated and persisted");
         let lang = ui.get_current_language().to_string();
-        crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
-        let msg = if lang == "ru" {
-            "Настройки сохранены"
-        } else {
-            "Settings saved"
-        };
-        ui.set_status_message(SharedString::from(msg));
-        ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
-        sync_logs(&ui, &ctrl);
-        persist_current_session(&ui, &ctrl);
+        let is_asm = ui.get_is_active_asm();
+        {
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            ctrl.append_log("[SETTINGS] Configuration updated and persisted");
+            ctrl.invalidate_viewport_cache();
+            crate::ui::editor_bridge::reset_editor_ui_caches();
+            crate::ui::editor_bridge::refresh_active_editor_highlight_and_labels(
+                &ui, &ctrl, is_asm, true,
+            );
+            crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
+            let msg = if lang == "ru" {
+                "Настройки сохранены"
+            } else {
+                "Settings saved"
+            };
+            ui.set_status_message(SharedString::from(msg));
+            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+            sync_logs(&ui, &ctrl);
+            sync_and_persist_settings(&ui, &mut ctrl);
+        }
+        crate::ui::editor_bridge::refresh_suggestions_ui(
+            &ui,
+            &ctrl_clone,
+            ui.get_search_filter().as_str(),
+            &lang,
+        );
     });
 
     // Reset Settings Defaults
@@ -65,17 +86,39 @@ pub fn attach_settings_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
     app.on_reset_settings_defaults(move || {
         let Some(ui) = app_weak.upgrade() else { return };
         ui.set_editor_font_size(18.0);
-        ui.set_editor_font_italic(true);
+        ui.set_editor_font_italic(false);
+        ui.set_cursor_blink(true);
+        ui.set_tab_size(4);
         ui.set_active_theme_id(1);
+        ui.set_toolchain_type(0);
+        ui.set_large_file_optimizations(true);
+        ui.set_large_file_soft_limit_mb(20);
+        ui.set_large_file_hard_limit_mb(500);
         ui.set_compiler_args(SharedString::from("-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\""));
         ui.set_emulator_args(SharedString::from("--8080 \"{output}\""));
-        let mut ctrl = ctrl_clone.lock().unwrap();
-        ctrl.invalidate_viewport_cache();
-        ctrl.append_log(
-            "[SETTINGS] Defaults restored (18px, italic directives, Cyberpunk 2077 Red)",
+
+        let lang = ui.get_current_language().to_string();
+        let is_asm = ui.get_is_active_asm();
+        {
+            let mut ctrl = ctrl_clone.lock().unwrap();
+            ctrl.invalidate_viewport_cache();
+            crate::ui::editor_bridge::reset_editor_ui_caches();
+            crate::ui::editor_bridge::refresh_active_editor_highlight_and_labels(
+                &ui, &ctrl, is_asm, true,
+            );
+            crate::ui::editor_bridge::populate_docs_ui(&ui, &lang);
+            ctrl.append_log(
+                "[SETTINGS] Defaults restored (18px, Cyberpunk 2077 Red, built-in toolchain)",
+            );
+            sync_logs(&ui, &ctrl);
+            sync_and_persist_settings(&ui, &mut ctrl);
+        }
+        crate::ui::editor_bridge::refresh_suggestions_ui(
+            &ui,
+            &ctrl_clone,
+            ui.get_search_filter().as_str(),
+            &lang,
         );
-        sync_logs(&ui, &ctrl);
-        persist_current_session(&ui, &ctrl);
     });
 
     // Browse Compiler Executable
@@ -121,7 +164,7 @@ pub fn attach_settings_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeCo
                 };
                 ctrl.append_log(msg);
                 sync_logs(&ui, &ctrl);
-                persist_current_session(&ui, &ctrl);
+                sync_and_persist_settings(&ui, &mut ctrl);
             }
             Err(e) => {
                 ui.set_associate_asm_files(!new_state);

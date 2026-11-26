@@ -18,6 +18,7 @@ export component RegistersView inherits VerticalLayout {
         border-radius: 6px;
         border-width: 1px;
         border-color: Theme.border_normal;
+        clip: true;
 
         VerticalLayout {
             padding: 12px;
@@ -28,11 +29,12 @@ export component RegistersView inherits VerticalLayout {
                 font-size: 14px;
                 font-weight: 700;
                 color: Theme.accent_blue;
+                overflow: elide;
             }
 
             // Grid of 8-bit and 16-bit registers
             HorizontalLayout {
-                spacing: 8px;
+                spacing: 6px;
 
                 // Accumulator A
                 Rectangle {
@@ -41,12 +43,25 @@ export component RegistersView inherits VerticalLayout {
                     border-width: 1px;
                     border-color: Theme.accent_yellow;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
 
                     VerticalLayout {
                         padding: 8px;
                         spacing: 3px;
-                        Text { text: "A (Аккумулятор)"; font-size: 15px; font-weight: 700; color: Theme.accent_yellow; }
-                        Text { text: "8 бит | Вычисления и I/O"; font-size: 13px; color: Theme.text_muted; }
+                        Text {
+                            text: root.current_language == "ru" ? "A (Аккум.)" : "A (Accum.)";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.accent_yellow;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "8 бит | ALU и I/O" : "8-bit | ALU & I/O";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
 
@@ -55,12 +70,25 @@ export component RegistersView inherits VerticalLayout {
                     background: Theme.bg_surface;
                     border-radius: 4px;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
 
                     VerticalLayout {
                         padding: 8px;
                         spacing: 3px;
-                        Text { text: "B | C (Пара BC)"; font-size: 15px; font-weight: 700; color: Theme.accent_blue; }
-                        Text { text: "16 бит | C = счетчик/BDOS"; font-size: 13px; color: Theme.text_muted; }
+                        Text {
+                            text: root.current_language == "ru" ? "B | C (BC)" : "B | C (BC)";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.accent_blue;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "16 бит | Счетчик/BDOS" : "16-bit | Counter/BDOS";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
 
@@ -69,12 +97,25 @@ export component RegistersView inherits VerticalLayout {
                     background: Theme.bg_surface;
                     border-radius: 4px;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
 
                     VerticalLayout {
                         padding: 8px;
                         spacing: 3px;
-                        Text { text: "D | E (Пара DE)"; font-size: 15px; font-weight: 700; color: Theme.accent_blue; }
-                        Text { text: "16 бит | Указатель/Строки"; font-size: 13px; color: Theme.text_muted; }
+                        Text {
+                            text: root.current_language == "ru" ? "D | E (DE)" : "D | E (DE)";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.accent_blue;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "16 бит | Указатель/Строки" : "16-bit | Pointer/Strings";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
 
@@ -85,12 +126,25 @@ export component RegistersView inherits VerticalLayout {
                     border-width: 1px;
                     border-color: Theme.accent_green;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
 
                     VerticalLayout {
                         padding: 8px;
                         spacing: 3px;
-                        Text { text: "H | L (Пара HL / M)"; font-size: 15px; font-weight: 700; color: Theme.accent_green; }
-                        Text { text: "16 бит | База адресации M"; font-size: 13px; color: Theme.text_muted; }
+                        Text {
+                            text: root.current_language == "ru" ? "H | L (HL / M)" : "H | L (HL / M)";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: Theme.accent_green;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "16 бит | База [HL]" : "16-bit | Base [HL]";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
 
@@ -99,12 +153,25 @@ export component RegistersView inherits VerticalLayout {
                     background: Theme.bg_surface;
                     border-radius: 4px;
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
 
                     VerticalLayout {
                         padding: 8px;
                         spacing: 3px;
-                        Text { text: "SP / PC"; font-size: 15px; font-weight: 700; color: #bd93f9; }
-                        Text { text: "16 бит | Стек и счетчик команд"; font-size: 13px; color: Theme.text_muted; }
+                        Text {
+                            text: "SP / PC";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: #bd93f9;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "16 бит | Стек и PC" : "16-bit | Stack & PC";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            wrap: word-wrap;
+                        }
                     }
                 }
             }
@@ -117,6 +184,7 @@ export component RegistersView inherits VerticalLayout {
         border-radius: 6px;
         border-width: 1px;
         border-color: Theme.accent_yellow;
+        clip: true;
 
         VerticalLayout {
             padding: 12px;
@@ -124,176 +192,325 @@ export component RegistersView inherits VerticalLayout {
 
             HorizontalLayout {
                 alignment: space-between;
+                spacing: 8px;
 
                 Text {
+                    horizontal-stretch: 1;
                     text: root.current_language == "ru"
                         ? "БАЙТ СОСТОЯНИЯ ПРОЦЕССОРА PSW (ФЛАГИ РЕГИСТРА F):"
                         : "PROGRAM STATUS WORD (PSW FLAGS BYTE F):";
-                    font-size: 15px;
+                    font-size: 14px;
                     font-weight: 700;
                     color: Theme.accent_yellow;
+                    overflow: elide;
                 }
 
                 Text {
-                    text: root.current_language == "ru" ? "Нажмите на флаг для просмотра правил" : "Click flag to view rules";
-                    font-size: 13px;
+                    text: root.current_language == "ru" ? "Нажмите на флаг" : "Click a flag";
+                    font-size: 12px;
                     color: Theme.text_muted;
+                    vertical-alignment: center;
                 }
             }
 
-            // Interactive Byte Strip: Bit 7 to 0
+            // Interactive Byte Strip: Bit 7 to 0 (proportional cells so all 8 bits always fit)
             HorizontalLayout {
-                height: 56px;
-                spacing: 6px;
+                height: 54px;
+                spacing: 4px;
 
                 // Bit 7: S
                 Rectangle {
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: root.selected_flag_index == 0 ? Theme.accent_yellow : Theme.bg_surface2;
                     ts := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 0; } }
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "S (Бит 7)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 0 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
-                        Text { text: "Sign (Знак)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 0 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "S (Б7)" : "S (b7)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: root.selected_flag_index == 0 ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Знак" : "Sign";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: root.selected_flag_index == 0 ? #151518 : Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 6: Z
                 Rectangle {
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: root.selected_flag_index == 1 ? Theme.accent_yellow : Theme.bg_surface2;
                     tz := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 1; } }
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "Z (Бит 6)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 1 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
-                        Text { text: "Zero (Ноль)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 1 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "Z (Б6)" : "Z (b6)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: root.selected_flag_index == 1 ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Ноль" : "Zero";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: root.selected_flag_index == 1 ? #151518 : Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 5: 0
                 Rectangle {
-                    width: 76px;
+                    horizontal-stretch: 0.8;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: #252528;
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "0 (Бит 5)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
-                        Text { text: "Всегда 0"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "0 (Б5)" : "0 (b5)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Фикс. 0" : "Fixed 0";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 4: AC
                 Rectangle {
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: root.selected_flag_index == 2 ? Theme.accent_yellow : Theme.bg_surface2;
                     tac := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 2; } }
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "AC (Бит 4)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 2 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
-                        Text { text: "Aux Carry"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 2 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "AC (Б4)" : "AC (b4)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: root.selected_flag_index == 2 ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: "Aux Carry";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: root.selected_flag_index == 2 ? #151518 : Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 3: 0
                 Rectangle {
-                    width: 76px;
+                    horizontal-stretch: 0.8;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: #252528;
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "0 (Бит 3)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
-                        Text { text: "Всегда 0"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "0 (Б3)" : "0 (b3)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Фикс. 0" : "Fixed 0";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 2: P
                 Rectangle {
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: root.selected_flag_index == 3 ? Theme.accent_yellow : Theme.bg_surface2;
                     tp := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 3; } }
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "P (Бит 2)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 3 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
-                        Text { text: "Parity (Четность)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 3 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "P (Б2)" : "P (b2)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: root.selected_flag_index == 3 ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Четн." : "Parity";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: root.selected_flag_index == 3 ? #151518 : Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 1: 1
                 Rectangle {
-                    width: 76px;
+                    horizontal-stretch: 0.8;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: #252528;
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "1 (Бит 1)"; font-size: 14px; font-weight: 700; color: Theme.text_muted; horizontal-alignment: center; }
-                        Text { text: "Всегда 1"; font-size: 13px; color: Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "1 (Б1)" : "1 (b1)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Фикс. 1" : "Fixed 1";
+                            font-size: 12px;
+                            color: Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
 
                 // Bit 0: CY
                 Rectangle {
                     horizontal-stretch: 1;
+                    min-width: 0px;
+                    clip: true;
                     border-radius: 4px;
                     background: root.selected_flag_index == 4 ? Theme.accent_yellow : Theme.bg_surface2;
                     tcy := TouchArea { mouse-cursor: pointer; clicked => { root.selected_flag_index = 4; } }
                     VerticalLayout {
+                        padding-left: 3px;
+                        padding-right: 3px;
                         alignment: center;
                         spacing: 2px;
-                        Text { text: "CY (Бит 0)"; font-size: 14px; font-weight: 700; color: root.selected_flag_index == 4 ? #151518 : Theme.text_primary; horizontal-alignment: center; }
-                        Text { text: "Carry (Перенос)"; font-size: 13px; font-weight: 500; color: root.selected_flag_index == 4 ? #151518 : Theme.text_muted; horizontal-alignment: center; }
+                        Text {
+                            text: root.current_language == "ru" ? "CY (Б0)" : "CY (b0)";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: root.selected_flag_index == 4 ? #151518 : Theme.text_primary;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+                        Text {
+                            text: root.current_language == "ru" ? "Перенос" : "Carry";
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: root.selected_flag_index == 4 ? #151518 : Theme.text_muted;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
                     }
                 }
             }
 
-            // Selected Flag Details (single stable container with no shifting)
+            // Selected Flag Details (constrained width + word-wrap so text never overflows right border)
             Rectangle {
                 background: Theme.bg_surface;
                 border-radius: 6px;
+                clip: true;
 
                 if root.flags_list.length > root.selected_flag_index: VerticalLayout {
                     padding: 12px;
                     spacing: 8px;
 
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: root.flags_list[root.selected_flag_index].title + " [Бит " + root.flags_list[root.selected_flag_index].bit_index + "]";
-                            font-size: 16px;
-                            font-weight: 700;
-                            color: Theme.accent_yellow;
-                        }
+                    Text {
+                        text: root.flags_list[root.selected_flag_index].title
+                            + (root.current_language == "ru" ? " [Бит " : " [Bit ")
+                            + root.flags_list[root.selected_flag_index].bit_index + "]";
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.accent_yellow;
+                        wrap: word-wrap;
                     }
 
                     Text {
                         text: root.flags_list[root.selected_flag_index].description;
-                        font-size: 15px;
+                        font-size: 14px;
                         color: Theme.text_primary;
                         wrap: word-wrap;
                     }
 
                     HorizontalLayout {
-                        spacing: 12px;
+                        spacing: 10px;
 
                         Rectangle {
                             background: Theme.bg_surface2;
                             border-radius: 4px;
                             horizontal-stretch: 1;
-                            HorizontalLayout {
+                            min-width: 0px;
+                            clip: true;
+
+                            VerticalLayout {
                                 padding: 10px;
                                 Text {
                                     text: root.flags_list[root.selected_flag_index].when_set;
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     color: Theme.accent_green;
                                     wrap: word-wrap;
                                 }
@@ -304,11 +521,14 @@ export component RegistersView inherits VerticalLayout {
                             background: Theme.bg_surface2;
                             border-radius: 4px;
                             horizontal-stretch: 1;
-                            HorizontalLayout {
+                            min-width: 0px;
+                            clip: true;
+
+                            VerticalLayout {
                                 padding: 10px;
                                 Text {
                                     text: root.flags_list[root.selected_flag_index].when_cleared;
-                                    font-size: 14px;
+                                    font-size: 13px;
                                     color: Theme.accent_red;
                                     wrap: word-wrap;
                                 }
@@ -318,7 +538,7 @@ export component RegistersView inherits VerticalLayout {
 
                     Text {
                         text: (root.current_language == "ru" ? "Изменяется командами: " : "Modified by instructions: ") + root.flags_list[root.selected_flag_index].affected_by;
-                        font-size: 14px;
+                        font-size: 13px;
                         color: Theme.text_muted;
                         wrap: word-wrap;
                     }
@@ -329,10 +549,13 @@ export component RegistersView inherits VerticalLayout {
 
     // Flag Rules Summary Table
     Rectangle {
+        vertical-stretch: 1;
+        min-height: 160px;
         background: Theme.terminal_bg;
         border-radius: 6px;
         border-width: 1px;
         border-color: Theme.border_normal;
+        clip: true;
 
         VerticalLayout {
             padding: 12px;
@@ -340,42 +563,86 @@ export component RegistersView inherits VerticalLayout {
 
             Text {
                 text: root.current_language == "ru" ? "СВОДНЫЕ ПРАВИЛА ВЛИЯНИЯ КОМАНД НА ФЛАГИ:" : "SUMMARY RULES OF INSTRUCTION FLAG MODIFICATION:";
-                font-size: 15px;
+                font-size: 14px;
                 font-weight: 700;
                 color: Theme.accent_blue;
+                overflow: elide;
             }
 
             ListView {
-                for r in root.flag_rules_list: HorizontalLayout {
-                    padding-top: 4px;
-                    padding-bottom: 4px;
-                    spacing: 10px;
+                vertical-stretch: 1;
+                for r in root.flag_rules_list: VerticalLayout {
+                    padding-top: 3px;
+                    padding-bottom: 3px;
 
-                    Rectangle {
-                        width: 200px;
-                        min-height: 28px;
-                        border-radius: 3px;
-                        background: Theme.bg_surface2;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            Text { text: r.op_group; font-size: 14px; font-weight: 700; color: Theme.accent_yellow; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Rectangle {
+                            horizontal-stretch: 1.2;
+                            min-width: 0px;
+                            border-radius: 3px;
+                            background: Theme.bg_surface2;
+                            clip: true;
+                            VerticalLayout {
+                                alignment: center;
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                padding-top: 5px;
+                                padding-bottom: 5px;
+                                Text {
+                                    text: r.op_group;
+                                    font-size: 13px;
+                                    font-weight: 700;
+                                    color: Theme.accent_yellow;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 2.0;
+                            min-width: 0px;
+                            border-radius: 3px;
+                            background: Theme.editor_bg;
+                            clip: true;
+                            VerticalLayout {
+                                alignment: center;
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                padding-top: 5px;
+                                padding-bottom: 5px;
+                                Text {
+                                    text: r.commands;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.accent_blue;
+                                    horizontal-alignment: center;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 2.2;
+                            min-width: 0px;
+                            clip: true;
+                            VerticalLayout {
+                                alignment: center;
+                                padding-left: 4px;
+                                padding-right: 4px;
+                                padding-top: 4px;
+                                padding-bottom: 4px;
+                                Text {
+                                    text: r.effect;
+                                    font-size: 13px;
+                                    color: Theme.text_primary;
+                                    wrap: word-wrap;
+                                }
+                            }
                         }
                     }
-
-                    Rectangle {
-                        width: 440px;
-                        min-height: 28px;
-                        border-radius: 3px;
-                        background: Theme.editor_bg;
-                        HorizontalLayout {
-                            padding-left: 8px;
-                            padding-right: 8px;
-                            Text { text: r.commands; font-size: 14px; font-weight: 600; color: Theme.accent_blue; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
-                        }
-                    }
-
-                    Text { text: r.effect; font-size: 14px; color: Theme.text_primary; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
                 }
             }
         }

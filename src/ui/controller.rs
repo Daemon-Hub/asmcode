@@ -28,7 +28,108 @@ pub struct FindState {
 pub struct ViewportCache {
     pub buffer_start: usize,
     pub buffer_end: usize,
+    pub total_lines: usize,
+    pub theme_id: i32,
+    pub is_large_mode: bool,
     pub path: Option<PathBuf>,
+}
+
+pub const LARGE_WINDOW_BYTES_THRESHOLD: usize = 2 * 1024 * 1024;
+pub const LARGE_WINDOW_LINES_THRESHOLD: usize = 20_000;
+pub const TEXT_WINDOW_BEFORE_LINES: usize = 150;
+pub const TEXT_WINDOW_TARGET_LINES: usize = 450;
+pub const TEXT_WINDOW_MARGIN_LINES: usize = 45;
+pub const TEXT_WINDOW_MAX_BYTES: usize = 256 * 1024;
+pub const TEXT_WINDOW_MAX_LINE_BYTES: usize = 8 * 1024;
+pub const TEXT_WINDOW_TRUNCATED_LINE_BYTES: usize = 4096;
+
+#[derive(Clone, Debug)]
+pub struct LargeWindowState {
+    pub path: PathBuf,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub total_lines: usize,
+    pub read_only: bool,
+}
+
+#[inline]
+pub fn should_use_windowed_text(byte_len: usize, line_count: usize) -> bool {
+    byte_len > LARGE_WINDOW_BYTES_THRESHOLD || line_count > LARGE_WINDOW_LINES_THRESHOLD
+}
+
+#[inline]
+fn floor_char_boundary(s: &str, mut idx: usize) -> usize {
+    idx = idx.min(s.len());
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
+    idx
+}
+
+pub fn build_window_slice_for_path(
+    path: PathBuf,
+    buf: &str,
+    starts: &[usize],
+    target_line: usize,
+) -> (String, LargeWindowState, PathBuf) {
+    let total_lines = starts.len().max(1);
+    let clamped_target = target_line.min(total_lines.saturating_sub(1));
+    let start_line = clamped_target.saturating_sub(TEXT_WINDOW_BEFORE_LINES);
+    let max_end = (start_line + TEXT_WINDOW_TARGET_LINES).min(total_lines);
+    let start_byte = starts.get(start_line).copied().unwrap_or(0).min(buf.len());
+
+    let mut out = String::with_capacity(TEXT_WINDOW_MAX_BYTES.min(buf.len().saturating_sub(start_byte)));
+    let mut end_line = start_line;
+    let mut end_byte = start_byte;
+    let mut read_only = false;
+
+    for line_idx in start_line..max_end {
+        let line_start = starts.get(line_idx).copied().unwrap_or(buf.len()).min(buf.len());
+        let next_start = if line_idx + 1 < total_lines {
+            starts[line_idx + 1].min(buf.len())
+        } else {
+            buf.len()
+        };
+        let slice_len = next_start.saturating_sub(line_start);
+
+        if line_idx > clamped_target + 40 && out.len() + slice_len > TEXT_WINDOW_MAX_BYTES {
+            break;
+        }
+
+        let raw_slice = &buf[line_start..next_start];
+        let (line_body, has_nl) = match raw_slice.strip_suffix('\n') {
+            Some(s) => (s, true),
+            None => (raw_slice, false),
+        };
+
+        if line_body.len() > TEXT_WINDOW_MAX_LINE_BYTES {
+            read_only = true;
+            let cut = floor_char_boundary(line_body, TEXT_WINDOW_TRUNCATED_LINE_BYTES);
+            out.push_str(&line_body[..cut]);
+            out.push_str(" ... [truncated]");
+            if has_nl {
+                out.push('\n');
+            }
+        } else {
+            out.push_str(raw_slice);
+        }
+
+        end_line = line_idx + 1;
+        end_byte = next_start;
+    }
+
+    let state = LargeWindowState {
+        path: path.clone(),
+        start_line,
+        end_line,
+        start_byte,
+        end_byte,
+        total_lines,
+        read_only,
+    };
+    (out, state, path)
 }
 
 pub struct IdeController {
@@ -44,6 +145,7 @@ pub struct IdeController {
     pub tab_buffers: HashMap<PathBuf, String>,
     pub tab_line_starts: HashMap<PathBuf, Vec<usize>>,
     pub viewport_cache: Option<ViewportCache>,
+    pub large_window: Option<LargeWindowState>,
     pub cached_user_symbols: Arc<Vec<UserSymbol>>,
     pub cached_symbols_path: Option<PathBuf>,
     pub dirty_tabs: HashSet<PathBuf>,
@@ -73,6 +175,7 @@ impl IdeController {
             tab_buffers: HashMap::new(),
             tab_line_starts: HashMap::new(),
             viewport_cache: None,
+            large_window: None,
             cached_user_symbols: Arc::new(Vec::new()),
             cached_symbols_path: None,
             dirty_tabs: HashSet::new(),
@@ -95,7 +198,53 @@ impl IdeController {
     pub fn remove_tab_buffer(&mut self, path: &Path) {
         self.tab_line_starts.remove(path);
         self.tab_buffers.remove(path);
+        if self.large_window.as_ref().is_some_and(|w| w.path == path) {
+            self.large_window = None;
+        }
         self.viewport_cache = None;
+    }
+
+    pub fn active_document_text_cow(&self, ui: &AppWindow) -> std::borrow::Cow<'_, str> {
+        if let Some(active_path) = &self.file_manager.active_file_path
+            && let Some(buf) = self.tab_buffers.get(active_path)
+            && (self.large_window.as_ref().is_some_and(|w| &w.path == active_path)
+                || !ui.get_is_dirty())
+        {
+            return std::borrow::Cow::Borrowed(buf.as_str());
+        }
+        std::borrow::Cow::Owned(ui.get_code_text().to_string())
+    }
+
+    pub fn apply_window_mutation(&mut self, ui: &AppWindow, new_window_text: &str) -> bool {
+        let Some(mut win) = self.large_window.clone() else {
+            return false;
+        };
+        if win.read_only {
+            return false;
+        }
+        let Some(buf) = self.tab_buffers.get_mut(&win.path) else {
+            return false;
+        };
+        if win.start_byte > win.end_byte || win.end_byte > buf.len() {
+            return false;
+        }
+        buf.replace_range(win.start_byte..win.end_byte, new_window_text);
+        win.end_byte = win.start_byte + new_window_text.len();
+
+        let starts = crate::syntax::intel8080::build_line_starts(buf);
+        win.total_lines = starts.len().max(1);
+        let end_line = match starts.binary_search(&win.end_byte) {
+            Ok(idx) => idx,
+            Err(idx) => idx,
+        };
+        win.end_line = end_line.max(win.start_line + 1).min(win.total_lines);
+
+        ui.set_total_line_count(win.total_lines as i32);
+        self.tab_line_starts.insert(win.path.clone(), starts);
+        self.dirty_tabs.insert(win.path.clone());
+        self.large_window = Some(win);
+        self.viewport_cache = None;
+        true
     }
 
     /// Remaps all open-tab, buffer, dirty, pinned, and viewport paths when a file or folder is renamed.
@@ -229,10 +378,10 @@ pub fn persist_current_session(app: &AppWindow, ctrl: &IdeController) {
         emulator_path: app.get_emulator_path().to_string(),
         emulator_args: app.get_emulator_args().to_string(),
         toolchain_type: app.get_toolchain_type(),
-        large_file_optimizations: ctrl.session.large_file_optimizations,
-        large_file_soft_limit_mb: ctrl.session.large_file_soft_limit_mb,
+        large_file_optimizations: app.get_large_file_optimizations(),
+        large_file_soft_limit_mb: app.get_large_file_soft_limit_mb().max(1) as u64,
         large_file_soft_limit_lines: ctrl.session.large_file_soft_limit_lines,
-        large_file_hard_limit_mb: ctrl.session.large_file_hard_limit_mb,
+        large_file_hard_limit_mb: app.get_large_file_hard_limit_mb().max(1) as u64,
         associate_asm_files: app.get_associate_asm_files(),
     };
     session::save_session(&session);
@@ -303,5 +452,30 @@ mod tests {
             ctrl.open_tabs,
             vec![new_file, PathBuf::from("d:/tmp/proj/inc/helper.asm")]
         );
+    }
+
+    #[test]
+    fn test_window_slice_bounds_and_long_line_truncation() {
+        let mut doc = String::new();
+        for i in 0..1000 {
+            doc.push_str(&format!("line_{:04}: nop\n", i));
+        }
+        let starts = crate::syntax::intel8080::build_line_starts(&doc);
+        let path = PathBuf::from("d:/tmp/huge.asm");
+        let (text, state, _) = build_window_slice_for_path(path.clone(), &doc, &starts, 600);
+        assert_eq!(state.path, path);
+        assert!(!state.read_only);
+        assert_eq!(state.start_line, 600 - TEXT_WINDOW_BEFORE_LINES);
+        assert_eq!(state.end_line, state.start_line + TEXT_WINDOW_TARGET_LINES);
+        assert_eq!(state.total_lines, 1001);
+        assert!(text.contains("line_0600: nop"));
+        assert!(!text.contains("line_0001: nop"));
+
+        let long_line = "X".repeat(TEXT_WINDOW_MAX_LINE_BYTES + 256);
+        let long_starts = vec![0];
+        let (trunc_text, trunc_state, _) =
+            build_window_slice_for_path(path, &long_line, &long_starts, 0);
+        assert!(trunc_state.read_only);
+        assert!(trunc_text.ends_with(" ... [truncated]"));
     }
 }

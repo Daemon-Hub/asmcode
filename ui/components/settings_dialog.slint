@@ -40,6 +40,8 @@ export component SettingsDialog inherits Rectangle {
     callback browse_compiler();
     callback browse_emulator();
     callback toggle_associate_asm();
+    callback language_selected(string);
+    callback theme_selected(int);
 
     width: 780px;
     height: 520px;
@@ -243,6 +245,8 @@ export component SettingsDialog inherits Rectangle {
                         current_language: root.current_language;
                         active_theme_id <=> root.active_theme_id;
                         selected_language <=> root.selected_language;
+                        language_selected(lang) => { root.language_selected(lang); }
+                        theme_selected(id) => { root.theme_selected(id); }
                     }
 
                     if root.active_tab == 2: LargeFilesSettingsTab {

@@ -1,10 +1,31 @@
 use crate::autocomplete::engine::AutocompleteEngine;
-use crate::syntax::intel8080::highlight_document_range_with_offsets;
+use crate::syntax::intel8080::{HighlightToken, highlight_document_range_with_offsets};
 use crate::ui::controller::IdeController;
 use crate::ui::{AppWindow, DocItem, HighlightLineItem, LabelItem, SuggestionItem, TokenItem};
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, SharedString, VecModel};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
+
+const SMALL_ASM_FULL_HIGHLIGHT_MAX_LINES: usize = 350;
+const HIGHLIGHT_PAD_LINES: usize = 55;
+
+struct PersistentHighlightState {
+    model: Rc<VecModel<HighlightLineItem>>,
+    buffer_start: usize,
+    buffer_end: usize,
+    theme_id: i32,
+}
+
+thread_local! {
+    static GUTTER_CACHE: Cell<(usize, usize)> = const { Cell::new((usize::MAX, usize::MAX)) };
+    static HIGHLIGHT_STATE: RefCell<Option<PersistentHighlightState>> = const { RefCell::new(None) };
+}
+
+pub fn reset_editor_ui_caches() {
+    GUTTER_CACHE.with(|c| c.set((usize::MAX, usize::MAX)));
+    HIGHLIGHT_STATE.with(|s| *s.borrow_mut() = None);
+}
 
 #[inline]
 fn push_usize(buf: &mut String, mut n: usize) {
@@ -24,6 +45,40 @@ fn push_usize(buf: &mut String, mut n: usize) {
     buf.push_str(s);
 }
 
+/// Coalesces trailing plain whitespace tokens into preceding non-italic tokens to cut Slint Text element count.
+fn coalesce_line_tokens(tokens: Vec<HighlightToken>) -> Vec<TokenItem> {
+    let mut out: Vec<TokenItem> = Vec::with_capacity(tokens.len());
+    for tok in tokens {
+        if tok.is_whitespace
+            && let Some(prev) = out.last_mut()
+            && !prev.is_italic
+        {
+            let mut merged = String::with_capacity(prev.text.len() + tok.text.len());
+            merged.push_str(prev.text.as_str());
+            merged.push_str(tok.text.as_str());
+            prev.text = SharedString::from(merged);
+            prev.char_count += tok.char_count;
+            continue;
+        }
+        out.push(TokenItem {
+            text: tok.text,
+            color: tok.color,
+            is_italic: tok.is_italic,
+            char_count: tok.char_count,
+            is_whitespace: tok.is_whitespace,
+        });
+    }
+    out
+}
+
+fn to_highlight_line_item(line: crate::syntax::intel8080::HighlightLine) -> HighlightLineItem {
+    let token_models = coalesce_line_tokens(line.tokens);
+    HighlightLineItem {
+        line_number: line.line_number,
+        tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
+    }
+}
+
 pub fn update_gutter_line_numbers(
     app: &AppWindow,
     total_lines: usize,
@@ -31,10 +86,22 @@ pub fn update_gutter_line_numbers(
     visible_count: usize,
 ) -> (usize, usize) {
     let total = total_lines.max(1);
-    let pad = 35;
-    let start_line = scroll_line.saturating_sub(pad).min(total.saturating_sub(1));
-    let count = (visible_count + pad * 2).clamp(60, 150);
-    let end_line = (start_line + count).min(total);
+    let (start_line, end_line) = if total <= SMALL_ASM_FULL_HIGHLIGHT_MAX_LINES {
+        (0, total)
+    } else {
+        let start = scroll_line
+            .saturating_sub(HIGHLIGHT_PAD_LINES)
+            .min(total.saturating_sub(1));
+        let count = (visible_count + HIGHLIGHT_PAD_LINES * 2).clamp(90, 200);
+        (start, (start + count).min(total))
+    };
+
+    let already_cached = GUTTER_CACHE.with(|c| c.get() == (start_line, end_line))
+        && app.get_gutter_start_line() == start_line as i32;
+    if already_cached {
+        return (start_line, end_line);
+    }
+    GUTTER_CACHE.with(|c| c.set((start_line, end_line)));
 
     let mut numbers_str = String::with_capacity((end_line - start_line) * 7);
     for i in (start_line + 1)..=end_line {
@@ -46,61 +113,174 @@ pub fn update_gutter_line_numbers(
     (start_line, end_line)
 }
 
-pub fn update_viewport_highlight(
-    app: &AppWindow,
-    code: &str,
-    line_starts: Option<&[usize]>,
-    scroll_line: usize,
-    visible_count: usize,
-    is_asm: bool,
-) -> (usize, usize) {
-    let total_lines = if code.is_empty() {
+#[inline]
+fn count_lines_fast(code: &str, line_starts: Option<&[usize]>) -> usize {
+    if code.is_empty() {
         1
     } else if let Some(starts) = line_starts {
         starts.len().max(1)
     } else {
         code.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct ViewportRenderRequest {
+    pub total_lines: Option<usize>,
+    pub scroll_line: usize,
+    pub visible_count: usize,
+    pub is_asm: bool,
+    pub force_reparse: bool,
+}
+
+fn render_highlight_window(
+    app: &AppWindow,
+    code: &str,
+    line_starts: Option<&[usize]>,
+    total_lines: usize,
+    req: ViewportRenderRequest,
+) -> (usize, usize) {
+    if !req.is_asm || code.is_empty() || app.get_is_large_file_mode() {
+        HIGHLIGHT_STATE.with(|s| *s.borrow_mut() = None);
+        app.set_highlight_lines(ModelRc::default());
+        return (0, total_lines.min(1));
+    }
+
+    let theme_id = app.get_active_theme_id();
+    let (buffered_start, buffered_end) = if total_lines <= SMALL_ASM_FULL_HIGHLIGHT_MAX_LINES {
+        (0, total_lines)
+    } else {
+        let start = req
+            .scroll_line
+            .saturating_sub(HIGHLIGHT_PAD_LINES)
+            .min(total_lines.saturating_sub(1));
+        let count = (req.visible_count + HIGHLIGHT_PAD_LINES * 2).clamp(90, 200);
+        (start, (start + count).min(total_lines))
     };
 
-    let gutter_range = update_gutter_line_numbers(app, total_lines, scroll_line, visible_count);
+    if buffered_end <= buffered_start {
+        HIGHLIGHT_STATE.with(|s| *s.borrow_mut() = None);
+        app.set_highlight_lines(ModelRc::default());
+        return (buffered_start, buffered_start);
+    }
 
-    if !is_asm || code.is_empty() || app.get_is_large_file_mode() {
+    let handled_incrementally = HIGHLIGHT_STATE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let Some(state) = slot.as_mut() else {
+            return false;
+        };
+        if req.force_reparse || state.theme_id != theme_id {
+            return false;
+        }
+        if state.buffer_start == buffered_start && state.buffer_end == buffered_end {
+            if app.get_highlight_start_line() != buffered_start as i32 {
+                app.set_highlight_start_line(buffered_start as i32);
+            }
+            return true;
+        }
+        let overlaps = buffered_end > state.buffer_start && state.buffer_end > buffered_start;
+        if !overlaps {
+            return false;
+        }
+
+        let old_start = state.buffer_start;
+        let old_end = state.buffer_end;
+
+        if buffered_start > old_start {
+            let drop_front = (buffered_start - old_start).min(state.model.row_count());
+            for _ in 0..drop_front {
+                state.model.remove(0);
+            }
+        }
+        let clipped_old_start = buffered_start.max(old_start);
+        if old_end > buffered_end {
+            let keep = buffered_end.saturating_sub(clipped_old_start);
+            while state.model.row_count() > keep {
+                let last = state.model.row_count() - 1;
+                state.model.remove(last);
+            }
+        }
+        if buffered_start < old_start {
+            let prefix_count = old_start - buffered_start;
+            let prefix_lines = highlight_document_range_with_offsets(
+                code,
+                line_starts,
+                theme_id,
+                buffered_start,
+                prefix_count,
+            );
+            for (idx, line) in prefix_lines.into_iter().enumerate() {
+                state.model.insert(idx, to_highlight_line_item(line));
+            }
+        }
+        if buffered_end > old_end {
+            let suffix_count = buffered_end - old_end;
+            let suffix_lines = highlight_document_range_with_offsets(
+                code,
+                line_starts,
+                theme_id,
+                old_end,
+                suffix_count,
+            );
+            for line in suffix_lines {
+                state.model.push(to_highlight_line_item(line));
+            }
+        }
+
+        state.buffer_start = buffered_start;
+        state.buffer_end = buffered_start + state.model.row_count();
+        app.set_highlight_start_line(buffered_start as i32);
+        true
+    });
+
+    if !handled_incrementally {
+        let lines = highlight_document_range_with_offsets(
+            code,
+            line_starts,
+            theme_id,
+            buffered_start,
+            buffered_end - buffered_start,
+        );
+        let rendered_count = lines.len();
+        let line_models: Vec<HighlightLineItem> =
+            lines.into_iter().map(to_highlight_line_item).collect();
+        let model = Rc::new(VecModel::from(line_models));
+        app.set_highlight_start_line(buffered_start as i32);
+        app.set_highlight_lines(ModelRc::from(model.clone()));
+        HIGHLIGHT_STATE.with(|cell| {
+            *cell.borrow_mut() = Some(PersistentHighlightState {
+                model,
+                buffer_start: buffered_start,
+                buffer_end: buffered_start + rendered_count,
+                theme_id,
+            });
+        });
+        return (buffered_start, buffered_start + rendered_count);
+    }
+
+    (buffered_start, buffered_end)
+}
+
+pub fn update_viewport_highlight_for_total(
+    app: &AppWindow,
+    code: &str,
+    line_starts: Option<&[usize]>,
+    req: ViewportRenderRequest,
+) -> (usize, usize) {
+    let total_lines = req
+        .total_lines
+        .unwrap_or_else(|| count_lines_fast(code, line_starts))
+        .max(1);
+    let gutter_range =
+        update_gutter_line_numbers(app, total_lines, req.scroll_line, req.visible_count);
+
+    if !req.is_asm || code.is_empty() || app.get_is_large_file_mode() {
+        HIGHLIGHT_STATE.with(|s| *s.borrow_mut() = None);
         app.set_highlight_lines(ModelRc::default());
         return gutter_range;
     }
 
-    let theme_id = app.get_active_theme_id();
-    let pad = 35;
-    let buffered_start = scroll_line.saturating_sub(pad);
-    let count = (visible_count + pad * 2).clamp(60, 150);
-
-    let lines = highlight_document_range_with_offsets(code, line_starts, theme_id, buffered_start, count);
-    let rendered_count = lines.len();
-    let line_models: Vec<HighlightLineItem> = lines
-        .into_iter()
-        .map(|line| {
-            let token_models: Vec<TokenItem> = line
-                .tokens
-                .into_iter()
-                .map(|tok| TokenItem {
-                    text: tok.text,
-                    color: tok.color,
-                    is_italic: tok.is_italic,
-                    char_count: tok.char_count,
-                    is_whitespace: tok.is_whitespace,
-                })
-                .collect();
-            HighlightLineItem {
-                line_number: line.line_number,
-                tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
-            }
-        })
-        .collect();
-
-    app.set_highlight_start_line(buffered_start as i32);
-    app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
-
-    (buffered_start, buffered_start + rendered_count)
+    render_highlight_window(app, code, line_starts, total_lines, req)
 }
 
 pub fn sync_labels_to_ui(
@@ -128,54 +308,29 @@ pub fn update_highlight_and_labels_opts(
 ) -> Vec<crate::autocomplete::extractor::UserSymbol> {
     let scroll_line = app.get_visible_scroll_line().max(0) as usize;
     let visible_count = (app.get_visible_line_count().max(30) as usize).min(100);
+    let total_lines = count_lines_fast(code, line_starts);
 
     if !is_asm || app.get_is_large_file_mode() {
         if refresh_line_numbers {
-            let total_lines = if code.is_empty() {
-                1
-            } else if let Some(starts) = line_starts {
-                starts.len().max(1)
-            } else {
-                code.as_bytes().iter().filter(|&&b| b == b'\n').count() + 1
-            };
             update_gutter_line_numbers(app, total_lines, scroll_line, visible_count);
         }
+        HIGHLIGHT_STATE.with(|s| *s.borrow_mut() = None);
         app.set_highlight_lines(ModelRc::default());
         app.set_label_list(ModelRc::default());
         return Vec::new();
     }
 
+    let req = ViewportRenderRequest {
+        total_lines: Some(total_lines),
+        scroll_line,
+        visible_count,
+        is_asm,
+        force_reparse: true,
+    };
     if refresh_line_numbers {
-        update_viewport_highlight(app, code, line_starts, scroll_line, visible_count, is_asm);
+        update_viewport_highlight_for_total(app, code, line_starts, req);
     } else {
-        let theme_id = app.get_active_theme_id();
-        let pad = 35;
-        let buffered_start = scroll_line.saturating_sub(pad);
-        let count = (visible_count + pad * 2).clamp(60, 150);
-        let lines =
-            highlight_document_range_with_offsets(code, line_starts, theme_id, buffered_start, count);
-        let line_models: Vec<HighlightLineItem> = lines
-            .into_iter()
-            .map(|line| {
-                let token_models: Vec<TokenItem> = line
-                    .tokens
-                    .into_iter()
-                    .map(|tok| TokenItem {
-                        text: tok.text,
-                        color: tok.color,
-                        is_italic: tok.is_italic,
-                        char_count: tok.char_count,
-                        is_whitespace: tok.is_whitespace,
-                    })
-                    .collect();
-                HighlightLineItem {
-                    line_number: line.line_number,
-                    tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
-                }
-            })
-            .collect();
-        app.set_highlight_start_line(buffered_start as i32);
-        app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
+        render_highlight_window(app, code, line_starts, total_lines, req);
     }
 
     let labels = autocomplete.get_user_labels_with_starts(code, line_starts);
@@ -192,37 +347,18 @@ pub fn update_highlight_only_opts(
 ) {
     let scroll_line = app.get_visible_scroll_line().max(0) as usize;
     let visible_count = (app.get_visible_line_count().max(30) as usize).min(100);
+    let total_lines = count_lines_fast(code, line_starts);
+    let req = ViewportRenderRequest {
+        total_lines: Some(total_lines),
+        scroll_line,
+        visible_count,
+        is_asm,
+        force_reparse: true,
+    };
     if refresh_line_numbers {
-        update_viewport_highlight(app, code, line_starts, scroll_line, visible_count, is_asm);
+        update_viewport_highlight_for_total(app, code, line_starts, req);
     } else if is_asm && !app.get_is_large_file_mode() {
-        let theme_id = app.get_active_theme_id();
-        let pad = 35;
-        let buffered_start = scroll_line.saturating_sub(pad);
-        let count = (visible_count + pad * 2).clamp(60, 150);
-        let lines =
-            highlight_document_range_with_offsets(code, line_starts, theme_id, buffered_start, count);
-        let line_models: Vec<HighlightLineItem> = lines
-            .into_iter()
-            .map(|line| {
-                let token_models: Vec<TokenItem> = line
-                    .tokens
-                    .into_iter()
-                    .map(|tok| TokenItem {
-                        text: tok.text,
-                        color: tok.color,
-                        is_italic: tok.is_italic,
-                        char_count: tok.char_count,
-                        is_whitespace: tok.is_whitespace,
-                    })
-                    .collect();
-                HighlightLineItem {
-                    line_number: line.line_number,
-                    tokens: ModelRc::from(Rc::new(VecModel::from(token_models))),
-                }
-            })
-            .collect();
-        app.set_highlight_start_line(buffered_start as i32);
-        app.set_highlight_lines(ModelRc::from(Rc::new(VecModel::from(line_models))));
+        render_highlight_window(app, code, line_starts, total_lines, req);
     }
 }
 
@@ -326,8 +462,28 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str, qu
 }
 
 pub fn populate_docs_ui(app: &AppWindow, lang: &str) {
-    populate_filtered_docs_ui(app, lang, "Все", "");
-    crate::ui::docs_bridge::populate_all_educational_docs(app, lang);
+    let is_ru = lang == "ru";
+    let mut docs_cat = app.get_docs_selected_category().to_string();
+    if docs_cat.is_empty() || docs_cat == "Все" || docs_cat == "All" {
+        docs_cat = if is_ru { "Все" } else { "All" }.to_string();
+        app.set_docs_selected_category(SharedString::from(&docs_cat));
+    }
+    let mut bdos_cat = app.get_bdos_selected_category().to_string();
+    if bdos_cat.is_empty() || bdos_cat == "Все" || bdos_cat == "All" {
+        bdos_cat = if is_ru { "Все" } else { "All" }.to_string();
+        app.set_bdos_selected_category(SharedString::from(&bdos_cat));
+    }
+    let query = app.get_docs_search_query().to_string();
+
+    populate_filtered_docs_ui(app, lang, &docs_cat, &query);
+    if query.trim().is_empty() {
+        crate::ui::docs_bridge::populate_all_educational_docs(app, lang);
+        if bdos_cat != "Все" && bdos_cat != "All" {
+            crate::ui::docs_bridge::populate_bdos_list(app, lang, &bdos_cat, "");
+        }
+    } else {
+        crate::ui::docs_bridge::search_all_docs(app, lang, &query);
+    }
 }
 
 pub fn apply_selected_suggestion_to_ui(
@@ -355,7 +511,11 @@ pub fn refresh_suggestions_ui(
 ) {
     let mut controller = controller_rc.lock().unwrap();
     let active_path = controller.file_manager.active_file_path.clone();
-    let suggestions = if controller.cached_symbols_path == active_path {
+    let suggestions = if app.get_is_large_file_mode() || controller.large_window.is_some() {
+        controller
+            .autocomplete
+            .get_suggestions_lang_with_symbols(query, &[], lang)
+    } else if controller.cached_symbols_path == active_path {
         let symbols = Arc::clone(&controller.cached_user_symbols);
         controller
             .autocomplete
@@ -436,6 +596,60 @@ pub fn ensure_active_file_or_create_draft(app: &AppWindow, ctrl: &mut IdeControl
     app.set_is_active_asm(true);
 }
 
+#[cfg(test)]
+mod tests {
+    use super::coalesce_line_tokens;
+    use crate::syntax::intel8080::{HighlightToken, TokenType};
+    use slint::{Color, SharedString};
+
+    #[test]
+    fn test_coalesce_line_tokens_merges_trailing_spaces_on_non_italic() {
+        let white = Color::from_rgb_u8(200, 200, 200);
+        let tokens = vec![
+            HighlightToken {
+                text: SharedString::from("mov"),
+                token_type: TokenType::MnemonicDataTransfer,
+                color: white,
+                is_italic: false,
+                char_count: 3,
+                is_whitespace: false,
+            },
+            HighlightToken {
+                text: SharedString::from("   "),
+                token_type: TokenType::Text,
+                color: white,
+                is_italic: false,
+                char_count: 3,
+                is_whitespace: true,
+            },
+            HighlightToken {
+                text: SharedString::from("equ"),
+                token_type: TokenType::DirectiveDef,
+                color: white,
+                is_italic: true,
+                char_count: 3,
+                is_whitespace: false,
+            },
+            HighlightToken {
+                text: SharedString::from(" "),
+                token_type: TokenType::Text,
+                color: white,
+                is_italic: false,
+                char_count: 1,
+                is_whitespace: true,
+            },
+        ];
+
+        let coalesced = coalesce_line_tokens(tokens);
+        assert_eq!(coalesced.len(), 3);
+        assert_eq!(coalesced[0].text.as_str(), "mov   ");
+        assert_eq!(coalesced[0].char_count, 6);
+        assert_eq!(coalesced[1].text.as_str(), "equ");
+        assert!(coalesced[1].is_italic);
+        assert_eq!(coalesced[2].text.as_str(), " ");
+    }
+}
+
 pub fn record_editor_mutation(
     app: &AppWindow,
     ctrl: &mut IdeController,
@@ -444,6 +658,10 @@ pub fn record_editor_mutation(
     is_group: bool,
 ) {
     ensure_active_file_or_create_draft(app, ctrl);
+    if ctrl.large_window.is_some() {
+        ctrl.apply_window_mutation(app, new_code);
+        return;
+    }
     ctrl.undo_manager
         .record_edit(new_code, cursor_pos, is_group);
     if let Some(path) = &ctrl.file_manager.active_file_path {
@@ -451,4 +669,34 @@ pub fn record_editor_mutation(
         ctrl.dirty_tabs.insert(p.clone());
         ctrl.set_tab_buffer(p, new_code.to_string());
     }
+}
+
+pub fn refresh_active_editor_highlight_and_labels(
+    app: &AppWindow,
+    ctrl: &IdeController,
+    is_asm: bool,
+    refresh_line_numbers: bool,
+) -> Vec<crate::autocomplete::extractor::UserSymbol> {
+    if let Some(active_path) = &ctrl.file_manager.active_file_path
+        && let Some(buf) = ctrl.tab_buffers.get(active_path)
+    {
+        let line_starts = ctrl.tab_line_starts.get(active_path).map(Vec::as_slice);
+        return update_highlight_and_labels_opts(
+            app,
+            &ctrl.autocomplete,
+            buf.as_str(),
+            line_starts,
+            is_asm,
+            refresh_line_numbers,
+        );
+    }
+    let code = app.get_code_text().to_string();
+    update_highlight_and_labels_opts(
+        app,
+        &ctrl.autocomplete,
+        &code,
+        None,
+        is_asm,
+        refresh_line_numbers,
+    )
 }

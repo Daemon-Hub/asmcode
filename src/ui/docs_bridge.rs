@@ -50,7 +50,9 @@ pub fn populate_bdos_list(app: &AppWindow, lang: &str, category: &str, query: &s
                 || doc.desc_ru.to_lowercase().contains(&q)
                 || doc.desc_en.to_lowercase().contains(&q)
                 || doc.notes_ru.to_lowercase().contains(&q)
+                || doc.notes_en.to_lowercase().contains(&q)
                 || doc.category_ru.to_lowercase().contains(&q)
+                || doc.category_en.to_lowercase().contains(&q)
                 || doc.example.to_lowercase().contains(&q)
         })
         .map(|doc| {
@@ -113,7 +115,7 @@ pub fn populate_bdos_list(app: &AppWindow, lang: &str, category: &str, query: &s
         .map(|f| FcbFieldItem {
             offset: SharedString::from(f.offset),
             name: SharedString::from(f.name),
-            size_str: SharedString::from(f.size),
+            size_str: SharedString::from(if is_ru { f.size_ru } else { f.size_en }),
             desc: SharedString::from(if is_ru { f.desc_ru } else { f.desc_en }),
         })
         .collect();
@@ -123,9 +125,13 @@ pub fn populate_bdos_list(app: &AppWindow, lang: &str, category: &str, query: &s
     let buf_items: Vec<BufferFieldItem> = BUFFER_0A_DOCS
         .iter()
         .map(|b| BufferFieldItem {
-            byte_idx: SharedString::from(b.byte_index),
+            byte_idx: SharedString::from(if is_ru {
+                b.byte_index_ru
+            } else {
+                b.byte_index_en
+            }),
             name: SharedString::from(b.name),
-            set_by: SharedString::from(b.set_by),
+            set_by: SharedString::from(if is_ru { b.set_by_ru } else { b.set_by_en }),
             desc: SharedString::from(if is_ru { b.desc_ru } else { b.desc_en }),
         })
         .collect();
@@ -166,7 +172,11 @@ pub fn populate_registers_and_flags(app: &AppWindow, lang: &str) {
         .map(|r| RegisterItem {
             name: SharedString::from(r.name),
             bits: r.bits as i32,
-            pair_name: SharedString::from(r.pair_name),
+            pair_name: SharedString::from(if is_ru {
+                r.pair_name_ru
+            } else {
+                r.pair_name_en
+            }),
             role: SharedString::from(if is_ru { r.role_ru } else { r.role_en }),
             description: SharedString::from(if is_ru { r.desc_ru } else { r.desc_en }),
         })
@@ -191,7 +201,11 @@ pub fn populate_registers_and_flags(app: &AppWindow, lang: &str) {
             } else {
                 f.when_cleared_en
             }),
-            affected_by: SharedString::from(f.affected_by),
+            affected_by: SharedString::from(if is_ru {
+                f.affected_by_ru
+            } else {
+                f.affected_by_en
+            }),
         })
         .collect();
     app.set_flags_list(ModelRc::from(Rc::new(VecModel::from(flags))));
@@ -205,7 +219,7 @@ pub fn populate_registers_and_flags(app: &AppWindow, lang: &str) {
             } else {
                 r.op_group_en
             }),
-            commands: SharedString::from(r.commands),
+            commands: SharedString::from(if is_ru { r.commands_ru } else { r.commands_en }),
             effect: SharedString::from(if is_ru { r.effect_ru } else { r.effect_en }),
         })
         .collect();
@@ -364,6 +378,77 @@ pub fn search_all_docs(app: &AppWindow, lang: &str, query: &str) {
             app.set_docs_active_module(1);
         } else if has_ascii {
             app.set_docs_active_module(4);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::docs::ascii_table::ASCII_TABLE;
+    use crate::docs::bdos::{BUFFER_0A_DOCS, CPM_BDOS_DOCS, FCB_STRUCTURE_DOCS};
+    use crate::docs::flags_jumps::{CODE_PATTERNS, JUMP_CONDITIONS};
+    use crate::docs::memory_map::MEMORY_SEGMENTS;
+    use crate::docs::registers_psw::{FLAGS_DOCS, FLAG_RULES, REGISTERS_DOCS};
+
+    fn has_cyrillic(s: &str) -> bool {
+        s.chars().any(|c| matches!(c, '\u{0400}'..='\u{04FF}'))
+    }
+
+    #[test]
+    fn english_docs_contain_no_cyrillic() {
+        for r in REGISTERS_DOCS {
+            assert!(!has_cyrillic(r.pair_name_en), "REGISTERS_DOCS({})", r.name);
+            assert!(!has_cyrillic(r.role_en), "REGISTERS_DOCS({})", r.name);
+            assert!(!has_cyrillic(r.desc_en), "REGISTERS_DOCS({})", r.name);
+        }
+        for f in FLAGS_DOCS {
+            assert!(!has_cyrillic(f.title_en), "FLAGS_DOCS({})", f.name);
+            assert!(!has_cyrillic(f.description_en), "FLAGS_DOCS({})", f.name);
+            assert!(!has_cyrillic(f.when_set_en), "FLAGS_DOCS({})", f.name);
+            assert!(!has_cyrillic(f.when_cleared_en), "FLAGS_DOCS({})", f.name);
+            assert!(!has_cyrillic(f.affected_by_en), "FLAGS_DOCS({})", f.name);
+        }
+        for rule in FLAG_RULES {
+            assert!(!has_cyrillic(rule.op_group_en), "FLAG_RULES({})", rule.op_group_en);
+            assert!(!has_cyrillic(rule.commands_en), "FLAG_RULES({})", rule.commands_en);
+            assert!(!has_cyrillic(rule.effect_en), "FLAG_RULES({})", rule.op_group_en);
+        }
+        for fcb in FCB_STRUCTURE_DOCS {
+            assert!(!has_cyrillic(fcb.size_en), "FCB({})", fcb.name);
+            assert!(!has_cyrillic(fcb.desc_en), "FCB({})", fcb.name);
+        }
+        for buf in BUFFER_0A_DOCS {
+            assert!(!has_cyrillic(buf.byte_index_en), "BUF({})", buf.name);
+            assert!(!has_cyrillic(buf.set_by_en), "BUF({})", buf.name);
+            assert!(!has_cyrillic(buf.desc_en), "BUF({})", buf.name);
+        }
+        for b in CPM_BDOS_DOCS {
+            assert!(!has_cyrillic(b.title_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.category_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.entry_de_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.exit_a_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.exit_hl_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.desc_en), "BDOS({})", b.number);
+            assert!(!has_cyrillic(b.notes_en), "BDOS({})", b.number);
+        }
+        for m in MEMORY_SEGMENTS {
+            assert!(!has_cyrillic(m.name_en), "MEM({})", m.name_en);
+            assert!(!has_cyrillic(m.category_en), "MEM({})", m.name_en);
+            assert!(!has_cyrillic(m.desc_en), "MEM({})", m.name_en);
+            assert!(!has_cyrillic(m.importance_en), "MEM({})", m.name_en);
+        }
+        for a in ASCII_TABLE {
+            assert!(!has_cyrillic(a.name_en), "ASCII({})", a.code);
+            assert!(!has_cyrillic(a.desc_en), "ASCII({})", a.code);
+        }
+        for j in JUMP_CONDITIONS {
+            assert!(!has_cyrillic(j.meaning_en), "JUMP({})", j.condition);
+            assert!(!has_cyrillic(j.scenario_en), "JUMP({})", j.condition);
+        }
+        for p in CODE_PATTERNS {
+            assert!(!has_cyrillic(p.title_en), "PATTERN({})", p.title_en);
+            assert!(!has_cyrillic(p.category_en), "PATTERN({})", p.title_en);
+            assert!(!has_cyrillic(p.desc_en), "PATTERN({})", p.title_en);
         }
     }
 }

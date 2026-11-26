@@ -13,10 +13,19 @@ use std::sync::{Arc, Mutex};
 
 fn clear_empty_editor_ui(ui: &AppWindow, ctrl: &mut IdeController) {
     ctrl.file_manager.active_file_path = None;
+    ctrl.large_window = None;
+    ctrl.is_large_file_mode = false;
+    ctrl.viewport_cache = None;
     ctrl.cached_symbols_path = None;
     ctrl.cached_user_symbols = std::sync::Arc::new(Vec::new());
+    crate::ui::editor_bridge::reset_editor_ui_caches();
     ui.set_active_file_name(SharedString::default());
     ui.set_active_file_path(SharedString::default());
+    ui.set_is_large_file_mode(false);
+    ui.set_is_windowed_large_file(false);
+    ui.set_window_read_only(false);
+    ui.set_total_line_count(1);
+    ui.set_text_window_start_line(0);
     ui.set_code_text(SharedString::default());
     ui.set_highlight_lines(ModelRc::default());
     ui.set_label_list(ModelRc::default());
@@ -143,12 +152,22 @@ pub fn attach_tab_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeControl
                 return;
             }
             if let Some(curr) = ctrl.file_manager.active_file_path.clone() {
-                let current_code = ui.get_code_text().to_string();
-                ctrl.set_tab_buffer(curr.clone(), current_code);
+                let is_windowed = ctrl
+                    .large_window
+                    .as_ref()
+                    .is_some_and(|w| w.path == curr);
                 if ui.get_is_dirty() {
-                    ctrl.dirty_tabs.insert(curr);
+                    ctrl.dirty_tabs.insert(curr.clone());
+                    if !is_windowed {
+                        let current_code = ui.get_code_text().to_string();
+                        ctrl.set_tab_buffer(curr, current_code);
+                    }
                 } else {
                     ctrl.dirty_tabs.remove(&curr);
+                    if !is_windowed && !ctrl.tab_buffers.contains_key(&curr) {
+                        let current_code = ui.get_code_text().to_string();
+                        ctrl.set_tab_buffer(curr, current_code);
+                    }
                 }
             }
         }

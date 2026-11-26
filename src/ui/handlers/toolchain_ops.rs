@@ -9,12 +9,21 @@ use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+#[inline]
+fn show_output_panel(ui: &AppWindow) {
+    ui.set_terminal_expanded(true);
+    ui.set_terminal_active_tab(0);
+    ui.set_term_focused(false);
+    ui.invoke_term_focus_changed(false);
+}
+
 pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeController>>) {
     // Assemble Only (asmx20)
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
     app.on_run_assemble_only(move || {
         let Some(ui) = app_weak.upgrade() else { return };
+        show_output_panel(&ui);
         let mut ctrl = ctrl_clone.lock().unwrap();
 
         // 1. Check if file is open
@@ -26,7 +35,7 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         }
 
         // Save file first
-        let text = ui.get_code_text().to_string();
+        let text = ctrl.active_document_text_cow(&ui).into_owned();
         let target_path = if let Some(path) = &ctrl.file_manager.active_file_path {
             path.clone()
         } else {
@@ -97,7 +106,7 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         }
 
         // Save file first
-        let text = ui.get_code_text().to_string();
+        let text = ctrl.active_document_text_cow(&ui).into_owned();
         let target_path = if let Some(path) = &ctrl.file_manager.active_file_path {
             path.clone()
         } else {
@@ -111,49 +120,81 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
         }
         ui.set_is_dirty(false);
 
-        // 3. Expand and switch bottom panel to Terminal tab
-        ui.set_terminal_expanded(true);
-        ui.set_terminal_active_tab(1);
-        ui.set_term_focused(true);
-        ui.invoke_term_focus_changed(true);
-
-        // 4. Build command line based on toolchain and shell
         let toolchain_type = ui.get_toolchain_type();
         let compiler_path = ui.get_compiler_path().to_string();
         let compiler_args = ui.get_compiler_args().to_string();
         let emulator_path = ui.get_emulator_path().to_string();
         let emulator_args = ui.get_emulator_args().to_string();
         let shell_name = ui.get_term_shell_name().to_string();
+        let is_ru = ui.get_current_language().as_str() == "ru";
 
+        // 3. Built-in toolchain uses Output panel (no interactive stdin); external toolchain uses Terminal
         if toolchain_type == 0 {
-            // Built-in toolchain: assemble in memory first
-            ui.set_status_message(SharedString::from("Компиляция (.COM)..."));
+            show_output_panel(&ui);
+            ui.set_is_process_running(true);
+            ui.set_status_message(SharedString::from(if is_ru {
+                "Компиляция и запуск (.COM)..."
+            } else {
+                "Assembling & running (.COM)..."
+            }));
             ui.set_status_color(Color::from_rgb_u8(137, 180, 250));
-            let report = CompilerRunner::assemble_file_builtin(&target_path);
-            for log in &report.output_logs {
-                ctrl.append_log(log);
-            }
-            sync_logs(&ui, &ctrl);
 
-            if !report.success {
-                ui.set_status_message(SharedString::from("Ошибка сборки"));
-                ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
-                return;
-            }
+            let app_weak_inner = app_weak.clone();
+            let ctrl_clone_inner = Arc::clone(&ctrl_clone);
+            drop(ctrl);
+            std::thread::spawn(move || {
+                let report = CompilerRunner::assemble_file_builtin(&target_path);
+                let com_path = report
+                    .com_path
+                    .clone()
+                    .unwrap_or_else(|| target_path.with_extension("com"));
+                let vm_logs = if report.success {
+                    Some(CompilerRunner::run_emulator_builtin(&com_path))
+                } else {
+                    None
+                };
 
-            let cmd = build_emulator_command(
-                &shell_name,
-                &emulator_path,
-                &emulator_args,
-                &target_path,
-            );
-            ctrl.append_log(&format!("[RUN] Terminal: {}", cmd));
-            sync_logs(&ui, &ctrl);
-            ui.invoke_term_send_command(SharedString::from(cmd));
-            ui.set_status_message(SharedString::from("Запущено в терминале"));
-            ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                let _ = slint::invoke_from_event_loop(move || {
+                    let Some(ui) = app_weak_inner.upgrade() else {
+                        return;
+                    };
+                    let mut ctrl = ctrl_clone_inner.lock().unwrap();
+                    for log in &report.output_logs {
+                        ctrl.append_log(log);
+                    }
+                    if let Some(ref logs) = vm_logs {
+                        for log in logs {
+                            ctrl.append_log(log);
+                        }
+                    }
+                    sync_logs(&ui, &ctrl);
+                    ui.set_terminal_active_tab(0);
+                    ui.set_is_process_running(false);
+
+                    let is_ru = ui.get_current_language().as_str() == "ru";
+                    if !report.success {
+                        ui.set_status_message(SharedString::from(if is_ru {
+                            "Ошибка сборки"
+                        } else {
+                            "Build failed"
+                        }));
+                        ui.set_status_color(Color::from_rgb_u8(243, 139, 168));
+                    } else {
+                        ui.set_status_message(SharedString::from(if is_ru {
+                            "Выполнено (встроенный эмулятор)"
+                        } else {
+                            "Executed (built-in VM)"
+                        }));
+                        ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
+                    }
+                });
+            });
         } else {
             // External toolchain: send combined compile + run command to terminal
+            ui.set_terminal_expanded(true);
+            ui.set_terminal_active_tab(1);
+            ui.set_term_focused(true);
+            ui.invoke_term_focus_changed(true);
             let cmd = build_combined_run_command(
                 &shell_name,
                 &compiler_path,
@@ -165,7 +206,11 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
             ctrl.append_log(&format!("[RUN] Terminal: {}", cmd));
             sync_logs(&ui, &ctrl);
             ui.invoke_term_send_command(SharedString::from(cmd));
-            ui.set_status_message(SharedString::from("Запущено в терминале"));
+            ui.set_status_message(SharedString::from(if is_ru {
+                "Запущено в терминале"
+            } else {
+                "Running in terminal"
+            }));
             ui.set_status_color(Color::from_rgb_u8(166, 227, 161));
         }
     });
@@ -223,8 +268,9 @@ pub fn attach_toolchain_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeC
     let app_weak = app.as_weak();
     app.on_run_syntax_check(move || {
         let Some(ui) = app_weak.upgrade() else { return };
+        show_output_panel(&ui);
         let mut ctrl = ctrl_clone.lock().unwrap();
-        let code = ui.get_code_text().to_string();
+        let code = ctrl.active_document_text_cow(&ui).into_owned();
         let report = CompilerRunner::validate_syntax(&code);
 
         for log in &report.output_logs {
@@ -367,69 +413,6 @@ pub fn build_combined_run_command(
             "\"{}\" {} && \"{}\" {}",
             c_bin, formatted_c_args, e_bin, formatted_e_args
         )
-    }
-}
-
-pub fn build_emulator_command(
-    shell: &str,
-    emulator_path: &str,
-    emulator_args: &str,
-    target_path: &Path,
-) -> String {
-    let com_path = target_path.with_extension("com");
-    let output_str = com_path.to_string_lossy();
-    let stem_str = target_path
-        .file_stem()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let dir_str = target_path
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| ".".into());
-
-    let e_bin = if emulator_path.trim().is_empty() {
-        #[cfg(windows)]
-        {
-            "C:\\bin\\cpmemu.exe"
-        }
-        #[cfg(not(windows))]
-        {
-            "/usr/local/bin/cpmemu"
-        }
-    } else {
-        emulator_path.trim()
-    };
-
-    let e_args_tpl = if emulator_args.trim().is_empty() {
-        "--8080 \"{output}\""
-    } else {
-        emulator_args.trim()
-    };
-
-    let mut formatted_e_args = e_args_tpl.to_string();
-    if formatted_e_args.contains("{output}")
-        || formatted_e_args.contains("{bin}")
-        || formatted_e_args.contains("{com}")
-    {
-        formatted_e_args = formatted_e_args
-            .replace("{output}", &output_str)
-            .replace("{bin}", &output_str)
-            .replace("{com}", &output_str);
-    } else {
-        formatted_e_args.push_str(&format!(" \"{}\"", output_str));
-    }
-    formatted_e_args = formatted_e_args
-        .replace("{name}", &stem_str)
-        .replace("{dir}", &dir_str);
-
-    let is_powershell = shell.eq_ignore_ascii_case("pwsh")
-        || shell.eq_ignore_ascii_case("powershell")
-        || (!shell.eq_ignore_ascii_case("cmd") && !shell.eq_ignore_ascii_case("sh") && cfg!(windows));
-
-    if is_powershell {
-        format!("& \"{}\" {}", e_bin, formatted_e_args)
-    } else {
-        format!("\"{}\" {}", e_bin, formatted_e_args)
     }
 }
 

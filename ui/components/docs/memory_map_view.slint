@@ -56,14 +56,18 @@ export component MemoryMapView inherits VerticalLayout {
                     horizontal-stretch: 1;
                     border-radius: 3px;
                     background: Theme.accent_green;
+                    clip: true;
                     Text {
-                        text: "TPA (Transient Program Area: 0100h - ~DAFFh) - Память для ваших .COM программ (ORG 100h)";
+                        text: root.current_language == "ru"
+                            ? "TPA (0100h - ~DAFFh) - Память для ваших .COM программ (ORG 100h)"
+                            : "TPA (0100h - ~DAFFh) - Program RAM for .COM binaries (ORG 100h)";
                         font-family: Theme.font_ui;
                         font-size: 12px;
                         font-weight: 600;
                         color: #151518;
                         horizontal-alignment: center;
                         vertical-alignment: center;
+                        overflow: elide;
                     }
                 }
 
@@ -248,7 +252,9 @@ export component MemoryMapView inherits VerticalLayout {
                     stack_ins := TouchArea {
                         mouse-cursor: pointer;
                         clicked => {
-                            root.insert_snippet("    lxi sp, stack_top\n\n    ; Код программы...\n\n    ds 128\nstack_top:");
+                            root.insert_snippet(root.current_language == "ru"
+                                ? "    lxi sp, stack_top\n\n    ; Код программы...\n\n    ds 128\nstack_top:"
+                                : "    lxi sp, stack_top\n\n    ; Program code...\n\n    ds 128\nstack_top:");
                         }
                     }
                 }
