@@ -777,31 +777,20 @@ export component EditorPage inherits HorizontalLayout {
                         alignment: start;
                         spacing: 0px;
 
-                        for line in root.highlight_lines: HorizontalLayout {
-                            alignment: start;
-                            spacing: 0px;
-                            padding: 0px;
-                            padding-top: 0px;
-                            padding-bottom: 0px;
+                        for line in root.highlight_lines: Rectangle {
+                            width: root.width;
                             height: root.editor_line_height;
-                            padding-left: 8px;
-
-                            if line.tokens.length == 0: Text {
-                                text: " ";
-                                font-family: Theme.font_mono;
-                                font-size: root.editor_font_size;
-                                font-weight: 600;
-                                font-italic: false;
-                                vertical-alignment: top;
-                            }
 
                             for tok in line.tokens: Text {
+                                x: 8px + tok.start_col * root.char_advance;
+                                y: 0px;
                                 text: tok.text;
                                 color: tok.color;
                                 font-family: Theme.font_mono;
                                 font-size: root.editor_font_size;
                                 font-weight: 600;
                                 font-italic: tok.is_italic;
+                                wrap: no-wrap;
                                 vertical-alignment: top;
                             }
                         }

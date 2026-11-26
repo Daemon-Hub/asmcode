@@ -505,26 +505,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         };
 
         let highlighted = crate::syntax::intel8080::highlight_document(&info.example, theme_id);
-        let example_lines: Vec<crate::ui::HighlightLineItem> = highlighted
-            .into_iter()
-            .map(|hl| {
-                let tokens: Vec<crate::ui::TokenItem> = hl
-                    .tokens
-                    .into_iter()
-                    .map(|t| crate::ui::TokenItem {
-                        text: t.text,
-                        color: t.color,
-                        is_italic: t.is_italic,
-                        char_count: t.char_count,
-                        is_whitespace: t.is_whitespace,
-                    })
-                    .collect();
-                crate::ui::HighlightLineItem {
-                    line_number: hl.line_number,
-                    tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
-                }
-            })
-            .collect();
+        let example_lines = crate::ui::editor_bridge::highlight_lines_to_ui_items(highlighted);
 
         ui.set_hover_word_line(info.span.line as i32);
         ui.set_hover_word_col(info.span.start_col as i32);

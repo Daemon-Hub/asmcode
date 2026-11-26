@@ -6,7 +6,7 @@ use crate::docs::registers_psw::{FLAGS_DOCS, FLAG_RULES, REGISTERS_DOCS};
 use crate::syntax::intel8080::highlight_document;
 use crate::ui::{
     AppWindow, AsciiItem, BdosItem, BufferFieldItem, CodePatternItem, FcbFieldItem, FlagItem,
-    FlagRuleItem, HighlightLineItem, JumpConditionItem, MemoryMapItem, RegisterItem, TokenItem,
+    FlagRuleItem, JumpConditionItem, MemoryMapItem, RegisterItem,
 };
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
@@ -57,26 +57,7 @@ pub fn populate_bdos_list(app: &AppWindow, lang: &str, category: &str, query: &s
         })
         .map(|doc| {
             let highlighted = highlight_document(doc.example, theme_id);
-            let example_lines: Vec<HighlightLineItem> = highlighted
-                .into_iter()
-                .map(|hl| {
-                    let tokens: Vec<TokenItem> = hl
-                        .tokens
-                        .into_iter()
-                        .map(|t| TokenItem {
-                            text: t.text,
-                            color: t.color,
-                            is_italic: t.is_italic,
-                            char_count: t.char_count,
-                            is_whitespace: t.is_whitespace,
-                        })
-                        .collect();
-                    HighlightLineItem {
-                        line_number: hl.line_number,
-                        tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
-                    }
-                })
-                .collect();
+            let example_lines = crate::ui::editor_bridge::highlight_lines_to_ui_items(highlighted);
 
             let hex_str = format!("{:02X}h", doc.number);
 
@@ -271,26 +252,7 @@ pub fn populate_jumps_and_patterns(app: &AppWindow, lang: &str) {
         .iter()
         .map(|pat| {
             let highlighted = highlight_document(pat.code_snippet, theme_id);
-            let example_lines: Vec<HighlightLineItem> = highlighted
-                .into_iter()
-                .map(|hl| {
-                    let tokens: Vec<TokenItem> = hl
-                        .tokens
-                        .into_iter()
-                        .map(|t| TokenItem {
-                            text: t.text,
-                            color: t.color,
-                            is_italic: t.is_italic,
-                            char_count: t.char_count,
-                            is_whitespace: t.is_whitespace,
-                        })
-                        .collect();
-                    HighlightLineItem {
-                        line_number: hl.line_number,
-                        tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
-                    }
-                })
-                .collect();
+            let example_lines = crate::ui::editor_bridge::highlight_lines_to_ui_items(highlighted);
 
             CodePatternItem {
                 title: SharedString::from(if is_ru { pat.title_ru } else { pat.title_en }),

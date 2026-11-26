@@ -309,6 +309,8 @@ export component ViewDropdownMenu inherits Rectangle {
 
     in-out property <bool> theme_flyout_open: false;
     out property <bool> show_theme_flyout: root.theme_flyout_open || v_theme_row.has-hover || flyout_touch.has-hover;
+    out property <length> effective_bounds_w: root.show_theme_flyout ? (self.width + flyout_rect.width - 6px) : self.width;
+    out property <length> effective_bounds_h: root.show_theme_flyout ? max(self.height, theme_row.y - 4px + flyout_rect.height) : self.height;
 
     view_menu_layout := VerticalLayout {
         padding: 6px;
@@ -511,7 +513,7 @@ export component ViewDropdownMenu inherits Rectangle {
     }
 
     // Cascading Flyout Submenu to the right on hover
-    Rectangle {
+    flyout_rect := Rectangle {
         visible: root.show_theme_flyout;
         x: root.width - 6px;
         y: theme_row.y - 4px;

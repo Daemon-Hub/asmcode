@@ -48,7 +48,7 @@ export component AppWindow inherits Window {
     in-out property <length> editor_font_size: 18px;
     in-out property <bool> editor_font_italic: false;
     out property <length> editor_line_height: (measure_50_lines.preferred-height - measure_1_line.preferred-height) / 49;
-    out property <length> char_advance: measure_40_chars.preferred-width / 40;
+    out property <length> char_advance: measure_40_chars.preferred-width / 100;
 
     // Resizable Layout Dimensions
     in-out property <length> sidebar_width: 320px;
@@ -178,7 +178,7 @@ export component AppWindow inherits Window {
         font-size: root.editor_font_size;
         font-weight: 600;
         font-italic: false;
-        text: "0123456789012345678901234567890123456789";
+        text: "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
     }
 
     // State properties
@@ -893,8 +893,8 @@ export component AppWindow inherits Window {
         y: 58px;
         property <length> _bx: self.x;
         property <length> _by: self.y;
-        property <length> _bw: self.width;
-        property <length> _bh: self.height;
+        property <length> _bw: self.effective_bounds_w;
+        property <length> _bh: self.effective_bounds_h;
         changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }

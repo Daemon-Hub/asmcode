@@ -1,5 +1,5 @@
 use crate::autocomplete::engine::AutocompleteEngine;
-use crate::syntax::intel8080::{HighlightToken, highlight_document_range_with_offsets};
+use crate::syntax::intel8080::{HighlightLine, HighlightToken, highlight_document_range_with_offsets};
 use crate::ui::controller::IdeController;
 use crate::ui::{AppWindow, DocItem, HighlightLineItem, LabelItem, SuggestionItem, TokenItem};
 use slint::{Model, ModelRc, SharedString, VecModel};
@@ -45,30 +45,58 @@ fn push_usize(buf: &mut String, mut n: usize) {
     buf.push_str(s);
 }
 
-/// Coalesces trailing plain whitespace tokens into preceding non-italic tokens to cut Slint Text element count.
+/// Maps line tokens using exact column offsets (`start_col`) and drops pure-whitespace runs
+/// so positioned editor overlays avoid HorizontalLayout `.ceil()` width accumulation drift.
 fn coalesce_line_tokens(tokens: Vec<HighlightToken>) -> Vec<TokenItem> {
     let mut out: Vec<TokenItem> = Vec::with_capacity(tokens.len());
+    let mut col = 0i32;
     for tok in tokens {
-        if tok.is_whitespace
-            && let Some(prev) = out.last_mut()
-            && !prev.is_italic
-        {
-            let mut merged = String::with_capacity(prev.text.len() + tok.text.len());
-            merged.push_str(prev.text.as_str());
-            merged.push_str(tok.text.as_str());
-            prev.text = SharedString::from(merged);
-            prev.char_count += tok.char_count;
+        let len = tok.char_count;
+        if tok.is_whitespace {
+            col += len;
             continue;
         }
         out.push(TokenItem {
             text: tok.text,
             color: tok.color,
             is_italic: tok.is_italic,
-            char_count: tok.char_count,
-            is_whitespace: tok.is_whitespace,
+            char_count: len,
+            start_col: col,
+            is_whitespace: false,
         });
+        col += len;
     }
     out
+}
+
+/// Converts highlighted snippet lines (used by docs and hover cards) preserving whitespace runs.
+pub fn highlight_lines_to_ui_items(lines: Vec<HighlightLine>) -> Vec<HighlightLineItem> {
+    lines
+        .into_iter()
+        .map(|hl| {
+            let mut col = 0i32;
+            let tokens: Vec<TokenItem> = hl
+                .tokens
+                .into_iter()
+                .map(|t| {
+                    let start_col = col;
+                    col += t.char_count;
+                    TokenItem {
+                        text: t.text,
+                        color: t.color,
+                        is_italic: t.is_italic,
+                        char_count: t.char_count,
+                        start_col,
+                        is_whitespace: t.is_whitespace,
+                    }
+                })
+                .collect();
+            HighlightLineItem {
+                line_number: hl.line_number,
+                tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
+            }
+        })
+        .collect()
 }
 
 fn to_highlight_line_item(line: crate::syntax::intel8080::HighlightLine) -> HighlightLineItem {
@@ -417,26 +445,7 @@ pub fn populate_filtered_docs_ui(app: &AppWindow, lang: &str, category: &str, qu
 
             // True syntax highlighting using active theme!
             let highlighted = crate::syntax::intel8080::highlight_document(code_example, theme_id);
-            let example_lines: Vec<HighlightLineItem> = highlighted
-                .into_iter()
-                .map(|hl| {
-                    let tokens: Vec<TokenItem> = hl
-                        .tokens
-                        .into_iter()
-                        .map(|t| TokenItem {
-                            text: t.text,
-                            color: t.color,
-                            is_italic: t.is_italic,
-                            char_count: t.char_count,
-                            is_whitespace: t.is_whitespace,
-                        })
-                        .collect();
-                    HighlightLineItem {
-                        line_number: hl.line_number,
-                        tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
-                    }
-                })
-                .collect();
+            let example_lines = highlight_lines_to_ui_items(highlighted);
 
             DocItem {
                 name: SharedString::from(doc.name),
@@ -641,12 +650,12 @@ mod tests {
         ];
 
         let coalesced = coalesce_line_tokens(tokens);
-        assert_eq!(coalesced.len(), 3);
-        assert_eq!(coalesced[0].text.as_str(), "mov   ");
-        assert_eq!(coalesced[0].char_count, 6);
+        assert_eq!(coalesced.len(), 2);
+        assert_eq!(coalesced[0].text.as_str(), "mov");
+        assert_eq!(coalesced[0].start_col, 0);
         assert_eq!(coalesced[1].text.as_str(), "equ");
+        assert_eq!(coalesced[1].start_col, 6);
         assert!(coalesced[1].is_italic);
-        assert_eq!(coalesced[2].text.as_str(), " ");
     }
 }
 
