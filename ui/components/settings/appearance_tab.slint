@@ -1,0 +1,102 @@
+import { Theme } from "../theme.slint";
+
+export component AppearanceSettingsTab inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in-out property <int> active_theme_id: 1;
+    in-out property <string> selected_language: "ru";
+
+    spacing: 14px;
+    alignment: start;
+
+    Rectangle {
+        height: 80px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+            Text {
+                text: root.current_language == "ru" ? "Цветовая тема интерфейса:" : "Color Theme:";
+                font-size: 13px;
+                color: Theme.text_muted;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: root.active_theme_id == 1 ? Theme.accent_blue : Theme.bg_surface2;
+                    Text {
+                        text: "Cyberpunk 2077 Red";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: root.active_theme_id == 1 ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.active_theme_id = 1; } }
+                }
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: root.active_theme_id == 0 ? Theme.accent_blue : Theme.bg_surface2;
+                    Text {
+                        text: "Catppuccin Dark";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: root.active_theme_id == 0 ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.active_theme_id = 0; } }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        height: 80px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+            Text {
+                text: root.current_language == "ru" ? "Язык интерфейса:" : "Interface Language:";
+                font-size: 13px;
+                color: Theme.text_muted;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: root.selected_language == "ru" ? Theme.accent_green : Theme.bg_surface2;
+                    Text {
+                        text: "Русский (RU)";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: root.selected_language == "ru" ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.selected_language = "ru"; } }
+                }
+                Rectangle {
+                    height: 32px;
+                    border-radius: 4px;
+                    background: root.selected_language == "en" ? Theme.accent_green : Theme.bg_surface2;
+                    Text {
+                        text: "English (EN)";
+                        font-size: 12px;
+                        font-weight: 700;
+                        color: root.selected_language == "en" ? #151518 : Theme.text_primary;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.selected_language = "en"; } }
+                }
+            }
+        }
+    }
+}

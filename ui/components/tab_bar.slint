@@ -7,7 +7,7 @@ export component TabBar inherits Rectangle {
 
     callback switch_tab(string);
     callback close_tab(string);
-    callback tab_context_menu(string, length, length);
+    callback tab_context_menu(string, bool, length, length);
 
     height: 36px;
     background: Theme.terminal_bg;
@@ -120,7 +120,12 @@ export component TabBar inherits Rectangle {
                 mouse-cursor: pointer;
                 pointer-event(e) => {
                     if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
-                        root.tab_context_menu(tab.path, self.mouse-x + tab_rect.x + root.scroll_offset, self.mouse-y + 36px);
+                        root.tab_context_menu(
+                            tab.path,
+                            tab.is_pinned,
+                            self.absolute-position.x + self.mouse-x,
+                            self.absolute-position.y + self.mouse-y
+                        );
                     }
                 }
                 clicked => {

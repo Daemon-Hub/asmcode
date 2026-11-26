@@ -1,9 +1,16 @@
 use super::emulator::TerminalEmulator;
 use super::pty::{PtyEvent, PtyHost};
-use crate::ui::AppWindow;
+use crate::ui::{AppWindow, WinitEventHub};
+use slint::winit_030::{
+    EventResult as WinitEventResult,
+    winit::{
+        event::{ElementState, Ime, MouseButton, WindowEvent},
+        keyboard::{Key as NativeKey, KeyCode, ModifiersState, NamedKey, PhysicalKey},
+    },
+};
 use slint::{ComponentHandle, SharedString};
-use slint_term::core::{Button, Modifiers, MouseAction};
-use slint_term::{Action, Shortcut, TerminalBinding, Theme, install_window_input};
+use slint_term::core::{Button, Key as TermKey, Modifiers, MouseAction};
+use slint_term::{Action, Shortcut, TerminalBinding, Theme};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -15,7 +22,7 @@ pub struct TerminalUiBridge {
 }
 
 impl TerminalUiBridge {
-    pub fn setup(app: &AppWindow, initial_cwd: PathBuf) -> Self {
+    pub fn setup(app: &AppWindow, initial_cwd: PathBuf, winit_hub: &WinitEventHub) -> Self {
         let emulator = Arc::new(TerminalEmulator::new(80, 24));
         let cwd_cell = Rc::new(RefCell::new(initial_cwd));
 
@@ -89,30 +96,11 @@ impl TerminalUiBridge {
             b.set_font("CaskaydiaCove Nerd Font Mono", 14.0);
         }
 
-        // Install OS-level window keyboard/IME handler for the terminal
+        // Install OS-level window keyboard/IME handler for global shortcuts and terminal input
         {
             let binding_for_input = Rc::clone(&binding);
             let app_weak = app.as_weak();
-            install_window_input(app.window(), move || {
-                let ui = app_weak.upgrade()?;
-                // Active ONLY when:
-                // 1. Terminal tab is selected in bottom panel (tab == 1)
-                // 2. Terminal panel is expanded
-                // 3. Terminal currently has keyboard focus
-                // 4. No modal dialog is open (settings, new file/folder, rename)
-                if ui.get_terminal_active_tab() == 1
-                    && ui.get_terminal_expanded()
-                    && ui.get_term_focused()
-                    && !ui.get_show_settings_dialog()
-                    && !ui.get_show_new_file_dialog()
-                    && !ui.get_show_new_folder_dialog()
-                    && !ui.get_show_rename_dialog()
-                {
-                    Some(binding_for_input.clone())
-                } else {
-                    None
-                }
-            });
+            install_terminal_and_shortcut_input(winit_hub, app_weak, binding_for_input);
         }
 
         // Pointer / click event callback
@@ -336,4 +324,312 @@ impl TerminalUiBridge {
 
         Self { _timer: timer }
     }
+}
+
+fn is_toggle_terminal_shortcut(
+    modifiers: ModifiersState,
+    event: &slint::winit_030::winit::event::KeyEvent,
+) -> bool {
+    if !modifiers.control_key() || modifiers.alt_key() {
+        return false;
+    }
+    if matches!(event.physical_key, PhysicalKey::Code(KeyCode::Backquote)) {
+        return true;
+    }
+    matches!(
+        &event.logical_key,
+        NativeKey::Character(s) if matches!(s.as_str(), "`" | "~" | "ё" | "Ё")
+    )
+}
+
+fn map_winit_key_to_term_key(logical_key: &NativeKey) -> Option<TermKey> {
+    match logical_key {
+        NativeKey::Character(s) => Some(TermKey::Text(s.to_string())),
+        NativeKey::Named(n) => match n {
+            NamedKey::Space => Some(TermKey::Text(" ".into())),
+            NamedKey::Enter => Some(TermKey::Enter),
+            NamedKey::Escape => Some(TermKey::Escape),
+            NamedKey::Backspace => Some(TermKey::Backspace),
+            NamedKey::Tab => Some(TermKey::Tab),
+            NamedKey::ArrowUp => Some(TermKey::Up),
+            NamedKey::ArrowDown => Some(TermKey::Down),
+            NamedKey::ArrowLeft => Some(TermKey::Left),
+            NamedKey::ArrowRight => Some(TermKey::Right),
+            NamedKey::Home => Some(TermKey::Home),
+            NamedKey::End => Some(TermKey::End),
+            NamedKey::Delete => Some(TermKey::Delete),
+            NamedKey::Insert => Some(TermKey::Insert),
+            NamedKey::PageUp => Some(TermKey::PageUp),
+            NamedKey::PageDown => Some(TermKey::PageDown),
+            _ => {
+                let names = [
+                    NamedKey::F1,
+                    NamedKey::F2,
+                    NamedKey::F3,
+                    NamedKey::F4,
+                    NamedKey::F5,
+                    NamedKey::F6,
+                    NamedKey::F7,
+                    NamedKey::F8,
+                    NamedKey::F9,
+                    NamedKey::F10,
+                    NamedKey::F11,
+                    NamedKey::F12,
+                ];
+                let idx = names.iter().position(|k| k == n)?;
+                Some(TermKey::Function(idx as u8 + 1))
+            }
+        },
+        _ => None,
+    }
+}
+
+#[inline]
+fn any_menu_open(ui: &AppWindow) -> bool {
+    ui.get_show_explorer_context_menu()
+        || ui.get_show_tab_context_menu()
+        || ui.get_show_context_menu()
+        || any_dropdown_open(ui)
+}
+
+#[inline]
+fn any_dropdown_open(ui: &AppWindow) -> bool {
+    ui.get_show_file_menu()
+        || ui.get_show_run_menu()
+        || ui.get_show_view_menu()
+        || ui.get_show_help_menu()
+}
+
+#[inline]
+fn is_point_inside_active_menu(ui: &AppWindow, lx: f32, ly: f32) -> bool {
+    let mx = ui.get_active_menu_x();
+    let my = ui.get_active_menu_y();
+    let mw = ui.get_active_menu_w();
+    let mh = ui.get_active_menu_h();
+    mw > 0.0 && mh > 0.0 && lx >= mx && lx <= mx + mw && ly >= my && ly <= my + mh
+}
+
+fn install_terminal_and_shortcut_input(
+    winit_hub: &WinitEventHub,
+    app_weak: slint::Weak<AppWindow>,
+    binding: Rc<RefCell<TerminalBinding>>,
+) {
+    let mut modifiers = ModifiersState::empty();
+    let mut mouse_button_down = false;
+    let mut last_mouse_pos = (-1.0_f32, -1.0_f32);
+    let dwell_timer = slint::Timer::default();
+    let hide_timer = slint::Timer::default();
+
+    winit_hub.push(move |win, event| {
+        if let WindowEvent::ModifiersChanged(m) = event {
+            modifiers = m.state();
+            return WinitEventResult::Propagate;
+        }
+
+        let Some(ui) = app_weak.upgrade() else {
+            return WinitEventResult::Propagate;
+        };
+
+        let has_modal = ui.get_show_settings_dialog()
+            || ui.get_show_new_file_dialog()
+            || ui.get_show_new_folder_dialog()
+            || ui.get_show_rename_dialog();
+
+        match event {
+            WindowEvent::MouseInput { state, button, .. } => {
+                mouse_button_down = *state == ElementState::Pressed;
+                if *state == ElementState::Pressed {
+                    if !ui.get_hover_popup_hovered() {
+                        dwell_timer.stop();
+                        hide_timer.stop();
+                        ui.set_show_hover_popup(false);
+                    }
+                    if any_menu_open(&ui)
+                        && !is_point_inside_active_menu(&ui, last_mouse_pos.0, last_mouse_pos.1)
+                    {
+                        if any_dropdown_open(&ui)
+                            && *button == MouseButton::Left
+                            && last_mouse_pos.1 >= 0.0
+                            && last_mouse_pos.1 < 54.0
+                        {
+                            return WinitEventResult::Propagate;
+                        }
+                        ui.invoke_close_all_context_menus();
+                        if *button == MouseButton::Right {
+                            return WinitEventResult::Propagate;
+                        }
+                        return WinitEventResult::PreventDefault;
+                    }
+                }
+                return WinitEventResult::Propagate;
+            }
+            WindowEvent::MouseWheel { .. } => {
+                if any_menu_open(&ui)
+                    && !is_point_inside_active_menu(&ui, last_mouse_pos.0, last_mouse_pos.1)
+                {
+                    ui.invoke_close_all_context_menus();
+                }
+                if !ui.get_hover_popup_hovered() {
+                    dwell_timer.stop();
+                    hide_timer.stop();
+                    ui.set_show_hover_popup(false);
+                }
+                return WinitEventResult::Propagate;
+            }
+            WindowEvent::CursorLeft { .. } => {
+                mouse_button_down = false;
+                dwell_timer.stop();
+                hide_timer.stop();
+                ui.set_show_hover_popup(false);
+                return WinitEventResult::Propagate;
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = win.scale_factor() as f64;
+                let lx = (position.x / scale) as f32;
+                let ly = (position.y / scale) as f32;
+                last_mouse_pos = (lx, ly);
+
+                let hover_enabled = !mouse_button_down
+                    && ui.get_dnd_hover_target().is_empty()
+                    && ui.get_is_active_asm()
+                    && ui.get_editor_mode() != 2
+                    && !has_modal
+                    && !ui.get_show_autocomplete_popup()
+                    && !any_menu_open(&ui);
+
+                if !hover_enabled {
+                    dwell_timer.stop();
+                    hide_timer.stop();
+                    if ui.get_show_hover_popup() {
+                        ui.set_show_hover_popup(false);
+                    }
+                    return WinitEventResult::Propagate;
+                }
+
+                ui.set_hover_mouse_x(lx);
+                ui.set_hover_mouse_y(ly);
+                ui.set_hover_probe_tick(ui.get_hover_probe_tick().wrapping_add(1));
+
+                if ui.get_hover_on_same_target() {
+                    hide_timer.stop();
+                } else {
+                    if ui.get_show_hover_popup() {
+                        let hide_weak = app_weak.clone();
+                        hide_timer.start(
+                            slint::TimerMode::SingleShot,
+                            std::time::Duration::from_millis(140),
+                            move || {
+                                if let Some(ui) = hide_weak.upgrade()
+                                    && !ui.get_hover_popup_hovered()
+                                    && !ui.get_hover_on_same_target()
+                                {
+                                    ui.set_show_hover_popup(false);
+                                }
+                            },
+                        );
+                    }
+
+                    let dwell_weak = app_weak.clone();
+                    dwell_timer.start(
+                        slint::TimerMode::SingleShot,
+                        std::time::Duration::from_millis(240),
+                        move || {
+                            if let Some(ui) = dwell_weak.upgrade()
+                                && ui.get_is_active_asm()
+                                && ui.get_editor_mode() != 2
+                                && !ui.get_show_autocomplete_popup()
+                                && !ui.get_hover_popup_hovered()
+                            {
+                                ui.set_hover_lookup_tick(ui.get_hover_lookup_tick().wrapping_add(1));
+                            }
+                        },
+                    );
+                }
+                return WinitEventResult::Propagate;
+            }
+            WindowEvent::KeyboardInput { .. } | WindowEvent::Ime(_) | WindowEvent::Focused(_) => {}
+            _ => return WinitEventResult::Propagate,
+        }
+
+        if matches!(event, WindowEvent::Focused(false)) {
+            mouse_button_down = false;
+            dwell_timer.stop();
+            hide_timer.stop();
+            ui.set_show_hover_popup(false);
+            if any_menu_open(&ui) {
+                ui.invoke_close_all_context_menus();
+            }
+        }
+
+        if let WindowEvent::KeyboardInput {
+            event: key_event,
+            is_synthetic: false,
+            ..
+        } = event
+            && key_event.state == ElementState::Pressed
+        {
+            dwell_timer.stop();
+            hide_timer.stop();
+            let is_escape = matches!(
+                &key_event.logical_key,
+                NativeKey::Named(NamedKey::Escape)
+            );
+            if is_escape && any_menu_open(&ui) {
+                ui.invoke_close_all_context_menus();
+                return WinitEventResult::PreventDefault;
+            }
+            if !is_escape && ui.get_show_hover_popup() {
+                ui.set_show_hover_popup(false);
+            }
+            if !has_modal && is_toggle_terminal_shortcut(modifiers, key_event) {
+                ui.invoke_toggle_terminal();
+                return WinitEventResult::PreventDefault;
+            }
+        }
+
+        let terminal_active = ui.get_terminal_active_tab() == 1
+            && ui.get_terminal_expanded()
+            && ui.get_term_focused()
+            && !has_modal;
+        if !terminal_active {
+            return WinitEventResult::Propagate;
+        }
+
+        let Ok(mut view) = binding.try_borrow_mut() else {
+            return WinitEventResult::Propagate;
+        };
+        if let WindowEvent::Focused(focused) = event {
+            view.window_focus(*focused);
+            if !focused {
+                modifiers = ModifiersState::empty();
+            }
+            return WinitEventResult::Propagate;
+        }
+        if !view.is_focused() {
+            return WinitEventResult::Propagate;
+        }
+
+        let m = Modifiers {
+            ctrl: modifiers.control_key(),
+            alt: modifiers.alt_key(),
+            shift: modifiers.shift_key(),
+        };
+        match event {
+            WindowEvent::Ime(Ime::Preedit(s, _)) => view.update_preedit(s),
+            WindowEvent::Ime(Ime::Commit(s)) => view.commit_ime(s),
+            WindowEvent::Ime(Ime::Disabled) => view.preedit.clear(),
+            WindowEvent::KeyboardInput {
+                event: key_event,
+                is_synthetic: false,
+                ..
+            } if key_event.state == ElementState::Pressed => {
+                let Some(key) = map_winit_key_to_term_key(&key_event.logical_key) else {
+                    return WinitEventResult::Propagate;
+                };
+                view.key(key, m);
+            }
+            _ => return WinitEventResult::Propagate,
+        }
+        WinitEventResult::PreventDefault
+    });
 }

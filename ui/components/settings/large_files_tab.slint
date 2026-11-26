@@ -1,0 +1,84 @@
+import { Theme } from "../theme.slint";
+import { SettingsToggleRow } from "settings_widgets.slint";
+
+export component LargeFilesSettingsTab inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in-out property <bool> large_file_optimizations: true;
+    in-out property <int> soft_limit_mb: 20;
+    in-out property <int> hard_limit_mb: 500;
+
+    spacing: 14px;
+    alignment: start;
+
+    SettingsToggleRow {
+        label: root.current_language == "ru" ? "Оптимизация больших файлов" : "Large File Optimizations";
+        checked <=> root.large_file_optimizations;
+        active_color: Theme.accent_yellow;
+    }
+
+    Rectangle {
+        height: 40px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            alignment: space-between;
+            Text {
+                text: (root.current_language == "ru" ? "Порог авто-оптимизации: " : "Soft limit: ") + root.soft_limit_mb + " MB";
+                font-size: 13px;
+                color: Theme.text_primary;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 34px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
+                        Text { text: "-5"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { if root.soft_limit_mb > 5 { root.soft_limit_mb -= 5; } } }
+                    }
+                    Rectangle {
+                        width: 34px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
+                        Text { text: "+5"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { if root.soft_limit_mb < 200 { root.soft_limit_mb += 5; } } }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        height: 40px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            alignment: space-between;
+            Text {
+                text: (root.current_language == "ru" ? "Порог предупреждения ОЗУ: " : "Hard limit: ") + root.hard_limit_mb + " MB";
+                font-size: 13px;
+                color: Theme.text_primary;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 44px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
+                        Text { text: "-50"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { if root.hard_limit_mb > 100 { root.hard_limit_mb -= 50; } } }
+                    }
+                    Rectangle {
+                        width: 44px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
+                        Text { text: "+50"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { if root.hard_limit_mb < 2000 { root.hard_limit_mb += 50; } } }
+                    }
+                }
+            }
+        }
+    }
+}

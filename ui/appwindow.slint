@@ -20,10 +20,13 @@ import { Sidebar } from "./components/sidebar.slint";
 import { TerminalPanel } from "./components/terminal_panel.slint";
 import { FileDropdownMenu, RunDropdownMenu, ViewDropdownMenu, HelpDropdownMenu } from "./components/dropdown_menus.slint";
 import { ExplorerContextMenu } from "./components/explorer_context_menu.slint";
+import { EditorContextMenu } from "./components/editor_context_menu.slint";
+import { TabContextMenu } from "./components/tab_context_menu.slint";
 import { EditorPage } from "./pages/editor_page.slint";
 import { DocsPage } from "./pages/docs_page.slint";
 import { TabBar } from "./components/tab_bar.slint";
 import { SettingsDialog } from "./components/settings_dialog.slint";
+import { LargeFileModal, DeletedTabModal, DndConflictModal } from "./components/modals.slint";
 
 export component AppWindow inherits Window {
     title: "ASM Code - Intel 8080 IDE";
@@ -58,12 +61,44 @@ export component AppWindow inherits Window {
 
     // Custom Context Menu States & Coordinates
     in-out property <bool> show_context_menu: false;
-    in-out property <bool> show_editor_context_menu: false;
+    in-out property <bool> show_tab_context_menu: false;
     in-out property <bool> show_explorer_context_menu: false;
     in-out property <length> context_menu_x: 100px;
     in-out property <length> context_menu_y: 100px;
+    in-out property <string> tab_context_path: "";
+    in-out property <bool> is_tab_pinned: false;
+    in-out property <length> tab_context_x: 100px;
+    in-out property <length> tab_context_y: 100px;
     in-out property <length> explorer_menu_x: 100px;
     in-out property <length> explorer_menu_y: 100px;
+    in-out property <string> editor_ctx_action: "";
+    in-out property <int> editor_ctx_action_tick: 0;
+    in-out property <length> active_menu_x: 0px;
+    in-out property <length> active_menu_y: 0px;
+    in-out property <length> active_menu_w: 0px;
+    in-out property <length> active_menu_h: 0px;
+
+    callback close_all_context_menus();
+    close_all_context_menus => {
+        root.show_file_menu = false;
+        root.show_run_menu = false;
+        root.show_view_menu = false;
+        root.show_help_menu = false;
+        root.show_explorer_context_menu = false;
+        root.show_tab_context_menu = false;
+        root.show_context_menu = false;
+        root.show_hover_popup = false;
+        root.show_autocomplete_popup = false;
+        root.active_menu_w = 0px;
+        root.active_menu_h = 0px;
+    }
+
+    public function set_active_menu_bounds(x: length, y: length, w: length, h: length) {
+        root.active_menu_x = x;
+        root.active_menu_y = y;
+        root.active_menu_w = w;
+        root.active_menu_h = h;
+    }
     in-out property <bool> show_settings_dialog: false;
     in-out property <string> compiler_path: "";
     in-out property <string> compiler_args: "-C 8080 -e -w -b 0x100 -o \"{output}\" \"{input}\"";
@@ -83,14 +118,7 @@ export component AppWindow inherits Window {
     in-out property <string> dnd_conflict_filename: "";
     in-out property <string> dnd_conflict_new_name: "";
 
-    public function close_all_context_menus() {
-        root.show_file_menu = false;
-        root.show_run_menu = false;
-        root.show_view_menu = false;
-        root.show_help_menu = false;
-        root.show_explorer_context_menu = false;
-        root.show_editor_context_menu = false;
-    }
+    // Removed unused old close_all_context_menus function (moved to callback above)
 
     // Blinking Cursor Timer (VS Code standard: stays solid while typing/moving, blinks only after 450ms idle)
     in-out property <bool> cursor_visible: true;
@@ -141,6 +169,7 @@ export component AppWindow inherits Window {
     in-out property <bool> is_active_asm: true;
     in-out property <string> code_text: "";
     in-out property <string> line_numbers_text: "1\n2\n3";
+    in-out property <int> gutter_start_line: 0;
     in-out property <bool> show_new_file_dialog: false;
     in-out property <bool> show_new_folder_dialog: false;
     in-out property <bool> show_rename_dialog: false;
@@ -204,6 +233,7 @@ export component AppWindow inherits Window {
     in-out property <bool> is_process_running: false;
 
     // Selected suggestion details
+    in-out property <int> selected_sugg_index: 0;
     in-out property <string> selected_sugg_name: "MOV";
     in-out property <string> selected_sugg_category: "Пересылка данных";
     in-out property <string> selected_sugg_syntax: "MOV r1, r2";
@@ -213,6 +243,27 @@ export component AppWindow inherits Window {
     in-out property <string> selected_sugg_insert_text: "mov";
     in-out property <string> selected_sugg_icon_kind: "transfer";
     in-out property <string> selected_sugg_example: "mov a, b        ; Копировать B в A";
+
+    // Hover Documentation Popup & Word Highlight
+    in-out property <bool> show_hover_popup: false;
+    in-out property <int> hover_word_line: 0;
+    in-out property <int> hover_word_col: 0;
+    in-out property <int> hover_word_len: 0;
+    in-out property <string> hover_title: "";
+    in-out property <string> hover_category: "";
+    in-out property <string> hover_badge: "";
+    in-out property <string> hover_syntax: "";
+    in-out property <string> hover_flags: "";
+    in-out property <string> hover_summary: "";
+    in-out property <string> hover_kind: "transfer";
+    in-out property <[HighlightLineItem]> hover_example_lines: [];
+    in-out property <length> hover_mouse_x: -1px;
+    in-out property <length> hover_mouse_y: -1px;
+    in-out property <int> hover_probe_tick: 0;
+    in-out property <int> hover_lookup_tick: 0;
+    in-out property <bool> hover_popup_hovered: false;
+    in-out property <bool> hover_on_same_target: false;
+    callback request_hover_doc(int, int);
 
     // Drag and Drop (DnD) Visual State & Callbacks
     in-out property <string> dnd_hover_target: "";
@@ -346,6 +397,26 @@ export component AppWindow inherits Window {
     in-out property <bool> show_replace_row: false;
     in-out property <int> select_range_start: -1;
     in-out property <int> select_range_end: -1;
+    in-out property <int> editor_focus_tick: 0;
+
+    callback toggle_terminal();
+    toggle_terminal => {
+        if root.terminal_expanded {
+            root.terminal_expanded = false;
+            root.term_focused = false;
+            root.term_focus_changed(false);
+            root.terminal_expanded_changed(false);
+            if root.editor_mode != 2 {
+                root.editor_focus_tick += 1;
+            }
+        } else {
+            root.terminal_expanded = true;
+            root.terminal_active_tab = 1;
+            root.term_focused = true;
+            root.term_focus_changed(true);
+            root.terminal_expanded_changed(true);
+        }
+    }
 
     zoom_in => {
         if root.editor_font_size < 38px {
@@ -378,28 +449,24 @@ export component AppWindow inherits Window {
             show_view_menu: root.show_view_menu;
             show_help_menu: root.show_help_menu;
             toggle_file_menu => {
-                root.show_file_menu = !root.show_file_menu;
-                root.show_run_menu = false;
-                root.show_view_menu = false;
-                root.show_help_menu = false;
+                let next = !root.show_file_menu;
+                root.close_all_context_menus();
+                root.show_file_menu = next;
             }
             toggle_run_menu => {
-                root.show_run_menu = !root.show_run_menu;
-                root.show_file_menu = false;
-                root.show_view_menu = false;
-                root.show_help_menu = false;
+                let next = !root.show_run_menu;
+                root.close_all_context_menus();
+                root.show_run_menu = next;
             }
             toggle_view_menu => {
-                root.show_view_menu = !root.show_view_menu;
-                root.show_file_menu = false;
-                root.show_run_menu = false;
-                root.show_help_menu = false;
+                let next = !root.show_view_menu;
+                root.close_all_context_menus();
+                root.show_view_menu = next;
             }
             toggle_help_menu => {
-                root.show_help_menu = !root.show_help_menu;
-                root.show_file_menu = false;
-                root.show_run_menu = false;
-                root.show_view_menu = false;
+                let next = !root.show_help_menu;
+                root.close_all_context_menus();
+                root.show_help_menu = next;
             }
             close_active_file => { root.close_active_file(); }
             toggle_docs_mode => { root.toggle_docs_mode(); }
@@ -440,6 +507,7 @@ export component AppWindow inherits Window {
                 rename_file(path, text) => { root.term_focused = false; root.term_focus_changed(false); root.rename_file(path, text); }
                 file_clicked(path, is_dir) => { root.term_focused = false; root.term_focus_changed(false); root.file_clicked(path, is_dir); }
                 file_right_clicked(path, name, mx, my) => {
+                    root.close_all_context_menus();
                     root.selected_explorer_path = path;
                     root.selected_explorer_name = name;
                     root.explorer_menu_x = mx;
@@ -447,6 +515,7 @@ export component AppWindow inherits Window {
                     root.show_explorer_context_menu = true;
                 }
                 explorer_bg_right_clicked(mx, my) => {
+                    root.close_all_context_menus();
                     root.selected_explorer_path = "";
                     root.selected_explorer_name = "";
                     root.explorer_menu_x = mx;
@@ -482,6 +551,7 @@ export component AppWindow inherits Window {
                 open_tabs: root.open_tabs;
                 active_file_path: root.active_file_path;
                 line_numbers_text: root.line_numbers_text;
+                gutter_start_line: root.gutter_start_line;
                 is_large_file_mode: root.is_large_file_mode;
                 switch_tab(p) => { root.switch_tab(p); }
                 close_tab(p) => { root.close_tab(p); }
@@ -494,6 +564,7 @@ export component AppWindow inherits Window {
                 show_in_explorer_tree(p) => { root.show_in_explorer_tree(p); }
                 toggle_pin_tab(p) => { root.toggle_pin_tab(p); }
                 open_settings => { root.show_settings_dialog = true; }
+                editor_focus_tick: root.editor_focus_tick;
                 force_enable_large_file_features => { root.force_enable_large_file_features(); }
                 current_language: root.current_language;
                 editor_font_size: root.editor_font_size;
@@ -515,6 +586,7 @@ export component AppWindow inherits Window {
                 suggestion_list: root.suggestion_list;
                 bdos_list: root.bdos_list;
                 ascii_list: root.ascii_list;
+                selected_sugg_index <=> root.selected_sugg_index;
                 selected_sugg_name <=> root.selected_sugg_name;
                 selected_sugg_category <=> root.selected_sugg_category;
                 selected_sugg_syntax <=> root.selected_sugg_syntax;
@@ -528,9 +600,46 @@ export component AppWindow inherits Window {
                 popup_anchor_x <=> root.popup_anchor_x;
                 popup_anchor_y <=> root.popup_anchor_y;
                 popup_trigger_line <=> root.popup_trigger_line;
+                show_hover_popup <=> root.show_hover_popup;
+                hover_word_line <=> root.hover_word_line;
+                hover_word_col <=> root.hover_word_col;
+                hover_word_len <=> root.hover_word_len;
+                hover_title <=> root.hover_title;
+                hover_category <=> root.hover_category;
+                hover_badge <=> root.hover_badge;
+                hover_syntax <=> root.hover_syntax;
+                hover_flags <=> root.hover_flags;
+                hover_summary <=> root.hover_summary;
+                hover_kind <=> root.hover_kind;
+                hover_example_lines <=> root.hover_example_lines;
+                hover_mouse_x <=> root.hover_mouse_x;
+                hover_mouse_y <=> root.hover_mouse_y;
+                hover_probe_tick <=> root.hover_probe_tick;
+                hover_lookup_tick <=> root.hover_lookup_tick;
+                hover_popup_hovered <=> root.hover_popup_hovered;
+                hover_on_same_target <=> root.hover_on_same_target;
+                request_hover_doc(line, col) => { root.request_hover_doc(line, col); }
                 show_context_menu <=> root.show_context_menu;
+                show_tab_context_menu <=> root.show_tab_context_menu;
                 context_menu_x <=> root.context_menu_x;
                 context_menu_y <=> root.context_menu_y;
+                editor_ctx_action: root.editor_ctx_action;
+                editor_ctx_action_tick: root.editor_ctx_action_tick;
+                close_all_context_menus => { root.close_all_context_menus(); }
+                open_tab_context_menu(p, pinned, mx, my) => {
+                    root.close_all_context_menus();
+                    root.tab_context_path = p;
+                    root.is_tab_pinned = pinned;
+                    root.tab_context_x = mx;
+                    root.tab_context_y = my;
+                    root.show_tab_context_menu = true;
+                }
+                open_editor_context_menu(mx, my) => {
+                    root.close_all_context_menus();
+                    root.context_menu_x = mx;
+                    root.context_menu_y = my;
+                    root.show_context_menu = true;
+                }
                 right_drawer_expanded <=> root.right_drawer_expanded;
                 search_filter <=> root.search_filter;
                 code_edited(t, o) => { root.code_edited(t, o); }
@@ -673,37 +782,19 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Modal Backdrop: Closes top dropdown menus when clicking outside (leaves header unblocked for 1-click tab switching)
-    if root.show_file_menu || root.show_run_menu || root.show_view_menu || root.show_help_menu: TouchArea {
-        x: 0px;
-        y: 54px;
-        width: 100%;
-        height: parent.height - 54px;
-        z: 95;
-        clicked => {
-            root.show_file_menu = false;
-            root.show_run_menu = false;
-            root.show_view_menu = false;
-            root.show_help_menu = false;
-        }
-    }
-
-    // Modal Backdrop: Closes explorer context menu when clicking outside
-    if root.show_explorer_context_menu: TouchArea {
-        x: 0px;
-        y: 0px;
-        width: 100%;
-        height: 100%;
-        z: 95;
-        clicked => {
-            root.show_explorer_context_menu = false;
-        }
-    }
-
     // Floating Dropdown Menus
     if root.show_file_menu: FileDropdownMenu {
         x: 80px;
         y: 58px;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         current_language: root.current_language;
         new_file => {
             root.show_file_menu = false;
@@ -738,6 +829,15 @@ export component AppWindow inherits Window {
     if root.show_run_menu: RunDropdownMenu {
         x: 148px;
         y: 58px;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         current_language: root.current_language;
         run_emulator => {
             root.show_run_menu = false;
@@ -756,6 +856,15 @@ export component AppWindow inherits Window {
     if root.show_view_menu: ViewDropdownMenu {
         x: 216px;
         y: 58px;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         current_language: root.current_language;
         editor_font_size: root.editor_font_size;
         active_theme_id: root.active_theme_id;
@@ -772,6 +881,15 @@ export component AppWindow inherits Window {
     if root.show_help_menu: HelpDropdownMenu {
         x: 284px;
         y: 58px;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         current_language: root.current_language;
         open_docs => {
             root.show_help_menu = false;
@@ -779,159 +897,188 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Custom Stylized Explorer Context Menu
+    // Unified Top-Layer Context Menus (mutually exclusive, positioned in window space)
     if root.show_explorer_context_menu: ExplorerContextMenu {
-        x: min(root.explorer_menu_x, root.width - 250px);
-        y: min(root.explorer_menu_y, root.height - 280px);
+        x: min(max(8px, root.explorer_menu_x), max(8px, root.width - 248px));
+        y: min(max(8px, root.explorer_menu_y), max(8px, root.height - self.height - 8px));
+        z: 150;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
         current_language: root.current_language;
         selected_explorer_path: root.selected_explorer_path;
         selected_explorer_name: root.selected_explorer_name;
         create_new_file => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.show_new_file_dialog = true;
         }
         create_new_folder => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.show_new_folder_dialog = true;
         }
         rename_requested => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.rename_target_name = root.selected_explorer_name;
             root.show_rename_dialog = true;
         }
         delete_requested(path) => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.delete_file_requested(path);
         }
         undo_delete_requested => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.explorer_undo();
         }
         copy_path_requested(path) => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.copy_path_requested(path);
         }
         reveal_in_explorer_requested(path) => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.reveal_in_explorer_requested(path);
         }
         refresh_requested => {
-            root.show_explorer_context_menu = false;
+            root.close_all_context_menus();
             root.refresh_files();
         }
     }
 
-    // Large File Warning Modal Dialog (> 500 MB)
-    if root.show_large_file_modal: Rectangle {
-        x: 0px;
-        y: 0px;
-        width: 100%;
-        height: 100%;
-        background: #000000aa;
-        z: 200;
-
-        TouchArea {
-            // consume clicks outside modal
+    if root.show_tab_context_menu: TabContextMenu {
+        x: min(max(8px, root.tab_context_x), max(8px, root.width - 338px));
+        y: min(max(8px, root.tab_context_y), max(8px, root.height - self.height - 8px));
+        z: 150;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        current_language: root.current_language;
+        target_path: root.tab_context_path;
+        is_pinned: root.is_tab_pinned;
+        close_tab(p) => {
+            root.close_all_context_menus();
+            root.close_tab(p);
         }
+        close_other_tabs(p) => {
+            root.close_all_context_menus();
+            root.close_other_tabs(p);
+        }
+        close_saved_tabs => {
+            root.close_all_context_menus();
+            root.close_saved_tabs();
+        }
+        close_all_tabs => {
+            root.close_all_context_menus();
+            root.close_all_tabs();
+        }
+        copy_relative_path(p) => {
+            root.close_all_context_menus();
+            root.copy_relative_path(p);
+        }
+        copy_absolute_path(p) => {
+            root.close_all_context_menus();
+            root.copy_path_requested(p);
+        }
+        reveal_in_explorer(p) => {
+            root.close_all_context_menus();
+            root.reveal_in_explorer_requested(p);
+        }
+        show_in_explorer_tree(p) => {
+            root.close_all_context_menus();
+            root.show_in_explorer_tree(p);
+        }
+        toggle_pin_tab(p) => {
+            root.close_all_context_menus();
+            root.toggle_pin_tab(p);
+        }
+    }
 
-        Rectangle {
-            width: 500px;
-            height: modal_col.preferred-height;
-            background: Theme.menu_bg;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.accent_yellow;
-            drop-shadow-blur: 20px;
-            drop-shadow-color: #000000cc;
+    if root.show_context_menu: EditorContextMenu {
+        x: min(max(8px, root.context_menu_x), max(8px, root.width - 258px));
+        y: min(max(8px, root.context_menu_y), max(8px, root.height - self.height - 8px));
+        z: 150;
+        property <length> _bx: self.x;
+        property <length> _by: self.y;
+        property <length> _bw: self.width;
+        property <length> _bh: self.height;
+        changed _bx => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _by => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bw => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        changed _bh => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        init => { root.set_active_menu_bounds(self._bx, self._by, self._bw, self._bh); }
+        current_language: root.current_language;
+        undo => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "undo";
+            root.editor_ctx_action_tick += 1;
+        }
+        redo => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "redo";
+            root.editor_ctx_action_tick += 1;
+        }
+        cut => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "cut";
+            root.editor_ctx_action_tick += 1;
+        }
+        copy => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "copy";
+            root.editor_ctx_action_tick += 1;
+        }
+        paste => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "paste";
+            root.editor_ctx_action_tick += 1;
+        }
+        select_all => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "select_all";
+            root.editor_ctx_action_tick += 1;
+        }
+        toggle_comment => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "toggle_comment";
+            root.editor_ctx_action_tick += 1;
+        }
+        duplicate_line => {
+            root.close_all_context_menus();
+            root.editor_ctx_action = "duplicate_line";
+            root.editor_ctx_action_tick += 1;
+        }
+        run_assemble => {
+            root.close_all_context_menus();
+            root.run_assemble_only();
+        }
+        run_emulator => {
+            root.close_all_context_menus();
+            root.run_emulator();
+        }
+    }
 
-            modal_col := VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-
-                HorizontalLayout {
-                    spacing: 12px;
-                    alignment: start;
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            source: @image-url("icons/document.svg");
-                            width: 22px;
-                            height: 22px;
-                        }
-                    }
-                    Text {
-                        text: root.current_language == "ru" ? "Предупреждение о большом файле" : "Large File Warning";
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: Theme.accent_yellow;
-                        vertical-alignment: center;
-                    }
-                }
-
-                Text {
-                    text: root.large_file_modal_text;
-                    font-size: 13px;
-                    color: Theme.text_primary;
-                    wrap: word-wrap;
-                }
-
-                HorizontalLayout {
-                    spacing: 12px;
-                    alignment: end;
-
-                    // Cancel button
-                    Rectangle {
-                        width: 110px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: cancel_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
-                        border-width: 1px;
-                        border-color: Theme.border_normal;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Отмена" : "Cancel";
-                            font-size: 13px;
-                            font-weight: 600;
-                            color: Theme.text_primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        cancel_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_large_file_modal = false;
-                                root.cancel_open_large_file();
-                            }
-                        }
-                    }
-
-                    // Confirm Open button
-                    Rectangle {
-                        width: 150px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: confirm_touch.has-hover ? #f9e2af : Theme.accent_yellow;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Открыть всё равно" : "Open Anyway";
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: #151518;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        confirm_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_large_file_modal = false;
-                                root.confirm_open_large_file(root.pending_large_file_path);
-                            }
-                        }
-                    }
-                }
-            }
+    // Large File Warning Modal Dialog (> 500 MB)
+    if root.show_large_file_modal: LargeFileModal {
+        z: 200;
+        current_language: root.current_language;
+        modal_text: root.large_file_modal_text;
+        cancel_open => {
+            root.show_large_file_modal = false;
+            root.cancel_open_large_file();
+        }
+        confirm_open => {
+            root.show_large_file_modal = false;
+            root.confirm_open_large_file(root.pending_large_file_path);
         }
     }
 
@@ -977,289 +1124,36 @@ export component AppWindow inherits Window {
     }
 
     // Deleted File Tab Close Confirmation Modal Dialog
-    if root.show_deleted_tab_modal: Rectangle {
-        x: 0px;
-        y: 0px;
-        width: 100%;
-        height: 100%;
-        background: #000000aa;
+    if root.show_deleted_tab_modal: DeletedTabModal {
         z: 300;
-
-        TouchArea {
-            // consume clicks outside modal
+        current_language: root.current_language;
+        keep_open => {
+            root.show_deleted_tab_modal = false;
+            root.cancel_close_deleted_tab();
         }
-
-        Rectangle {
-            width: 480px;
-            height: del_modal_col.preferred-height;
-            background: Theme.menu_bg;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.accent_red;
-            drop-shadow-blur: 24px;
-            drop-shadow-color: #000000cc;
-
-            del_modal_col := VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-
-                HorizontalLayout {
-                    spacing: 12px;
-                    alignment: start;
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            source: @image-url("icons/delete.svg");
-                            width: 22px;
-                            height: 22px;
-                        }
-                    }
-                    Text {
-                        text: root.current_language == "ru" ? "Файл удален на диске" : "File Deleted on Disk";
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: Theme.accent_red;
-                        vertical-alignment: center;
-                    }
-                }
-
-                Text {
-                    text: root.current_language == "ru"
-                        ? "Этот файл был удален с диска в проводнике. Закрытие вкладки приведет к безвозвратной потере несохраненного содержимого из памяти. Закрыть вкладку?"
-                        : "This file has been deleted from disk. Closing the tab will discard the in-memory content permanently. Close tab anyway?";
-                    font-size: 13px;
-                    color: Theme.text_primary;
-                    wrap: word-wrap;
-                }
-
-                HorizontalLayout {
-                    spacing: 12px;
-                    alignment: end;
-
-                    // Keep Tab Open button
-                    Rectangle {
-                        width: 130px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: keep_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
-                        border-width: 1px;
-                        border-color: Theme.border_normal;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Оставить вкладку" : "Keep Open";
-                            font-size: 13px;
-                            font-weight: 600;
-                            color: Theme.text_primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        keep_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_deleted_tab_modal = false;
-                                root.cancel_close_deleted_tab();
-                            }
-                        }
-                    }
-
-                    // Discard and Close button
-                    Rectangle {
-                        width: 150px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: del_confirm_touch.has-hover ? #ff4d6d : Theme.accent_red;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Закрыть и удалить" : "Discard & Close";
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        del_confirm_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_deleted_tab_modal = false;
-                                root.confirm_close_deleted_tab(root.pending_deleted_tab_path);
-                            }
-                        }
-                    }
-                }
-            }
+        discard_and_close => {
+            root.show_deleted_tab_modal = false;
+            root.confirm_close_deleted_tab(root.pending_deleted_tab_path);
         }
     }
 
     // Drag & Drop File Exists Conflict Modal Dialog
-    if root.show_dnd_conflict_modal: Rectangle {
-        x: 0px;
-        y: 0px;
-        width: 100%;
-        height: 100%;
-        background: #000000aa;
+    if root.show_dnd_conflict_modal: DndConflictModal {
         z: 350;
-
-        TouchArea {
-            // consume clicks outside modal
+        current_language: root.current_language;
+        conflict_filename: root.dnd_conflict_filename;
+        conflict_new_name <=> root.dnd_conflict_new_name;
+        cancel => {
+            root.show_dnd_conflict_modal = false;
+            root.dnd_conflict_cancel();
         }
-
-        Rectangle {
-            width: 530px;
-            height: conflict_modal_col.preferred-height;
-            background: Theme.menu_bg;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: Theme.accent_yellow;
-            drop-shadow-blur: 24px;
-            drop-shadow-color: #000000cc;
-
-            conflict_modal_col := VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-
-                HorizontalLayout {
-                    spacing: 12px;
-                    alignment: start;
-                    VerticalLayout {
-                        alignment: center;
-                        Image {
-                            source: @image-url("icons/info.svg");
-                            width: 22px;
-                            height: 22px;
-                            colorize: Theme.accent_yellow;
-                        }
-                    }
-                    Text {
-                        text: root.current_language == "ru" ? "Файл уже существует" : "File Already Exists";
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: Theme.accent_yellow;
-                        vertical-alignment: center;
-                    }
-                }
-
-                Text {
-                    text: root.current_language == "ru"
-                        ? "В папке назначения уже есть файл с именем \"" + root.dnd_conflict_filename + "\". Выберите действие:"
-                        : "The target folder already contains a file named \"" + root.dnd_conflict_filename + "\". Choose an action:";
-                    font-size: 13px;
-                    color: Theme.text_primary;
-                    wrap: word-wrap;
-                }
-
-                VerticalLayout {
-                    spacing: 6px;
-                    Text {
-                        text: root.current_language == "ru" ? "Новое имя (для сохранения с другим названием):" : "New name (to save with a different name):";
-                        font-size: 12px;
-                        color: Theme.text_dim;
-                    }
-                    Rectangle {
-                        height: 34px;
-                        background: Theme.editor_bg;
-                        border-radius: 4px;
-                        border-width: 1px;
-                        border-color: rename_input.has-focus ? Theme.accent_blue : Theme.border_normal;
-
-                        rename_input := TextInput {
-                            x: 8px;
-                            y: 0px;
-                            width: parent.width - 16px;
-                            height: 100%;
-                            vertical-alignment: center;
-                            text <=> root.dnd_conflict_new_name;
-                            color: Theme.text_primary;
-                            font-size: 13px;
-                        }
-                    }
-                }
-
-                HorizontalLayout {
-                    spacing: 8px;
-                    alignment: end;
-
-                    // 3) Cancel Button
-                    Rectangle {
-                        width: 90px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: conflict_cancel_touch.has-hover ? Theme.bg_surface2 : Theme.bg_surface1;
-                        border-width: 1px;
-                        border-color: Theme.border_normal;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Отмена" : "Cancel";
-                            font-size: 13px;
-                            font-weight: 600;
-                            color: Theme.text_primary;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        conflict_cancel_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_dnd_conflict_modal = false;
-                                root.dnd_conflict_cancel();
-                            }
-                        }
-                    }
-
-                    // 1) Replace Button
-                    Rectangle {
-                        width: 105px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: conflict_replace_touch.has-hover ? #ff4d6d : Theme.accent_red;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Заменить" : "Replace";
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        conflict_replace_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                root.show_dnd_conflict_modal = false;
-                                root.dnd_conflict_replace(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir);
-                            }
-                        }
-                    }
-
-                    // 2) Save with New Name Button
-                    Rectangle {
-                        width: 220px;
-                        height: 32px;
-                        border-radius: 4px;
-                        background: conflict_save_as_touch.has-hover ? #a6e3a1 : #85c980;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Сохранить под новым именем" : "Save with new name";
-                            font-size: 12px;
-                            font-weight: 700;
-                            color: #151518;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-
-                        conflict_save_as_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => {
-                                if root.dnd_conflict_new_name != "" {
-                                    root.show_dnd_conflict_modal = false;
-                                    root.dnd_conflict_rename(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir, root.dnd_conflict_new_name);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        replace_file => {
+            root.show_dnd_conflict_modal = false;
+            root.dnd_conflict_replace(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir);
+        }
+        save_with_new_name => {
+            root.show_dnd_conflict_modal = false;
+            root.dnd_conflict_rename(root.dnd_conflict_source_path, root.dnd_conflict_dest_dir, root.dnd_conflict_new_name);
         }
     }
 }

@@ -1,4 +1,6 @@
-use super::extractor::{SymbolKind, UserSymbol, extract_user_labels};
+use super::extractor::{
+    SymbolKind, UserSymbol, extract_user_labels, extract_user_labels_with_starts,
+};
 use super::intel8080_docs::{INTEL_8080_DOCS, InstructionDoc};
 use slint::SharedString;
 
@@ -38,14 +40,27 @@ impl AutocompleteEngine {
         full_source: &str,
         lang: &str,
     ) -> Vec<Suggestion> {
+        let user_symbols = extract_user_labels(full_source);
+        self.get_suggestions_lang_with_symbols(current_word, &user_symbols, lang)
+    }
+
+    pub fn get_suggestions_lang_with_symbols(
+        &self,
+        current_word: &str,
+        user_symbols: &[UserSymbol],
+        lang: &str,
+    ) -> Vec<Suggestion> {
         let mut results = Vec::with_capacity(32);
         let query = current_word.trim();
         let is_ru = lang == "ru";
-        let query_upper = query.to_ascii_uppercase();
+        let query_bytes = query.as_bytes();
 
         let mut doc_results = Vec::with_capacity(self.docs.len());
         for doc in self.docs {
-            if query.is_empty() || doc.name.starts_with(&query_upper) {
+            if query.is_empty()
+                || (doc.name.len() >= query_bytes.len()
+                    && doc.name.as_bytes()[..query_bytes.len()].eq_ignore_ascii_case(query_bytes))
+            {
                 doc_results.push(Suggestion {
                     name: SharedString::from(doc.name),
                     category: SharedString::from(doc.get_category(lang)),
@@ -60,10 +75,13 @@ impl AutocompleteEngine {
             }
         }
 
-        let user_symbols = extract_user_labels(full_source);
         let mut user_results = Vec::with_capacity(user_symbols.len());
-        for symbol in &user_symbols {
-            if query.is_empty() || symbol.name.to_ascii_uppercase().starts_with(&query_upper) {
+        for symbol in user_symbols {
+            if query.is_empty()
+                || (symbol.name.len() >= query_bytes.len()
+                    && symbol.name.as_bytes()[..query_bytes.len()]
+                        .eq_ignore_ascii_case(query_bytes))
+            {
                 let (category, summary, example) = match symbol.kind {
                     SymbolKind::Constant => {
                         let cat = if is_ru {
@@ -198,6 +216,15 @@ impl AutocompleteEngine {
         results
     }
 
+    pub fn get_user_labels_with_starts(
+        &self,
+        full_source: &str,
+        line_starts: Option<&[usize]>,
+    ) -> Vec<UserSymbol> {
+        extract_user_labels_with_starts(full_source, line_starts)
+    }
+
+    #[allow(dead_code)]
     pub fn get_user_labels(&self, full_source: &str) -> Vec<UserSymbol> {
         extract_user_labels(full_source)
     }

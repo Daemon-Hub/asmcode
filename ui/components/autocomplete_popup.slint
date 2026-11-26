@@ -5,6 +5,7 @@ import { ScrollView } from "std-widgets.slint";
 export component AutocompletePopup inherits Rectangle {
     in property <string> current_language: "ru";
     in property <[SuggestionItem]> suggestion_list: [];
+    in property <int> selected_sugg_index: 0;
     in property <string> selected_sugg_name: "MOV";
     in property <string> selected_sugg_category: "Пересылка данных";
     in property <string> selected_sugg_syntax: "MOV r1, r2";
@@ -17,31 +18,51 @@ export component AutocompletePopup inherits Rectangle {
     callback select_suggestion(int);
     callback apply_completion(string);
 
-    width: (root.selected_sugg_icon_kind == "label") ? 320px : 630px;
+    width: (root.selected_sugg_icon_kind == "label") ? 320px : 660px;
     height: (root.selected_sugg_icon_kind == "label")
         ? min(220px, max(42px, root.suggestion_list.length * 32px + 12px))
-        : 230px;
+        : max(200px, main_row.preferred-height);
     background: Theme.menu_bg;
     border-radius: 6px;
     border-width: 1px;
     border-color: Theme.accent_blue;
+    clip: true;
     drop-shadow-blur: 14px;
     drop-shadow-color: #000000aa;
     z: 80;
 
-    HorizontalLayout {
+    changed suggestion_list => {
+        sugg_scroll.content-y = 0px;
+    }
+
+    changed selected_sugg_index => {
+        if self.selected_sugg_index >= 0 {
+            let item_top = 4px + self.selected_sugg_index * 32px;
+            let item_bottom = item_top + 30px + 4px;
+            let view_h = sugg_scroll.visible-height;
+            let cur_top = -sugg_scroll.content-y;
+            if (item_top < cur_top) {
+                sugg_scroll.content-y = -max(0px, item_top - 4px);
+            } else if (item_bottom > cur_top + view_h && view_h > 0px) {
+                sugg_scroll.content-y = -(item_bottom - view_h);
+            }
+        }
+    }
+
+    main_row := HorizontalLayout {
         padding: 6px;
         spacing: 8px;
 
         // Left: Suggestions List
         Rectangle {
-            width: (root.selected_sugg_icon_kind == "label") ? 308px : 260px;
+            width: (root.selected_sugg_icon_kind == "label") ? 308px : 240px;
+            horizontal-stretch: 0;
             background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
             border-color: Theme.border_normal;
 
-            ScrollView {
+            sugg_scroll := ScrollView {
                 VerticalLayout {
                     padding: 4px;
                     spacing: 2px;
@@ -101,15 +122,19 @@ export component AutocompletePopup inherits Rectangle {
         }
 
         // Right: Companion Documentation & Example Flyout (Only for opcodes)
-        if root.selected_sugg_icon_kind != "label": Rectangle {
+        if root.selected_sugg_icon_kind != "label": doc_panel := Rectangle {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            clip: true;
             background: Theme.terminal_bg;
             border-radius: 4px;
             border-width: 1px;
             border-color: Theme.border_normal;
 
             VerticalLayout {
-                padding: 8px;
-                spacing: 5px;
+                padding: 12px;
+                spacing: 8px;
+                alignment: start;
 
                 // Title row + Category + Cycles
                 HorizontalLayout {
@@ -120,34 +145,34 @@ export component AutocompletePopup inherits Rectangle {
 
                         VerticalLayout {
                             alignment: center;
-                            if root.selected_sugg_icon_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 16px; height: 16px; }
-                            if root.selected_sugg_icon_kind == "label": Image { source: @image-url("../icons/label.svg"); width: 16px; height: 16px; }
+                            if root.selected_sugg_icon_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 18px; height: 18px; }
+                            if root.selected_sugg_icon_kind == "label": Image { source: @image-url("../icons/label.svg"); width: 18px; height: 18px; }
                         }
 
                         Text {
                             text: root.selected_sugg_name;
                             font-family: "CaskaydiaCove Nerd Font Propo";
-                            font-size: 16px;
+                            font-size: 18px;
                             font-weight: 700;
                             color: Theme.accent_blue;
                             vertical-alignment: center;
                         }
 
                         Rectangle {
-                            height: 20px;
+                            height: 22px;
                             border-radius: 3px;
                             background: Theme.bg_surface1;
                             HorizontalLayout {
-                                padding-left: 6px;
-                                padding-right: 6px;
+                                padding-left: 7px;
+                                padding-right: 7px;
                                 Text {
                                     text: root.selected_sugg_category;
-                                    font-size: 10px;
+                                    font-size: 11px;
                                     color: Theme.accent_yellow;
                                     vertical-alignment: center;
                                 }
@@ -156,15 +181,15 @@ export component AutocompletePopup inherits Rectangle {
                     }
 
                     Rectangle {
-                        height: 20px;
+                        height: 22px;
                         border-radius: 3px;
                         background: Theme.bg_surface1;
                         HorizontalLayout {
-                            padding-left: 6px;
-                            padding-right: 6px;
+                            padding-left: 7px;
+                            padding-right: 7px;
                             Text {
                                 text: root.selected_sugg_cycles + (root.current_language == "ru" ? " тактов" : " cyc");
-                                font-size: 10px;
+                                font-size: 11px;
                                 color: Theme.accent_green;
                                 vertical-alignment: center;
                             }
@@ -176,16 +201,18 @@ export component AutocompletePopup inherits Rectangle {
                 HorizontalLayout {
                     spacing: 10px;
                     Text {
+                        horizontal-stretch: 1;
                         text: (root.current_language == "ru" ? "Формат: " : "Syntax: ") + root.selected_sugg_syntax;
                         font-family: "CaskaydiaCove Nerd Font Propo";
-                        font-size: 12px;
+                        font-size: 13px;
                         color: Theme.accent_green;
                         vertical-alignment: center;
+                        overflow: elide;
                     }
-                    Rectangle { }
                     Text {
+                        horizontal-stretch: 0;
                         text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + root.selected_sugg_flags;
-                        font-size: 11px;
+                        font-size: 12px;
                         color: Theme.accent_yellow;
                         vertical-alignment: center;
                     }
@@ -194,7 +221,7 @@ export component AutocompletePopup inherits Rectangle {
                 // Summary
                 Text {
                     text: root.selected_sugg_summary;
-                    font-size: 12px;
+                    font-size: 13px;
                     color: Theme.text_primary;
                     wrap: word-wrap;
                 }
@@ -202,27 +229,33 @@ export component AutocompletePopup inherits Rectangle {
                 // Example Usage Header
                 Text {
                     text: root.current_language == "ru" ? "Пример использования:" : "Usage Example:";
-                    font-size: 11px;
+                    font-size: 12px;
                     font-weight: 700;
                     color: Theme.accent_blue;
                 }
 
                 // Example Code Box
                 Rectangle {
-                    height: 38px;
+                    height: max(38px, example_txt.preferred-height + 14px);
                     background: Theme.bg_base;
                     border-radius: 4px;
                     border-width: 1px;
                     border-color: Theme.border_normal;
+                    clip: true;
+
                     HorizontalLayout {
-                        padding-left: 8px;
-                        padding-right: 8px;
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        padding-top: 6px;
+                        padding-bottom: 6px;
                         alignment: start;
-                        Text {
+                        example_txt := Text {
+                            horizontal-stretch: 1;
                             text: root.selected_sugg_example;
                             font-family: "CaskaydiaCove Nerd Font Propo";
-                            font-size: 12px;
+                            font-size: 13px;
                             color: Theme.accent_blue;
+                            wrap: word-wrap;
                             vertical-alignment: center;
                         }
                     }

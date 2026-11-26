@@ -1,0 +1,122 @@
+import { Theme } from "../theme.slint";
+import { SettingsToggleRow } from "settings_widgets.slint";
+
+export component EditorSettingsTab inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in-out property <length> editor_font_size: 18px;
+    in-out property <bool> editor_font_italic: true;
+    in-out property <bool> cursor_blink: true;
+    in-out property <int> tab_size: 4;
+    in-out property <bool> associate_asm_files: false;
+    callback toggle_associate_asm();
+
+    spacing: 14px;
+    alignment: start;
+
+    Rectangle {
+        height: 40px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            alignment: space-between;
+            Text {
+                text: (root.current_language == "ru" ? "Размер шрифта: " : "Font size: ") + (root.editor_font_size / 1px) + " px";
+                font-size: 13px;
+                color: Theme.text_primary;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        width: 32px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface2;
+                        Text { text: "-"; font-size: 16px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if root.editor_font_size > 12px { root.editor_font_size -= 2px; }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        width: 32px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface2;
+                        Text { text: "+"; font-size: 16px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if root.editor_font_size < 36px { root.editor_font_size += 2px; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SettingsToggleRow {
+        label: root.current_language == "ru" ? "Курсивный шрифт для директив" : "Italic font for directives";
+        checked <=> root.editor_font_italic;
+        active_color: Theme.accent_blue;
+    }
+
+    SettingsToggleRow {
+        label: root.current_language == "ru" ? "Анимация мигания курсора" : "Cursor blinking animation";
+        checked <=> root.cursor_blink;
+        active_color: Theme.accent_green;
+    }
+
+    Rectangle {
+        height: 40px;
+        border-radius: 4px;
+        background: Theme.bg_surface1;
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            alignment: space-between;
+            Text {
+                text: (root.current_language == "ru" ? "Ширина табуляции: " : "Tab size: ") + root.tab_size + (root.current_language == "ru" ? " пробела" : " spaces");
+                font-size: 13px;
+                color: Theme.text_primary;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Rectangle {
+                        width: 38px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: root.tab_size == 2 ? Theme.accent_blue : Theme.bg_surface2;
+                        Text { text: "2"; font-size: 12px; font-weight: 700; color: root.tab_size == 2 ? #151518 : Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.tab_size = 2; } }
+                    }
+                    Rectangle {
+                        width: 38px;
+                        height: 26px;
+                        border-radius: 3px;
+                        background: root.tab_size == 4 ? Theme.accent_blue : Theme.bg_surface2;
+                        Text { text: "4"; font-size: 12px; font-weight: 700; color: root.tab_size == 4 ? #151518 : Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.tab_size = 4; } }
+                    }
+                }
+            }
+        }
+    }
+
+    SettingsToggleRow {
+        label: root.current_language == "ru" ? "Открывать файлы .asm в ASM Code по умолчанию" : "Open .asm files in ASM Code by default";
+        checked <=> root.associate_asm_files;
+        active_color: Theme.accent_blue;
+        toggled => { root.toggle_associate_asm(); }
+    }
+}

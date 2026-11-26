@@ -1,10 +1,9 @@
 import { FileTabItem, HighlightLineItem, SuggestionItem, FindMatchItem, TextSelectionItem, BdosItem, AsciiItem } from "../models.slint";
 import { TabBar } from "../components/tab_bar.slint";
-import { TabContextMenu } from "../components/tab_context_menu.slint";
 import { RightDrawer } from "../components/right_drawer.slint";
 import { AutocompletePopup } from "../components/autocomplete_popup.slint";
+import { HoverPopup } from "../components/hover_popup.slint";
 import { FindReplaceBar } from "../components/find_replace_bar.slint";
-import { EditorContextMenu } from "../components/editor_context_menu.slint";
 import { Theme } from "../components/theme.slint";
 import { ScrollView } from "std-widgets.slint";
 
@@ -41,6 +40,11 @@ export component EditorPage inherits HorizontalLayout {
     callback duplicate_selection_or_line(int, int) -> TextSelectionItem;
     callback editor_focused();
     in property <bool> term_focused: false;
+    in property <int> editor_focus_tick: 0;
+
+    changed editor_focus_tick => {
+        code_input.focus();
+    }
 
     in property <int> select_range_start: -1;
     in property <int> select_range_end: -1;
@@ -77,12 +81,38 @@ export component EditorPage inherits HorizontalLayout {
     in property <string> line_numbers_text: "";
     in property <bool> is_large_file_mode: false;
     in-out property <bool> show_tab_context_menu: false;
-    in-out property <string> tab_context_path: "";
-    in-out property <length> tab_context_x: 0px;
-    in-out property <length> tab_context_y: 0px;
-    in property <bool> is_tab_pinned: false;
+    in property <string> editor_ctx_action: "";
+    in property <int> editor_ctx_action_tick: 0;
     in property <string> dnd_hover_target: "";
     in property <string> dnd_hover_filename: "";
+
+    changed editor_ctx_action_tick => {
+        if root.editor_ctx_action == "undo" {
+            let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
+            code_input.set-selection-offsets(new_pos, new_pos);
+        } else if root.editor_ctx_action == "redo" {
+            let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
+            code_input.set-selection-offsets(new_pos, new_pos);
+        } else if root.editor_ctx_action == "cut" {
+            code_input.cut();
+        } else if root.editor_ctx_action == "copy" {
+            code_input.copy();
+        } else if root.editor_ctx_action == "paste" {
+            code_input.paste();
+        } else if root.editor_ctx_action == "select_all" {
+            code_input.select-all();
+        } else if root.editor_ctx_action == "toggle_comment" {
+            let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
+            code_input.set-selection-offsets(new_pos, new_pos);
+        } else if root.editor_ctx_action == "duplicate_line" {
+            let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
+            code_input.set-selection-offsets(new_pos, new_pos);
+        }
+        code_input.focus();
+    }
+
+    callback open_tab_context_menu(string, bool, length, length);
+    callback open_editor_context_menu(length, length);
 
     callback file_dropped_in_editor(data-transfer);
     callback switch_tab(string);
@@ -106,17 +136,20 @@ export component EditorPage inherits HorizontalLayout {
     in property <bool> is_active_asm: true;
     in property <[HighlightLineItem]> highlight_lines: [];
     in property <int> highlight_start_line: 0;
+    in property <int> gutter_start_line: 0;
 
     in-out property <int> visible_scroll_line: root.editor_line_height > 0px ? max(0, floor((-editor_scroll.content-y) / root.editor_line_height)) : 0;
     in-out property <int> visible_line_count: root.editor_line_height > 0px ? max(30, ceil(editor_scroll.visible-height / root.editor_line_height) + 10) : 30;
 
     changed visible_scroll_line => {
+        root.show_hover_popup = false;
         root.editor_viewport_scrolled(self.visible_scroll_line, self.visible_line_count);
     }
 
     in property <[SuggestionItem]> suggestion_list: [];
     in property <[BdosItem]> bdos_list: [];
     in property <[AsciiItem]> ascii_list: [];
+    in-out property <int> selected_sugg_index: 0;
     in-out property <string> selected_sugg_name: "MOV";
     in-out property <string> selected_sugg_category: "Пересылка данных";
     in-out property <string> selected_sugg_syntax: "MOV r1, r2";
@@ -131,6 +164,83 @@ export component EditorPage inherits HorizontalLayout {
     in-out property <length> popup_anchor_x: 10px;
     in-out property <length> popup_anchor_y: 0px;
     in-out property <int> popup_trigger_line: -1;
+
+    // Hover Documentation Popup & Subtle Word Highlight
+    in-out property <bool> show_hover_popup: false;
+    in-out property <int> hover_word_line: 0;
+    in-out property <int> hover_word_col: 0;
+    in-out property <int> hover_word_len: 0;
+    in-out property <string> hover_title: "";
+    in-out property <string> hover_category: "";
+    in-out property <string> hover_badge: "";
+    in-out property <string> hover_syntax: "";
+    in-out property <string> hover_flags: "";
+    in-out property <string> hover_summary: "";
+    in-out property <string> hover_kind: "transfer";
+    in-out property <[HighlightLineItem]> hover_example_lines: [];
+    in-out property <length> hover_mouse_x: -1px;
+    in-out property <length> hover_mouse_y: -1px;
+    in-out property <int> hover_probe_tick: 0;
+    in-out property <int> hover_lookup_tick: 0;
+    in-out property <bool> hover_popup_hovered: false;
+    in-out property <bool> hover_on_same_target: false;
+    callback request_hover_doc(int, int);
+
+    changed show_hover_popup => {
+        if !self.show_hover_popup {
+            self.hover_popup_hovered = false;
+            self.hover_on_same_target = false;
+        }
+    }
+
+    changed hover_probe_tick => {
+        if root.hover_popup_hovered {
+            root.hover_on_same_target = true;
+        } else {
+            let local_x = root.hover_mouse_x - editor_viewport.absolute-position.x;
+            let local_y = root.hover_mouse_y - editor_viewport.absolute-position.y;
+            if local_x >= 0px && local_x < editor_scroll.visible-width && local_y >= 0px && local_y < editor_scroll.visible-height
+                && root.char_advance > 0px && root.editor_line_height > 0px
+            {
+                let content_x = local_x - editor_scroll.content-x - 8px;
+                let content_y = local_y - editor_scroll.content-y;
+                if content_x >= 0px && content_y >= 0px {
+                    let line = floor(content_y / root.editor_line_height);
+                    let col = floor(content_x / root.char_advance);
+                    root.hover_on_same_target = root.show_hover_popup
+                        && line == root.hover_word_line
+                        && col >= root.hover_word_col
+                        && col < root.hover_word_col + root.hover_word_len;
+                } else {
+                    root.hover_on_same_target = false;
+                }
+            } else {
+                root.hover_on_same_target = false;
+            }
+        }
+    }
+
+    changed hover_lookup_tick => {
+        if !root.hover_popup_hovered {
+            let local_x = root.hover_mouse_x - editor_viewport.absolute-position.x;
+            let local_y = root.hover_mouse_y - editor_viewport.absolute-position.y;
+            if local_x >= 0px && local_x < editor_scroll.visible-width && local_y >= 0px && local_y < editor_scroll.visible-height
+                && root.char_advance > 0px && root.editor_line_height > 0px
+            {
+                let content_x = local_x - editor_scroll.content-x - 8px;
+                let content_y = local_y - editor_scroll.content-y;
+                if content_x >= 0px && content_y >= 0px {
+                    let line = floor(content_y / root.editor_line_height);
+                    let col = floor(content_x / root.char_advance);
+                    root.request_hover_doc(line, col);
+                } else {
+                    root.show_hover_popup = false;
+                }
+            } else {
+                root.show_hover_popup = false;
+            }
+        }
+    }
 
     in-out property <bool> show_context_menu: false;
     in-out property <length> context_menu_x: 100px;
@@ -202,12 +312,8 @@ export component EditorPage inherits HorizontalLayout {
                     root.editor_focused();
                 }
                 close_tab(p) => { root.close_tab(p); }
-                tab_context_menu(p, x, y) => {
-                    root.close_all_context_menus();
-                    root.tab_context_path = p;
-                    root.tab_context_x = x;
-                    root.tab_context_y = y;
-                    root.show_tab_context_menu = true;
+                tab_context_menu(p, pinned, x, y) => {
+                    root.open_tab_context_menu(p, pinned, x, y);
                 }
             }
 
@@ -285,9 +391,9 @@ export component EditorPage inherits HorizontalLayout {
                 height: 100%;
                 spacing: 0px;
 
-                // Line Numbers Gutter: Synchronized Row-by-Row with Code Lines
+                // Line Numbers Gutter: Virtualized & Synchronized Row-by-Row with Code Lines
                 Rectangle {
-                    width: 62px;
+                    width: root.gutter_start_line >= 9850 ? 78px : 62px;
                     background: Theme.gutter_bg;
                     clip: true;
 
@@ -302,11 +408,10 @@ export component EditorPage inherits HorizontalLayout {
                         }
                     }
 
-                    // Text-based line numbers (works for all files: asm, sh, txt, md, etc.)
                     Text {
                         x: 0px;
-                        y: editor_scroll.content-y;
-                        width: 52px;
+                        y: root.gutter_start_line * root.editor_line_height + editor_scroll.content-y;
+                        width: parent.width - 10px;
                         text: root.line_numbers_text;
                         font-family: Theme.font_mono;
                         font-size: root.editor_font_size;
@@ -319,7 +424,7 @@ export component EditorPage inherits HorizontalLayout {
                 Rectangle { width: 1px; background: Theme.gutter_border; }
 
                 // Main Editor Scrollable Area
-                Rectangle {
+                editor_viewport := Rectangle {
                     background: Theme.editor_bg;
                     clip: true;
 
@@ -339,10 +444,10 @@ export component EditorPage inherits HorizontalLayout {
                                 root.editor_focused();
                             }
                             if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
-                                root.close_all_context_menus();
-                                root.context_menu_x = self.mouse-x + editor_scroll.content-x;
-                                root.context_menu_y = self.mouse-y + editor_scroll.content-y;
-                                root.show_context_menu = true;
+                                root.open_editor_context_menu(
+                                    self.absolute-position.x + self.mouse-x,
+                                    self.absolute-position.y + self.mouse-y
+                                );
                             }
                         }
                     }
@@ -393,6 +498,7 @@ export component EditorPage inherits HorizontalLayout {
                             if root.term_focused {
                                 root.editor_focused();
                             }
+                            root.show_hover_popup = false;
                             root.cursor_visible = true;
                             root.cursor_idle_ticks = 0;
                             root.code_edited(self.text, self.cursor-position-byte-offset);
@@ -404,6 +510,10 @@ export component EditorPage inherits HorizontalLayout {
 
                             // Escape: dismiss popups & find bar
                             if (e.text == Key.Escape) {
+                                if root.show_hover_popup {
+                                    root.show_hover_popup = false;
+                                    return EventResult.accept;
+                                }
                                 if root.show_find_replace {
                                     root.show_find_replace = false;
                                     return EventResult.accept;
@@ -606,6 +716,16 @@ export component EditorPage inherits HorizontalLayout {
                         }
                     }
 
+                    // Layer 2.4: Subtle Hovered Word Highlight (below syntax text, dimmer than selection)
+                    if root.show_hover_popup && !root.show_autocomplete_popup && !root.show_context_menu && root.hover_word_len > 0: Rectangle {
+                        x: 8px + root.hover_word_col * root.char_advance;
+                        y: root.hover_word_line * root.editor_line_height;
+                        width: max(root.hover_word_len * root.char_advance, 4px);
+                        height: root.editor_line_height;
+                        background: Theme.hover_highlight_bg;
+                        border-radius: 2px;
+                    }
+
                     // Layer 2.5: Find & Replace Match Highlights Layer
                     if root.show_find_replace && root.find_matches.length > 0: Rectangle {
                         x: 0px;
@@ -676,10 +796,11 @@ export component EditorPage inherits HorizontalLayout {
 
                     // In-Editor Floating Autocomplete Popup
                     if root.show_autocomplete_popup && root.suggestion_list.length > 0: AutocompletePopup {
-                        x: min(max(10px, root.popup_anchor_x + 10px), max(10px, parent.width - 640px));
-                        y: min(max(10px, root.popup_anchor_y + root.editor_line_height + 4px), max(10px, parent.height - 240px));
+                        x: min(max(10px, root.popup_anchor_x + 10px), max(10px, parent.width - 670px));
+                        y: min(max(10px, root.popup_anchor_y + root.editor_line_height + 4px), max(10px, parent.height - 260px));
                         current_language: root.current_language;
                         suggestion_list: root.suggestion_list;
+                        selected_sugg_index: root.selected_sugg_index;
                         selected_sugg_name: root.selected_sugg_name;
                         selected_sugg_category: root.selected_sugg_category;
                         selected_sugg_syntax: root.selected_sugg_syntax;
@@ -694,6 +815,31 @@ export component EditorPage inherits HorizontalLayout {
                             root.show_autocomplete_popup = false;
                         }
                     }
+                }
+
+                // Floating VS Code-style Hover Documentation Card
+                if root.show_hover_popup && !root.show_autocomplete_popup && !root.show_context_menu: hover_card := HoverPopup {
+                    property <length> word_vp_x: 8px + root.hover_word_col * root.char_advance + editor_scroll.content-x;
+                    property <length> word_vp_y: root.hover_word_line * root.editor_line_height + editor_scroll.content-y;
+                    property <length> below_y: self.word_vp_y + root.editor_line_height + 2px;
+                    property <length> above_y: self.word_vp_y - self.height - 2px;
+
+                    x: min(max(8px, self.word_vp_x), max(8px, parent.width - self.width - 14px));
+                    y: (self.below_y + self.height <= parent.height - 8px || self.above_y < 8px)
+                        ? min(max(8px, self.below_y), max(8px, parent.height - self.height - 8px))
+                        : self.above_y;
+                    z: 90;
+                    max_popup_width: min(500px, max(280px, parent.width - 24px));
+                    current_language: root.current_language;
+                    hover_title: root.hover_title;
+                    hover_category: root.hover_category;
+                    hover_badge: root.hover_badge;
+                    hover_syntax: root.hover_syntax;
+                    hover_flags: root.hover_flags;
+                    hover_summary: root.hover_summary;
+                    hover_kind: root.hover_kind;
+                    hover_example_lines: root.hover_example_lines;
+                    hovered_changed(h) => { root.hover_popup_hovered = h; }
                 }
 
                 // Floating Find & Replace Toolbar (VS Code standard, fixed in viewport top-right)
@@ -734,128 +880,10 @@ export component EditorPage inherits HorizontalLayout {
                         root.editor_focused();
                     }
                 }
-
-                // Fixed Viewport Backdrop to dismiss editor context menu
-                if root.show_context_menu: TouchArea {
-                    x: 0px;
-                    y: 0px;
-                    width: parent.width;
-                    height: parent.height;
-                    z: 110;
-                    clicked => { root.show_context_menu = false; }
-                }
-
-                // In-Editor Context Menu (Fixed at viewport coordinate, NEVER scrolls with text)
-                if root.show_context_menu: EditorContextMenu {
-                    x: min(max(10px, root.context_menu_x), parent.width - 260px);
-                    y: min(max(10px, root.context_menu_y), parent.height - 380px);
-                    z: 120;
-                    current_language: root.current_language;
-                    undo => {
-                        root.show_context_menu = false;
-                        let new_pos = root.editor_undo(code_input.cursor-position-byte-offset);
-                        code_input.set-selection-offsets(new_pos, new_pos);
-                    }
-                    redo => {
-                        root.show_context_menu = false;
-                        let new_pos = root.editor_redo(code_input.cursor-position-byte-offset);
-                        code_input.set-selection-offsets(new_pos, new_pos);
-                    }
-                    cut => {
-                        root.show_context_menu = false;
-                        code_input.cut();
-                    }
-                    copy => {
-                        root.show_context_menu = false;
-                        code_input.copy();
-                    }
-                    paste => {
-                        root.show_context_menu = false;
-                        code_input.paste();
-                    }
-                    select_all => {
-                        root.show_context_menu = false;
-                        code_input.select-all();
-                    }
-                    toggle_comment => {
-                        root.show_context_menu = false;
-                        let new_pos = root.toggle_comment_range(code_input.cursor-position-byte-offset, code_input.anchor-position-byte-offset);
-                        code_input.set-selection-offsets(new_pos, new_pos);
-                    }
-                    duplicate_line => {
-                        root.show_context_menu = false;
-                        let new_pos = root.duplicate_line(code_input.cursor-position-byte-offset);
-                        code_input.set-selection-offsets(new_pos, new_pos);
-                    }
-                    run_assemble => {
-                        root.show_context_menu = false;
-                        root.run_assemble_only();
-                    }
-                    run_emulator => {
-                        root.show_context_menu = false;
-                        root.run_emulator();
-                    }
-                }
             }
         }
     }
 }
-
-        // Fixed Backdrop to dismiss Tab context menu
-        if root.show_tab_context_menu: TouchArea {
-            x: 0px;
-            y: 0px;
-            width: parent.width;
-            height: parent.height;
-            z: 140;
-            clicked => { root.show_tab_context_menu = false; }
-        }
-
-        // Floating Tab Context Menu (VS Code style)
-        if root.show_tab_context_menu: TabContextMenu {
-            x: min(max(10px, root.tab_context_x), parent.width - 280px);
-            y: min(max(36px, root.tab_context_y), parent.height - 300px);
-            z: 150;
-            current_language: root.current_language;
-            target_path: root.tab_context_path;
-            is_pinned: root.is_tab_pinned;
-            close_tab(p) => {
-                root.show_tab_context_menu = false;
-                root.close_tab(p);
-            }
-            close_other_tabs(p) => {
-                root.show_tab_context_menu = false;
-                root.close_other_tabs(p);
-            }
-            close_saved_tabs => {
-                root.show_tab_context_menu = false;
-                root.close_saved_tabs();
-            }
-            close_all_tabs => {
-                root.show_tab_context_menu = false;
-                root.close_all_tabs();
-            }
-            copy_relative_path(p) => {
-                root.show_tab_context_menu = false;
-                root.copy_relative_path(p);
-            }
-            copy_absolute_path(p) => {
-                root.show_tab_context_menu = false;
-                root.copy_absolute_path(p);
-            }
-            reveal_in_explorer(p) => {
-                root.show_tab_context_menu = false;
-                root.reveal_in_explorer(p);
-            }
-            show_in_explorer_tree(p) => {
-                root.show_tab_context_menu = false;
-                root.show_in_explorer_tree(p);
-            }
-            toggle_pin_tab(p) => {
-                root.show_tab_context_menu = false;
-                root.toggle_pin_tab(p);
-            }
-        }
 
         // Visual Drag & Drop Overlay
         if editor_drop.has-drag || root.dnd_hover_target == "editor": Rectangle {

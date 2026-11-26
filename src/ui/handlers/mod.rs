@@ -1,7 +1,11 @@
 pub mod autocomplete_ops;
 pub mod dnd_ops;
 pub mod editor_ops;
+pub mod explorer_ops;
 pub mod file_ops;
+pub mod find_ops;
+pub mod settings_ops;
+pub mod tab_ops;
 pub mod toolchain_ops;
 pub mod view_ops;
 

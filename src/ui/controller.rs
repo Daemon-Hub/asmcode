@@ -1,4 +1,5 @@
 use crate::autocomplete::engine::{AutocompleteEngine, Suggestion};
+use crate::autocomplete::extractor::UserSymbol;
 use crate::editor::undo::UndoManager;
 use crate::fs_manager::explorer::FileManager;
 use crate::session::{self, AppSession};
@@ -43,6 +44,8 @@ pub struct IdeController {
     pub tab_buffers: HashMap<PathBuf, String>,
     pub tab_line_starts: HashMap<PathBuf, Vec<usize>>,
     pub viewport_cache: Option<ViewportCache>,
+    pub cached_user_symbols: Arc<Vec<UserSymbol>>,
+    pub cached_symbols_path: Option<PathBuf>,
     pub dirty_tabs: HashSet<PathBuf>,
     pub find_state: FindState,
     pub session: AppSession,
@@ -70,6 +73,8 @@ impl IdeController {
             tab_buffers: HashMap::new(),
             tab_line_starts: HashMap::new(),
             viewport_cache: None,
+            cached_user_symbols: Arc::new(Vec::new()),
+            cached_symbols_path: None,
             dirty_tabs: HashSet::new(),
             find_state: FindState::default(),
             session: AppSession::default(),
@@ -91,6 +96,45 @@ impl IdeController {
         self.tab_line_starts.remove(path);
         self.tab_buffers.remove(path);
         self.viewport_cache = None;
+    }
+
+    /// Remaps all open-tab, buffer, dirty, pinned, and viewport paths when a file or folder is renamed.
+    pub fn remap_path_prefix(&mut self, old_path: &Path, new_path: &Path) {
+        if old_path == new_path {
+            return;
+        }
+
+        let mut deduped = Vec::with_capacity(self.open_tabs.len());
+        for tab in &self.open_tabs {
+            let next = crate::fs_manager::explorer::remap_path_with_prefix(tab, old_path, new_path)
+                .unwrap_or_else(|| tab.clone());
+            if !deduped.contains(&next) {
+                deduped.push(next);
+            }
+        }
+        self.open_tabs = deduped;
+
+        remap_path_set(&mut self.pinned_tabs, old_path, new_path);
+        remap_path_set(&mut self.deleted_open_tabs, old_path, new_path);
+        remap_path_set(&mut self.untitled_drafts, old_path, new_path);
+        remap_path_set(&mut self.dirty_tabs, old_path, new_path);
+
+        remap_path_map(&mut self.tab_buffers, old_path, new_path);
+        remap_path_map(&mut self.tab_line_starts, old_path, new_path);
+
+        if let Some(ref mut cache) = self.viewport_cache
+            && let Some(ref cached_path) = cache.path
+            && let Some(remapped) =
+                crate::fs_manager::explorer::remap_path_with_prefix(cached_path, old_path, new_path)
+        {
+            cache.path = Some(remapped);
+        }
+        if let Some(ref sym_path) = self.cached_symbols_path
+            && let Some(remapped) =
+                crate::fs_manager::explorer::remap_path_with_prefix(sym_path, old_path, new_path)
+        {
+            self.cached_symbols_path = Some(remapped);
+        }
     }
 
     pub fn invalidate_viewport_cache(&mut self) {
@@ -192,4 +236,72 @@ pub fn persist_current_session(app: &AppWindow, ctrl: &IdeController) {
         associate_asm_files: app.get_associate_asm_files(),
     };
     session::save_session(&session);
+}
+
+fn remap_path_set(set: &mut HashSet<PathBuf>, old_path: &Path, new_path: &Path) {
+    let updated: HashSet<PathBuf> = set
+        .drain()
+        .map(|p| {
+            crate::fs_manager::explorer::remap_path_with_prefix(&p, old_path, new_path)
+                .unwrap_or(p)
+        })
+        .collect();
+    *set = updated;
+}
+
+fn remap_path_map<V>(map: &mut HashMap<PathBuf, V>, old_path: &Path, new_path: &Path) {
+    let keys: Vec<PathBuf> = map
+        .keys()
+        .filter(|p| {
+            crate::fs_manager::explorer::remap_path_with_prefix(p, old_path, new_path).is_some()
+        })
+        .cloned()
+        .collect();
+    for old_key in keys {
+        if let Some(val) = map.remove(&old_key)
+            && let Some(new_key) =
+                crate::fs_manager::explorer::remap_path_with_prefix(&old_key, old_path, new_path)
+        {
+            map.insert(new_key, val);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_remap_path_prefix_updates_file_and_nested_tabs() {
+        let mut ctrl = IdeController::new("d:/tmp/proj");
+        let old_file = PathBuf::from("d:/tmp/proj/old.asm");
+        let new_file = PathBuf::from("d:/tmp/proj/new.asm");
+        let other_file = PathBuf::from("d:/tmp/proj/sub/helper.asm");
+
+        ctrl.open_tabs = vec![old_file.clone(), other_file.clone()];
+        ctrl.pinned_tabs.insert(old_file.clone());
+        ctrl.dirty_tabs.insert(old_file.clone());
+        ctrl.set_tab_buffer(old_file.clone(), "mov a, b\n".to_string());
+
+        ctrl.remap_path_prefix(&old_file, &new_file);
+
+        assert_eq!(ctrl.open_tabs, vec![new_file.clone(), other_file.clone()]);
+        assert!(!ctrl.pinned_tabs.contains(&old_file));
+        assert!(ctrl.pinned_tabs.contains(&new_file));
+        assert!(!ctrl.dirty_tabs.contains(&old_file));
+        assert!(ctrl.dirty_tabs.contains(&new_file));
+        assert!(!ctrl.tab_buffers.contains_key(&old_file));
+        assert_eq!(
+            ctrl.tab_buffers.get(&new_file).map(String::as_str),
+            Some("mov a, b\n")
+        );
+
+        let old_dir = PathBuf::from("d:/tmp/proj/sub");
+        let new_dir = PathBuf::from("d:/tmp/proj/inc");
+        ctrl.remap_path_prefix(&old_dir, &new_dir);
+        assert_eq!(
+            ctrl.open_tabs,
+            vec![new_file, PathBuf::from("d:/tmp/proj/inc/helper.asm")]
+        );
+    }
 }

@@ -81,26 +81,31 @@ impl FileManager {
     pub fn read_file_content<P: AsRef<Path>>(&mut self, path: P) -> io::Result<String> {
         let path_ref = path.as_ref();
         let bytes = fs::read(path_ref)?;
-        let slice = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-            &bytes[3..]
-        } else {
-            &bytes[..]
-        };
+        let has_bom = bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+        let has_cr = contains_cr(if has_bom { &bytes[3..] } else { &bytes[..] });
 
-        let content = match std::str::from_utf8(slice) {
-            Ok(valid_str) => {
-                if valid_str.contains('\r') {
-                    valid_str.replace("\r\n", "\n").replace('\r', "\n")
-                } else {
-                    valid_str.to_string()
-                }
+        let content = if !has_bom && !has_cr {
+            match String::from_utf8(bytes) {
+                Ok(s) => s,
+                Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
             }
-            Err(_) => {
-                let lossy = String::from_utf8_lossy(slice);
-                if lossy.contains('\r') {
-                    lossy.replace("\r\n", "\n").replace('\r', "\n")
-                } else {
-                    lossy.into_owned()
+        } else {
+            let slice = if has_bom { &bytes[3..] } else { &bytes[..] };
+            match std::str::from_utf8(slice) {
+                Ok(valid_str) => {
+                    if has_cr {
+                        normalize_line_endings_fast(valid_str)
+                    } else {
+                        valid_str.to_string()
+                    }
+                }
+                Err(_) => {
+                    let lossy = String::from_utf8_lossy(slice);
+                    if contains_cr(lossy.as_bytes()) {
+                        normalize_line_endings_fast(&lossy)
+                    } else {
+                        lossy.into_owned()
+                    }
                 }
             }
         };
@@ -257,15 +262,104 @@ impl FileManager {
         let parent = old.parent().unwrap_or(&self.current_dir);
         let target = parent.join(clean);
         fs::rename(old, &target)?;
-        if self
-            .active_file_path
-            .as_ref()
-            .is_some_and(|active| active == old)
+
+        if let Some(ref active) = self.active_file_path
+            && let Some(remapped) = remap_path_with_prefix(active, old, &target)
         {
-            self.active_file_path = Some(target.clone());
+            self.active_file_path = Some(remapped);
         }
+
+        let remapped_expanded: HashSet<PathBuf> = self
+            .expanded_folders
+            .iter()
+            .map(|p| remap_path_with_prefix(p, old, &target).unwrap_or_else(|| p.clone()))
+            .collect();
+        self.expanded_folders = remapped_expanded;
+
         Ok(target)
     }
+}
+
+pub fn remap_path_with_prefix(path: &Path, old_prefix: &Path, new_prefix: &Path) -> Option<PathBuf> {
+    if path == old_prefix {
+        return Some(new_prefix.to_path_buf());
+    }
+    path.strip_prefix(old_prefix)
+        .ok()
+        .map(|rel| new_prefix.join(rel))
+}
+
+#[inline]
+fn contains_cr(bytes: &[u8]) -> bool {
+    const CR_MASK: u64 = 0x0D0D_0D0D_0D0D_0D0D;
+    const LO_BITS: u64 = 0x0101_0101_0101_0101;
+    const HI_BITS: u64 = 0x8080_8080_8080_8080;
+
+    let (chunks, rem) = bytes.as_chunks::<8>();
+    for &eight in chunks {
+        let word = u64::from_ne_bytes(eight);
+        let x = word ^ CR_MASK;
+        if (x.wrapping_sub(LO_BITS) & !x & HI_BITS) != 0 {
+            return true;
+        }
+    }
+    rem.contains(&b'\r')
+}
+
+fn normalize_cr_chunk(chunk: &[u8], skip_leading_lf: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(chunk.len());
+    let mut i = if skip_leading_lf && chunk.first() == Some(&b'\n') {
+        1
+    } else {
+        0
+    };
+    while i < chunk.len() {
+        let slice = &chunk[i..];
+        if let Some(pos) = slice.iter().position(|&b| b == b'\r') {
+            out.extend_from_slice(&slice[..pos]);
+            out.push(b'\n');
+            let after_cr = i + pos + 1;
+            if after_cr < chunk.len() && chunk[after_cr] == b'\n' {
+                i = after_cr + 1;
+            } else {
+                i = after_cr;
+            }
+        } else {
+            out.extend_from_slice(slice);
+            break;
+        }
+    }
+    out
+}
+
+fn normalize_line_endings_fast(input: &str) -> String {
+    let bytes = input.as_bytes();
+    const PAR_THRESHOLD: usize = 128 * 1024;
+    const CHUNK_SIZE: usize = 128 * 1024;
+
+    let out_bytes = if bytes.len() < PAR_THRESHOLD {
+        normalize_cr_chunk(bytes, false)
+    } else {
+        let num_chunks = bytes.len().div_ceil(CHUNK_SIZE);
+        let chunk_vecs: Vec<Vec<u8>> = (0..num_chunks)
+            .into_par_iter()
+            .map(|idx| {
+                let start = idx * CHUNK_SIZE;
+                let end = (start + CHUNK_SIZE).min(bytes.len());
+                let skip_lf = idx > 0 && bytes[start - 1] == b'\r';
+                normalize_cr_chunk(&bytes[start..end], skip_lf)
+            })
+            .collect();
+        let total_len: usize = chunk_vecs.iter().map(Vec::len).sum();
+        let mut combined = Vec::with_capacity(total_len);
+        for v in chunk_vecs {
+            combined.extend_from_slice(&v);
+        }
+        combined
+    };
+
+    // SAFETY: input is valid UTF-8 and we only removed ASCII '\r' bytes or replaced them with ASCII '\n'.
+    unsafe { String::from_utf8_unchecked(out_bytes) }
 }
 
 #[inline]
@@ -450,5 +544,16 @@ mod tests {
         assert_eq!(content, "mvi a, 10h\nret\n");
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parallel_crlf_normalization_cross_boundary() {
+        let mut raw = vec![b'a'; 128 * 1024 - 1];
+        raw.push(b'\r');
+        raw.push(b'\n');
+        raw.extend_from_slice(b"tail\rline\r\nend");
+        let input = std::str::from_utf8(&raw).unwrap();
+        let normalized = normalize_line_endings_fast(input);
+        assert_eq!(normalized, input.replace("\r\n", "\n").replace('\r', "\n"));
     }
 }

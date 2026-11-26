@@ -1,0 +1,183 @@
+import { HighlightLineItem } from "../models.slint";
+import { Theme } from "theme.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component HoverPopup inherits Rectangle {
+    in property <string> current_language: "ru";
+    in property <string> hover_title: "";
+    in property <string> hover_category: "";
+    in property <string> hover_badge: "";
+    in property <string> hover_syntax: "";
+    in property <string> hover_flags: "";
+    in property <string> hover_summary: "";
+    in property <string> hover_kind: "transfer";
+    in property <[HighlightLineItem]> hover_example_lines: [];
+    in property <length> max_popup_width: 500px;
+
+    out property <bool> is_hovered: hover_touch.has-hover;
+    callback hovered_changed(bool);
+
+    width: min(root.max_popup_width, max(320px, content_col.preferred-width + 24px));
+    height: min(300px, max(96px, content_col.preferred-height + 4px));
+    background: Theme.terminal_bg;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: Theme.border_light;
+    clip: true;
+
+    hover_touch := TouchArea {
+        width: 100%;
+        height: 100%;
+        changed has-hover => {
+            root.hovered_changed(self.has-hover);
+        }
+    }
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        content-width: root.width - 2px;
+        content-height: content_col.preferred-height;
+
+        content_col := VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+            alignment: start;
+
+            // Header: Icon + Symbol Name + Category + Cycles/Line Badge
+            HorizontalLayout {
+                alignment: space-between;
+                spacing: 10px;
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    VerticalLayout {
+                        alignment: center;
+                        if root.hover_kind == "transfer": Image { source: @image-url("../icons/grp_transfer.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "arith": Image { source: @image-url("../icons/grp_arith.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "logic": Image { source: @image-url("../icons/grp_logic.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "branch": Image { source: @image-url("../icons/grp_branch.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "stack": Image { source: @image-url("../icons/grp_stack.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "directive": Image { source: @image-url("../icons/grp_directive.svg"); width: 16px; height: 16px; }
+                        if root.hover_kind == "label" || root.hover_kind == "register": Image { source: @image-url("../icons/label.svg"); width: 16px; height: 16px; }
+                    }
+
+                    Text {
+                        text: root.hover_title;
+                        font-family: Theme.font_mono;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.accent_blue;
+                        vertical-alignment: center;
+                    }
+
+                    if root.hover_category != "": Rectangle {
+                        height: 20px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface1;
+                        HorizontalLayout {
+                            padding-left: 7px;
+                            padding-right: 7px;
+                            Text {
+                                text: root.hover_category;
+                                font-size: 11px;
+                                color: Theme.accent_yellow;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                if root.hover_badge != "": Rectangle {
+                    height: 20px;
+                    border-radius: 3px;
+                    background: Theme.bg_surface1;
+                    HorizontalLayout {
+                        padding-left: 7px;
+                        padding-right: 7px;
+                        Text {
+                            text: root.hover_badge;
+                            font-size: 11px;
+                            color: Theme.accent_green;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Divider line matching VS Code hover card
+            Rectangle {
+                height: 1px;
+                background: Theme.border_normal;
+            }
+
+            // Syntax / Role + Flags
+            if root.hover_syntax != "" || root.hover_flags != "": HorizontalLayout {
+                alignment: space-between;
+                spacing: 12px;
+
+                if root.hover_syntax != "": Text {
+                    horizontal-stretch: 1;
+                    text: root.hover_syntax;
+                    font-family: Theme.font_mono;
+                    font-size: 12.5px;
+                    color: Theme.accent_green;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+
+                if root.hover_flags != "": Text {
+                    horizontal-stretch: 0;
+                    text: (root.current_language == "ru" ? "Флаги: " : "Flags: ") + root.hover_flags;
+                    font-size: 11.5px;
+                    color: Theme.accent_yellow;
+                    vertical-alignment: center;
+                }
+            }
+
+            // Summary / Documentation body
+            if root.hover_summary != "": Text {
+                text: root.hover_summary;
+                font-size: 12.5px;
+                color: Theme.text_primary;
+                wrap: word-wrap;
+            }
+
+            // Syntax-highlighted code example block
+            if root.hover_example_lines.length > 0: Rectangle {
+                background: Theme.bg_base;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: Theme.border_normal;
+                clip: true;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 2px;
+                    alignment: start;
+
+                    for line in root.hover_example_lines: HorizontalLayout {
+                        alignment: start;
+                        spacing: 0px;
+
+                        if line.tokens.length == 0: Text {
+                            text: " ";
+                            font-family: Theme.font_mono;
+                            font-size: 12px;
+                        }
+
+                        for tok in line.tokens: Text {
+                            text: tok.text;
+                            color: tok.color;
+                            font-family: Theme.font_mono;
+                            font-size: 12px;
+                            font-weight: 600;
+                            font-italic: tok.is_italic;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

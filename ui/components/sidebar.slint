@@ -203,8 +203,11 @@ export component Sidebar inherits Rectangle {
 
             bg_touch := TouchArea {
                 pointer-event(e) => {
-                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
-                        root.explorer_bg_right_clicked(self.mouse-x, self.mouse-y + 100px);
+                    if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                        root.explorer_bg_right_clicked(
+                            self.absolute-position.x + self.mouse-x,
+                            self.absolute-position.y + self.mouse-y
+                        );
                     }
                 }
             }
@@ -242,6 +245,24 @@ export component Sidebar inherits Rectangle {
                         height: 100%;
                         allow-copy: true;
                         data: root.make_file_transfer(item.path);
+
+                        file_row_touch := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.file_clicked(item.path, item.is_dir);
+                            }
+                            pointer-event(e) => {
+                                if (e.button == PointerEventButton.right && e.kind == PointerEventKind.down) {
+                                    root.file_right_clicked(
+                                        item.path,
+                                        item.name,
+                                        self.absolute-position.x + self.mouse-x,
+                                        self.absolute-position.y + self.mouse-y
+                                    );
+                                }
+                            }
+                        }
                     }
 
                     HorizontalLayout {
@@ -321,17 +342,6 @@ export component Sidebar inherits Rectangle {
                             font-size: 11px;
                             color: Theme.text_dim;
                             vertical-alignment: center;
-                        }
-                    }
-
-                    file_row_touch := TouchArea {
-                        clicked => {
-                            root.file_clicked(item.path, item.is_dir);
-                        }
-                        pointer-event(e) => {
-                            if (e.button == PointerEventButton.right && e.kind == PointerEventKind.up) {
-                                root.file_right_clicked(item.path, item.name, self.mouse-x + 10px, self.mouse-y + 110px);
-                            }
                         }
                     }
                 }

@@ -8,8 +8,10 @@ pub mod editor_bridge;
 pub mod explorer_bridge;
 pub mod handlers;
 pub mod terminal;
+pub mod winit_events;
 
 pub use bridge::setup_ui;
 pub use controller::IdeController;
+pub use winit_events::WinitEventHub;
 
 

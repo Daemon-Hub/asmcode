@@ -55,7 +55,9 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
 
-        let ctrl = ctrl_clone.lock().unwrap();
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        record_editor_mutation(&ui, &mut ctrl, &new_code, new_cursor_pos as i32, true);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &new_code, is_asm);
 
@@ -66,20 +68,102 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
     let prev_len_clone = Arc::clone(&prev_code_len);
+    let label_debounce_timer = Rc::new(slint::Timer::default());
     app.on_code_edited(move |new_code, cursor_offset| {
         let Some(ui) = app_weak.upgrade() else { return };
-        ui.set_is_dirty(true);
-
-        {
-            let mut ctrl = ctrl_clone.lock().unwrap();
-            record_editor_mutation(&ui, &mut ctrl, new_code.as_str(), cursor_offset, false);
-            sync_tabs_ui(&ui, &ctrl);
+        if !ui.get_is_dirty() {
+            ui.set_is_dirty(true);
         }
 
         let is_asm = ui.get_is_active_asm();
-        {
+        let old_len = {
             let mut ctrl = ctrl_clone.lock().unwrap();
-            update_highlight_and_labels(&ui, &ctrl.autocomplete, new_code.as_str(), is_asm);
+            let was_dirty_before = ctrl
+                .file_manager
+                .active_file_path
+                .as_ref()
+                .is_some_and(|p| ctrl.dirty_tabs.contains(p));
+            let prev_len = ctrl
+                .file_manager
+                .active_file_path
+                .as_ref()
+                .and_then(|p| ctrl.tab_buffers.get(p).map(|s| s.len()))
+                .unwrap_or_else(|| prev_len_clone.load(std::sync::atomic::Ordering::Relaxed));
+            prev_len_clone.store(new_code.len(), std::sync::atomic::Ordering::Relaxed);
+
+            let prev_lines = ctrl
+                .file_manager
+                .active_file_path
+                .as_ref()
+                .and_then(|p| ctrl.tab_line_starts.get(p).map(|v| v.len()))
+                .unwrap_or(0);
+
+            record_editor_mutation(&ui, &mut ctrl, new_code.as_str(), cursor_offset, false);
+            if !was_dirty_before {
+                sync_tabs_ui(&ui, &ctrl);
+            }
+
+            let line_starts = ctrl
+                .file_manager
+                .active_file_path
+                .as_ref()
+                .and_then(|p| ctrl.tab_line_starts.get(p))
+                .map(|v| v.as_slice());
+            let new_lines = line_starts.map(|s| s.len()).unwrap_or(0);
+            let refresh_numbers = prev_lines == 0 || prev_lines != new_lines;
+
+            if new_code.len() < 32 * 1024 {
+                label_debounce_timer.stop();
+                let labels = crate::ui::editor_bridge::update_highlight_and_labels_opts(
+                    &ui,
+                    &ctrl.autocomplete,
+                    new_code.as_str(),
+                    line_starts,
+                    is_asm,
+                    refresh_numbers,
+                );
+                ctrl.cached_symbols_path = ctrl.file_manager.active_file_path.clone();
+                ctrl.cached_user_symbols = Arc::new(labels);
+            } else {
+                crate::ui::editor_bridge::update_highlight_only_opts(
+                    &ui,
+                    new_code.as_str(),
+                    line_starts,
+                    is_asm,
+                    refresh_numbers,
+                );
+                if is_asm && !ui.get_is_large_file_mode() {
+                    let app_weak_timer = app_weak.clone();
+                    let ctrl_timer = Arc::clone(&ctrl_clone);
+                    label_debounce_timer.start(
+                        slint::TimerMode::SingleShot,
+                        std::time::Duration::from_millis(180),
+                        move || {
+                            let Some(ui) = app_weak_timer.upgrade() else { return };
+                            if !ui.get_is_active_asm() || ui.get_is_large_file_mode() {
+                                return;
+                            }
+                            let mut ctrl = ctrl_timer.lock().unwrap();
+                            let Some(active_path) = ctrl.file_manager.active_file_path.clone() else {
+                                return;
+                            };
+                            let (Some(code_str), line_starts_opt) = (
+                                ctrl.tab_buffers.get(&active_path).cloned(),
+                                ctrl.tab_line_starts.get(&active_path).cloned(),
+                            ) else {
+                                return;
+                            };
+                            let labels = ctrl.autocomplete.get_user_labels_with_starts(
+                                &code_str,
+                                line_starts_opt.as_deref(),
+                            );
+                            crate::ui::editor_bridge::sync_labels_to_ui(&ui, &labels);
+                            ctrl.cached_symbols_path = Some(active_path);
+                            ctrl.cached_user_symbols = Arc::new(labels);
+                        },
+                    );
+                }
+            }
 
             if ui.get_show_find_replace() {
                 let query = ctrl.find_state.query.clone();
@@ -98,10 +182,12 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
                         ui.set_find_match_count(0);
                         ui.set_find_match_index(0);
                     }
-                    crate::ui::handlers::editor_ops::sync_find_matches_to_ui(&ui, &ctrl, new_code.as_str());
+                    crate::ui::handlers::find_ops::sync_find_matches_to_ui(&ui, &ctrl, new_code.as_str());
                 }
             }
-        }
+
+            prev_len
+        };
 
         let is_large_file = ui.get_is_large_file_mode();
         if is_large_file {
@@ -109,7 +195,6 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             return;
         }
 
-        let old_len = prev_len_clone.swap(new_code.len(), std::sync::atomic::Ordering::Relaxed);
         let was_popup_open = ui.get_show_autocomplete_popup();
         let is_insertion = new_code.len() > old_len;
 
@@ -218,7 +303,9 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         ui.set_is_dirty(true);
         ui.set_show_autocomplete_popup(false);
 
-        let ctrl = ctrl_clone.lock().unwrap();
+        let mut ctrl = ctrl_clone.lock().unwrap();
+        record_editor_mutation(&ui, &mut ctrl, &updated_code, 0, true);
+        sync_tabs_ui(&ui, &ctrl);
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &updated_code, is_asm);
     });
@@ -245,15 +332,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
             (current_idx + len - 1) % len
         };
         if let Some(sugg) = ctrl.active_suggestions.get(next_idx) {
-            ui.set_selected_sugg_name(sugg.name.clone());
-            ui.set_selected_sugg_category(sugg.category.clone());
-            ui.set_selected_sugg_syntax(sugg.syntax.clone());
-            ui.set_selected_sugg_summary(sugg.summary.clone());
-            ui.set_selected_sugg_flags(sugg.flags.clone());
-            ui.set_selected_sugg_cycles(sugg.cycles.clone());
-            ui.set_selected_sugg_insert_text(sugg.insert_text.clone());
-            ui.set_selected_sugg_icon_kind(sugg.icon_kind.clone());
-            ui.set_selected_sugg_example(sugg.example.clone());
+            crate::ui::editor_bridge::apply_selected_suggestion_to_ui(&ui, next_idx, sugg);
         }
     });
 
@@ -323,15 +402,7 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let Some(ui) = app_weak.upgrade() else { return };
         let ctrl = ctrl_clone.lock().unwrap();
         if let Some(sugg) = ctrl.active_suggestions.get(idx as usize) {
-            ui.set_selected_sugg_name(sugg.name.clone());
-            ui.set_selected_sugg_category(sugg.category.clone());
-            ui.set_selected_sugg_syntax(sugg.syntax.clone());
-            ui.set_selected_sugg_summary(sugg.summary.clone());
-            ui.set_selected_sugg_flags(sugg.flags.clone());
-            ui.set_selected_sugg_cycles(sugg.cycles.clone());
-            ui.set_selected_sugg_insert_text(sugg.insert_text.clone());
-            ui.set_selected_sugg_icon_kind(sugg.icon_kind.clone());
-            ui.set_selected_sugg_example(sugg.example.clone());
+            crate::ui::editor_bridge::apply_selected_suggestion_to_ui(&ui, idx as usize, sugg);
         }
     });
 
@@ -361,5 +432,71 @@ pub fn attach_autocomplete_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<I
         let ctrl = ctrl_clone.lock().unwrap();
         let is_asm = ui.get_is_active_asm();
         update_highlight_and_labels(&ui, &ctrl.autocomplete, &current_code, is_asm);
+    });
+
+    // Hover Documentation Lookup (VS Code style hover card + word highlight)
+    let app_weak = app.as_weak();
+    app.on_request_hover_doc(move |line, col| {
+        let Some(ui) = app_weak.upgrade() else { return };
+        if !ui.get_is_active_asm()
+            || ui.get_editor_mode() == 2
+            || ui.get_show_autocomplete_popup()
+            || ui.get_show_context_menu()
+            || line < 0
+            || col < 0
+        {
+            if !ui.get_hover_popup_hovered() {
+                ui.set_show_hover_popup(false);
+            }
+            return;
+        }
+
+        let source = ui.get_code_text().to_string();
+        let lang = ui.get_current_language().to_string();
+        let theme_id = ui.get_active_theme_id();
+
+        let Some(info) =
+            crate::autocomplete::hover::resolve_hover(&source, line as usize, col as usize, &lang)
+        else {
+            if !ui.get_hover_popup_hovered() {
+                ui.set_show_hover_popup(false);
+            }
+            return;
+        };
+
+        let highlighted = crate::syntax::intel8080::highlight_document(&info.example, theme_id);
+        let example_lines: Vec<crate::ui::HighlightLineItem> = highlighted
+            .into_iter()
+            .map(|hl| {
+                let tokens: Vec<crate::ui::TokenItem> = hl
+                    .tokens
+                    .into_iter()
+                    .map(|t| crate::ui::TokenItem {
+                        text: t.text,
+                        color: t.color,
+                        is_italic: t.is_italic,
+                        char_count: t.char_count,
+                        is_whitespace: t.is_whitespace,
+                    })
+                    .collect();
+                crate::ui::HighlightLineItem {
+                    line_number: hl.line_number,
+                    tokens: ModelRc::from(Rc::new(VecModel::from(tokens))),
+                }
+            })
+            .collect();
+
+        ui.set_hover_word_line(info.span.line as i32);
+        ui.set_hover_word_col(info.span.start_col as i32);
+        ui.set_hover_word_len(info.span.len_chars as i32);
+        ui.set_hover_title(SharedString::from(&info.title));
+        ui.set_hover_category(SharedString::from(&info.category));
+        ui.set_hover_badge(SharedString::from(&info.badge));
+        ui.set_hover_syntax(SharedString::from(&info.syntax));
+        ui.set_hover_flags(SharedString::from(&info.flags));
+        ui.set_hover_summary(SharedString::from(&info.summary));
+        ui.set_hover_kind(SharedString::from(info.kind));
+        ui.set_hover_example_lines(ModelRc::from(Rc::new(VecModel::from(example_lines))));
+        ui.set_show_hover_popup(true);
     });
 }

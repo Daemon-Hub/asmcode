@@ -553,14 +553,60 @@ pub fn highlight_document(document: &str, theme_id: i32) -> Vec<HighlightLine> {
     }
 }
 
+#[inline]
+fn collect_newlines_in_chunk(chunk: &[u8], base_offset: usize, out: &mut Vec<usize>) {
+    const NL_MASK: u64 = 0x0A0A_0A0A_0A0A_0A0A;
+    const LO_BITS: u64 = 0x0101_0101_0101_0101;
+    const HI_BITS: u64 = 0x8080_8080_8080_8080;
+
+    let mut pos = 0;
+    let (chunks, rem) = chunk.as_chunks::<8>();
+    for &eight in chunks {
+        let word = u64::from_ne_bytes(eight);
+        let x = word ^ NL_MASK;
+        if (x.wrapping_sub(LO_BITS) & !x & HI_BITS) != 0 {
+            for (k, &b) in eight.iter().enumerate() {
+                if b == b'\n' {
+                    out.push(base_offset + pos + k + 1);
+                }
+            }
+        }
+        pos += 8;
+    }
+    for (k, &b) in rem.iter().enumerate() {
+        if b == b'\n' {
+            out.push(base_offset + pos + k + 1);
+        }
+    }
+}
+
 pub fn build_line_starts(document: &str) -> Vec<usize> {
     let bytes = document.as_bytes();
-    let mut starts = Vec::with_capacity(bytes.len() / 32 + 16);
+    const PAR_THRESHOLD: usize = 64 * 1024;
+    const CHUNK_SIZE: usize = 64 * 1024;
+
+    if bytes.len() < PAR_THRESHOLD {
+        let mut starts = Vec::with_capacity(bytes.len() / 32 + 16);
+        starts.push(0);
+        collect_newlines_in_chunk(bytes, 0, &mut starts);
+        return starts;
+    }
+
+    let chunk_vecs: Vec<Vec<usize>> = bytes
+        .par_chunks(CHUNK_SIZE)
+        .enumerate()
+        .map(|(chunk_idx, chunk)| {
+            let mut local = Vec::with_capacity(chunk.len() / 32 + 4);
+            collect_newlines_in_chunk(chunk, chunk_idx * CHUNK_SIZE, &mut local);
+            local
+        })
+        .collect();
+
+    let total: usize = chunk_vecs.iter().map(Vec::len).sum();
+    let mut starts = Vec::with_capacity(1 + total);
     starts.push(0);
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'\n' {
-            starts.push(i + 1);
-        }
+    for v in chunk_vecs {
+        starts.extend_from_slice(&v);
     }
     starts
 }

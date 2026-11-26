@@ -8,11 +8,17 @@ use crate::ui::handlers::{
     attach_file_handlers, attach_toolchain_handlers, attach_view_handlers, open_file_internal,
 };
 use crate::ui::terminal::update_terminal_lines;
+use crate::ui::WinitEventHub;
 use slint::SharedString;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, session: AppSession) {
+pub fn setup_ui(
+    app: &AppWindow,
+    controller_rc: Arc<Mutex<IdeController>>,
+    session: AppSession,
+    winit_hub: &WinitEventHub,
+) {
     // 0. Restore session settings
     app.set_editor_font_size(session.editor_font_size);
     app.set_editor_font_italic(session.editor_font_italic);
@@ -95,5 +101,5 @@ pub fn setup_ui(app: &AppWindow, controller_rc: Arc<Mutex<IdeController>>, sessi
     attach_autocomplete_handlers(app, &controller_rc);
     attach_toolchain_handlers(app, &controller_rc);
     attach_view_handlers(app, &controller_rc);
-    attach_dnd_handlers(app, &controller_rc);
+    attach_dnd_handlers(app, &controller_rc, winit_hub);
 }

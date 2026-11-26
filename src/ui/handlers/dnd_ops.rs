@@ -135,7 +135,11 @@ pub fn extract_paths_from_transfer(data: &DataTransfer) -> Vec<PathBuf> {
     Vec::new()
 }
 
-pub fn attach_dnd_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeController>>) {
+pub fn attach_dnd_handlers(
+    app: &AppWindow,
+    controller_rc: &Arc<Mutex<IdeController>>,
+    winit_hub: &crate::ui::WinitEventHub,
+) {
     // 1. In-app Drop to Editor callback
     let ctrl_clone = Arc::clone(controller_rc);
     let app_weak = app.as_weak();
@@ -282,7 +286,7 @@ pub fn attach_dnd_handlers(app: &AppWindow, controller_rc: &Arc<Mutex<IdeControl
     let poll_timer_clone = Rc::clone(&poll_timer);
 
     use slint::winit_030::{EventResult, WinitWindowAccessor, winit};
-    app.window().on_winit_window_event(move |win, event| {
+    winit_hub.push(move |win, event| {
         match event {
             winit::event::WindowEvent::CursorMoved { position, .. } => {
                 let scale = win.scale_factor();

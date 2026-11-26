@@ -1,0 +1,310 @@
+import { Theme } from "../theme.slint";
+
+export component ToolchainSettingsTab inherits VerticalLayout {
+    in property <string> current_language: "ru";
+    in-out property <int> toolchain_type: 0;
+    in-out property <string> compiler_path: "";
+    in-out property <string> compiler_args: "";
+    in-out property <string> emulator_path: "";
+    in-out property <string> emulator_args: "";
+
+    callback browse_compiler();
+    callback browse_emulator();
+
+    spacing: 12px;
+    alignment: start;
+
+    Text {
+        text: root.current_language == "ru" ? "Режим тулчейна (компилятор и эмулятор):" : "Toolchain Mode (Compiler & Emulator):";
+        font-size: 13px;
+        font-weight: 700;
+        color: Theme.accent_yellow;
+    }
+
+    // Choice 1: Default Built-in Toolchain
+    Rectangle {
+        height: 54px;
+        border-radius: 4px;
+        background: root.toolchain_type == 0 ? Theme.bg_surface1 : Theme.editor_bg;
+        border-width: 1px;
+        border-color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.border_normal;
+
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toolchain_type = 0; }
+        }
+
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            spacing: 12px;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    border-width: 2px;
+                    border-color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.text_muted;
+                    background: #00000000;
+
+                    if root.toolchain_type == 0: Rectangle {
+                        x: 3px;
+                        y: 3px;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.accent_blue;
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text {
+                    text: root.current_language == "ru" ? "1) По умолчанию (Встроенный pure-Rust движок)" : "1) Default (Built-in pure-Rust engine)";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.text_primary;
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Встроенный ассемблер и эмулятор intel-8080-kit. Не требует внешних файлов." : "Built-in intel-8080-kit assembler and emulator. Zero external dependencies.";
+                    font-size: 11px;
+                    color: Theme.text_muted;
+                }
+            }
+        }
+    }
+
+    // Choice 2: External Binary Toolchain
+    Rectangle {
+        height: 54px;
+        border-radius: 4px;
+        background: root.toolchain_type == 1 ? Theme.bg_surface1 : Theme.editor_bg;
+        border-width: 1px;
+        border-color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.border_normal;
+
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.toolchain_type = 1; }
+        }
+
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            spacing: 12px;
+
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 8px;
+                    border-width: 2px;
+                    border-color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.text_muted;
+                    background: #00000000;
+
+                    if root.toolchain_type == 1: Rectangle {
+                        x: 3px;
+                        y: 3px;
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.accent_blue;
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text {
+                    text: root.current_language == "ru" ? "2) Путь к бинарнику (Внешние asmx20 + cpmemu)" : "2) Custom Binary Path (External asmx20 + cpmemu)";
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.text_primary;
+                }
+                Text {
+                    text: root.current_language == "ru" ? "Использовать внешние утилиты компилятора и эмулятора по указанным путям." : "Use external compiler and emulator binaries at specified file paths.";
+                    font-size: 11px;
+                    color: Theme.text_muted;
+                }
+            }
+        }
+    }
+
+    if root.toolchain_type == 1: VerticalLayout {
+        spacing: 10px;
+
+        Rectangle {
+            height: 58px;
+            border-radius: 4px;
+            background: Theme.bg_surface1;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru" ? "Путь к компилятору (asmx20):" : "Compiler Path (asmx20):";
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 28px;
+                        background: Theme.editor_bg;
+                        border-radius: 3px;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+                        Text {
+                            x: 8px;
+                            text: root.compiler_path;
+                            font-size: 12px;
+                            color: Theme.text_primary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle {
+                        width: 80px;
+                        height: 28px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface2;
+                        Text {
+                            text: root.current_language == "ru" ? "Обзор..." : "Browse...";
+                            font-size: 12px;
+                            color: Theme.accent_blue;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.browse_compiler(); } }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 58px;
+            border-radius: 4px;
+            background: Theme.bg_surface1;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru" ? "Аргументы компилятора ({input}, {output}):" : "Compiler Arguments ({input}, {output}):";
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                }
+                Rectangle {
+                    height: 28px;
+                    background: Theme.editor_bg;
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Theme.border_normal;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        TextInput {
+                            text <=> root.compiler_args;
+                            font-size: 12px;
+                            color: Theme.text_primary;
+                            vertical-alignment: center;
+                            single-line: true;
+                        }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 58px;
+            border-radius: 4px;
+            background: Theme.bg_surface1;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru" ? "Путь к эмулятору (cpmemu):" : "Emulator Path (cpmemu):";
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 28px;
+                        background: Theme.editor_bg;
+                        border-radius: 3px;
+                        border-width: 1px;
+                        border-color: Theme.border_normal;
+                        Text {
+                            x: 8px;
+                            text: root.emulator_path;
+                            font-size: 12px;
+                            color: Theme.text_primary;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    Rectangle {
+                        width: 80px;
+                        height: 28px;
+                        border-radius: 3px;
+                        background: Theme.bg_surface2;
+                        Text {
+                            text: root.current_language == "ru" ? "Обзор..." : "Browse...";
+                            font-size: 12px;
+                            color: Theme.accent_blue;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.browse_emulator(); } }
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            height: 58px;
+            border-radius: 4px;
+            background: Theme.bg_surface1;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 4px;
+                Text {
+                    text: root.current_language == "ru" ? "Аргументы эмулятора ({output}):" : "Emulator Arguments ({output}):";
+                    font-size: 12px;
+                    color: Theme.text_muted;
+                }
+                Rectangle {
+                    height: 28px;
+                    background: Theme.editor_bg;
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Theme.border_normal;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        TextInput {
+                            text <=> root.emulator_args;
+                            font-size: 12px;
+                            color: Theme.text_primary;
+                            vertical-alignment: center;
+                            single-line: true;
+                        }
+                    }
+                }
+            }
+        }
+
+        Text {
+            text: root.current_language == "ru" ? "Если бинарник не найден или путь недействителен, автоматически применяется тулчейн по умолчанию с предупреждением." : "If binary is not found or path is invalid, default toolchain is automatically applied with a warning.";
+            font-size: 11px;
+            color: Theme.accent_yellow;
+            wrap: word-wrap;
+        }
+    }
+}

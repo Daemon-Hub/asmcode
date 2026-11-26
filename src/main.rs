@@ -14,7 +14,7 @@ use slint::ComponentHandle;
 use std::env;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use ui::{AppWindow, IdeController, setup_ui};
+use ui::{AppWindow, IdeController, WinitEventHub, setup_ui};
 
 fn maximize_window(app: &AppWindow) {
     #[cfg(windows)]
@@ -71,8 +71,10 @@ fn main() -> Result<(), slint::PlatformError> {
     let controller = Arc::new(Mutex::new(IdeController::new(current_dir.clone())));
 
     let app = AppWindow::new()?;
-    setup_ui(&app, Arc::clone(&controller), saved_session);
-    let _terminal_bridge = terminal::TerminalUiBridge::setup(&app, current_dir);
+    let winit_hub = WinitEventHub::default();
+    setup_ui(&app, Arc::clone(&controller), saved_session, &winit_hub);
+    let _terminal_bridge = terminal::TerminalUiBridge::setup(&app, current_dir, &winit_hub);
+    winit_hub.install(app.window());
 
     maximize_window(&app);
 

@@ -1,0 +1,52 @@
+import { Theme } from "../theme.slint";
+
+export component SettingsToggleRow inherits Rectangle {
+    in property <string> label: "";
+    in-out property <bool> checked: false;
+    in property <color> active_color: Theme.accent_blue;
+    callback toggled();
+
+    height: 40px;
+    border-radius: 4px;
+    background: Theme.bg_surface1;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        alignment: space-between;
+
+        Text {
+            text: root.label;
+            font-size: 13px;
+            color: Theme.text_primary;
+            vertical-alignment: center;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 44px;
+                height: 24px;
+                border-radius: 12px;
+                background: root.checked ? root.active_color : Theme.bg_surface2;
+
+                Rectangle {
+                    x: root.checked ? 22px : 2px;
+                    y: 2px;
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 10px;
+                    background: #ffffff;
+                }
+
+                TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => {
+                        root.checked = !root.checked;
+                        root.toggled();
+                    }
+                }
+            }
+        }
+    }
+}

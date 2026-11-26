@@ -1,4 +1,8 @@
 import { Theme } from "theme.slint";
+import { EditorSettingsTab } from "settings/editor_tab.slint";
+import { AppearanceSettingsTab } from "settings/appearance_tab.slint";
+import { LargeFilesSettingsTab } from "settings/large_files_tab.slint";
+import { ToolchainSettingsTab } from "settings/toolchain_tab.slint";
 
 export component SettingsDialog inherits Rectangle {
     in property <string> current_language: "ru";
@@ -21,7 +25,7 @@ export component SettingsDialog inherits Rectangle {
     in-out property <int> hard_limit_mb: 500;
 
     // Toolchain
-    in-out property <int> toolchain_type: 0; // 0 = Default (intel-8080-kit built-in), 1 = External binary
+    in-out property <int> toolchain_type: 0;
     in-out property <string> compiler_path: "";
     in-out property <string> compiler_args: "";
     in-out property <string> emulator_path: "";
@@ -95,7 +99,6 @@ export component SettingsDialog inherits Rectangle {
                     }
                 }
 
-                // Close 'X' Button
                 Rectangle {
                     width: 28px;
                     height: 28px;
@@ -123,7 +126,6 @@ export component SettingsDialog inherits Rectangle {
         HorizontalLayout {
             vertical-stretch: 1;
 
-            // Left Category Tabs Column
             Rectangle {
                 width: 200px;
                 background: Theme.sidebar_bg;
@@ -140,12 +142,11 @@ export component SettingsDialog inherits Rectangle {
                     spacing: 4px;
                     alignment: start;
 
-                    // Tab 0: Editor
                     Rectangle {
                         height: 36px;
                         border-radius: 4px;
                         background: root.active_tab == 0 ? Theme.bg_surface1 : (t0_touch.has-hover ? Theme.menu_hover : #00000000);
-                        t0_touch := TouchArea { clicked => { root.active_tab = 0; } }
+                        t0_touch := TouchArea { mouse-cursor: pointer; clicked => { root.active_tab = 0; } }
                         HorizontalLayout {
                             padding-left: 12px;
                             spacing: 10px;
@@ -160,12 +161,11 @@ export component SettingsDialog inherits Rectangle {
                         }
                     }
 
-                    // Tab 1: Appearance
                     Rectangle {
                         height: 36px;
                         border-radius: 4px;
                         background: root.active_tab == 1 ? Theme.bg_surface1 : (t1_touch.has-hover ? Theme.menu_hover : #00000000);
-                        t1_touch := TouchArea { clicked => { root.active_tab = 1; } }
+                        t1_touch := TouchArea { mouse-cursor: pointer; clicked => { root.active_tab = 1; } }
                         HorizontalLayout {
                             padding-left: 12px;
                             spacing: 10px;
@@ -180,12 +180,11 @@ export component SettingsDialog inherits Rectangle {
                         }
                     }
 
-                    // Tab 2: Large Files
                     Rectangle {
                         height: 36px;
                         border-radius: 4px;
                         background: root.active_tab == 2 ? Theme.bg_surface1 : (t2_touch.has-hover ? Theme.menu_hover : #00000000);
-                        t2_touch := TouchArea { clicked => { root.active_tab = 2; } }
+                        t2_touch := TouchArea { mouse-cursor: pointer; clicked => { root.active_tab = 2; } }
                         HorizontalLayout {
                             padding-left: 12px;
                             spacing: 10px;
@@ -200,12 +199,11 @@ export component SettingsDialog inherits Rectangle {
                         }
                     }
 
-                    // Tab 3: Toolchain
                     Rectangle {
                         height: 36px;
                         border-radius: 4px;
                         background: root.active_tab == 3 ? Theme.bg_surface1 : (t3_touch.has-hover ? Theme.menu_hover : #00000000);
-                        t3_touch := TouchArea { clicked => { root.active_tab = 3; } }
+                        t3_touch := TouchArea { mouse-cursor: pointer; clicked => { root.active_tab = 3; } }
                         HorizontalLayout {
                             padding-left: 12px;
                             spacing: 10px;
@@ -222,7 +220,6 @@ export component SettingsDialog inherits Rectangle {
                 }
             }
 
-            // Right Settings Details Pane
             Rectangle {
                 background: Theme.editor_bg;
                 clip: true;
@@ -232,727 +229,38 @@ export component SettingsDialog inherits Rectangle {
                     spacing: 16px;
                     alignment: start;
 
-                    // TAB 0: EDITOR SETTINGS
-                    if root.active_tab == 0: VerticalLayout {
-                        spacing: 14px;
-                        alignment: start;
-
-                        // Font size
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: (root.current_language == "ru" ? "Размер шрифта: " : "Font size: ") + (root.editor_font_size / 1px) + " px";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        Rectangle {
-                                            width: 32px;
-                                            height: 26px;
-                                            border-radius: 3px;
-                                            background: Theme.bg_surface2;
-                                            Text { text: "-"; font-size: 16px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea {
-                                                clicked => {
-                                                    if root.editor_font_size > 12px { root.editor_font_size -= 2px; }
-                                                }
-                                            }
-                                        }
-                                        Rectangle {
-                                            width: 32px;
-                                            height: 26px;
-                                            border-radius: 3px;
-                                            background: Theme.bg_surface2;
-                                            Text { text: "+"; font-size: 16px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea {
-                                                clicked => {
-                                                    if root.editor_font_size < 36px { root.editor_font_size += 2px; }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Italic font
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: root.current_language == "ru" ? "Курсивный шрифт для директив" : "Italic font for directives";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 44px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: root.editor_font_italic ? Theme.accent_blue : Theme.bg_surface2;
-                                        Rectangle {
-                                            x: root.editor_font_italic ? 22px : 2px;
-                                            y: 2px;
-                                            width: 20px;
-                                            height: 20px;
-                                            border-radius: 10px;
-                                            background: #ffffff;
-                                        }
-                                        TouchArea { clicked => { root.editor_font_italic = !root.editor_font_italic; } }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Cursor blink
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: root.current_language == "ru" ? "Анимация мигания курсора" : "Cursor blinking animation";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 44px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: root.cursor_blink ? Theme.accent_green : Theme.bg_surface2;
-                                        Rectangle {
-                                            x: root.cursor_blink ? 22px : 2px;
-                                            y: 2px;
-                                            width: 20px;
-                                            height: 20px;
-                                            border-radius: 10px;
-                                            background: #ffffff;
-                                        }
-                                        TouchArea { clicked => { root.cursor_blink = !root.cursor_blink; } }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Tab size
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: (root.current_language == "ru" ? "Ширина табуляции: " : "Tab size: ") + root.tab_size + (root.current_language == "ru" ? " пробела" : " spaces");
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        Rectangle {
-                                            width: 38px;
-                                            height: 26px;
-                                            border-radius: 3px;
-                                            background: root.tab_size == 2 ? Theme.accent_blue : Theme.bg_surface2;
-                                            Text { text: "2"; font-size: 12px; font-weight: 700; color: root.tab_size == 2 ? #151518 : Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { root.tab_size = 2; } }
-                                        }
-                                        Rectangle {
-                                            width: 38px;
-                                            height: 26px;
-                                            border-radius: 3px;
-                                            background: root.tab_size == 4 ? Theme.accent_blue : Theme.bg_surface2;
-                                            Text { text: "4"; font-size: 12px; font-weight: 700; color: root.tab_size == 4 ? #151518 : Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { root.tab_size = 4; } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // File association for .asm
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: root.current_language == "ru" ? "Открывать файлы .asm в ASM Code по умолчанию" : "Open .asm files in ASM Code by default";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 44px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: root.associate_asm_files ? Theme.accent_blue : Theme.bg_surface2;
-                                        Rectangle {
-                                            x: root.associate_asm_files ? 22px : 2px;
-                                            y: 2px;
-                                            width: 20px;
-                                            height: 20px;
-                                            border-radius: 10px;
-                                            background: #ffffff;
-                                        }
-                                        TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.associate_asm_files = !root.associate_asm_files;
-                                                root.toggle_associate_asm();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if root.active_tab == 0: EditorSettingsTab {
+                        current_language: root.current_language;
+                        editor_font_size <=> root.editor_font_size;
+                        editor_font_italic <=> root.editor_font_italic;
+                        cursor_blink <=> root.cursor_blink;
+                        tab_size <=> root.tab_size;
+                        associate_asm_files <=> root.associate_asm_files;
+                        toggle_associate_asm => { root.toggle_associate_asm(); }
                     }
 
-                    // TAB 1: APPEARANCE
-                    if root.active_tab == 1: VerticalLayout {
-                        spacing: 14px;
-
-                        // Theme selection
-                        Rectangle {
-                            height: 80px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 8px;
-                                Text {
-                                    text: root.current_language == "ru" ? "Цветовая тема интерфейса:" : "Color Theme:";
-                                    font-size: 13px;
-                                    color: Theme.text_muted;
-                                }
-                                HorizontalLayout {
-                                    spacing: 10px;
-                                    Rectangle {
-                                        height: 32px;
-                                        border-radius: 4px;
-                                        background: root.active_theme_id == 1 ? Theme.accent_blue : Theme.bg_surface2;
-                                        Text {
-                                            text: "Cyberpunk 2077 Red";
-                                            font-size: 12px;
-                                            font-weight: 700;
-                                            color: root.active_theme_id == 1 ? #151518 : Theme.text_primary;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                        TouchArea { clicked => { root.active_theme_id = 1; } }
-                                    }
-                                    Rectangle {
-                                        height: 32px;
-                                        border-radius: 4px;
-                                        background: root.active_theme_id == 0 ? Theme.accent_blue : Theme.bg_surface2;
-                                        Text {
-                                            text: "Catppuccin Dark";
-                                            font-size: 12px;
-                                            font-weight: 700;
-                                            color: root.active_theme_id == 0 ? #151518 : Theme.text_primary;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                        TouchArea { clicked => { root.active_theme_id = 0; } }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Language selection
-                        Rectangle {
-                            height: 80px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            VerticalLayout {
-                                padding: 10px;
-                                spacing: 8px;
-                                Text {
-                                    text: root.current_language == "ru" ? "Язык интерфейса:" : "Interface Language:";
-                                    font-size: 13px;
-                                    color: Theme.text_muted;
-                                }
-                                HorizontalLayout {
-                                    spacing: 10px;
-                                    Rectangle {
-                                        height: 32px;
-                                        border-radius: 4px;
-                                        background: root.selected_language == "ru" ? Theme.accent_green : Theme.bg_surface2;
-                                        Text {
-                                            text: "Русский (RU)";
-                                            font-size: 12px;
-                                            font-weight: 700;
-                                            color: root.selected_language == "ru" ? #151518 : Theme.text_primary;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                        TouchArea { clicked => { root.selected_language = "ru"; } }
-                                    }
-                                    Rectangle {
-                                        height: 32px;
-                                        border-radius: 4px;
-                                        background: root.selected_language == "en" ? Theme.accent_green : Theme.bg_surface2;
-                                        Text {
-                                            text: "English (EN)";
-                                            font-size: 12px;
-                                            font-weight: 700;
-                                            color: root.selected_language == "en" ? #151518 : Theme.text_primary;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                        }
-                                        TouchArea { clicked => { root.selected_language = "en"; } }
-                                    }
-                                }
-                            }
-                        }
+                    if root.active_tab == 1: AppearanceSettingsTab {
+                        current_language: root.current_language;
+                        active_theme_id <=> root.active_theme_id;
+                        selected_language <=> root.selected_language;
                     }
 
-                    // TAB 2: LARGE FILE OPTIMIZATIONS
-                    if root.active_tab == 2: VerticalLayout {
-                        spacing: 14px;
-                        alignment: start;
-
-                        // Enabled toggle
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: root.current_language == "ru" ? "Оптимизация больших файлов" : "Large File Optimizations";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 44px;
-                                        height: 24px;
-                                        border-radius: 12px;
-                                        background: root.large_file_optimizations ? Theme.accent_yellow : Theme.bg_surface2;
-                                        Rectangle {
-                                            x: root.large_file_optimizations ? 22px : 2px;
-                                            y: 2px;
-                                            width: 20px;
-                                            height: 20px;
-                                            border-radius: 10px;
-                                            background: #ffffff;
-                                        }
-                                        TouchArea { clicked => { root.large_file_optimizations = !root.large_file_optimizations; } }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Soft limit MB
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: (root.current_language == "ru" ? "Порог авто-оптимизации: " : "Soft limit: ") + root.soft_limit_mb + " MB";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        Rectangle {
-                                            width: 34px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
-                                            Text { text: "-5"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { if root.soft_limit_mb > 5 { root.soft_limit_mb -= 5; } } }
-                                        }
-                                        Rectangle {
-                                            width: 34px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
-                                            Text { text: "+5"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { if root.soft_limit_mb < 200 { root.soft_limit_mb += 5; } } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Hard limit MB
-                        Rectangle {
-                            height: 40px;
-                            border-radius: 4px;
-                            background: Theme.bg_surface1;
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                alignment: space-between;
-                                Text {
-                                    text: (root.current_language == "ru" ? "Порог предупреждения ОЗУ: " : "Hard limit: ") + root.hard_limit_mb + " MB";
-                                    font-size: 13px;
-                                    color: Theme.text_primary;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        Rectangle {
-                                            width: 44px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
-                                            Text { text: "-50"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { if root.hard_limit_mb > 100 { root.hard_limit_mb -= 50; } } }
-                                        }
-                                        Rectangle {
-                                            width: 44px; height: 26px; border-radius: 3px; background: Theme.bg_surface2;
-                                            Text { text: "+50"; font-size: 12px; color: Theme.text_primary; horizontal-alignment: center; vertical-alignment: center; }
-                                            TouchArea { clicked => { if root.hard_limit_mb < 2000 { root.hard_limit_mb += 50; } } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    if root.active_tab == 2: LargeFilesSettingsTab {
+                        current_language: root.current_language;
+                        large_file_optimizations <=> root.large_file_optimizations;
+                        soft_limit_mb <=> root.soft_limit_mb;
+                        hard_limit_mb <=> root.hard_limit_mb;
                     }
 
-                    // TAB 3: TOOLCHAIN SETTINGS
-                    if root.active_tab == 3: VerticalLayout {
-                        spacing: 12px;
-                        alignment: start;
-
-                        Text {
-                            text: root.current_language == "ru" ? "Режим тулчейна (компилятор и эмулятор):" : "Toolchain Mode (Compiler & Emulator):";
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: Theme.accent_yellow;
-                        }
-
-                        // Choice 1: Default Built-in Toolchain
-                        Rectangle {
-                            height: 54px;
-                            border-radius: 4px;
-                            background: root.toolchain_type == 0 ? Theme.bg_surface1 : Theme.editor_bg;
-                            border-width: 1px;
-                            border-color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.border_normal;
-
-                            TouchArea {
-                                clicked => { root.toolchain_type = 0; }
-                            }
-
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                spacing: 12px;
-
-                                // Radio circle
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 16px;
-                                        height: 16px;
-                                        border-radius: 8px;
-                                        border-width: 2px;
-                                        border-color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.text_muted;
-                                        background: #00000000;
-
-                                        if root.toolchain_type == 0: Rectangle {
-                                            x: 3px;
-                                            y: 3px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 3px;
-                                            background: Theme.accent_blue;
-                                        }
-                                    }
-                                }
-
-                                VerticalLayout {
-                                    alignment: center;
-                                    spacing: 2px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "1) По умолчанию (Встроенный pure-Rust движок)" : "1) Default (Built-in pure-Rust engine)";
-                                        font-size: 13px;
-                                        font-weight: 600;
-                                        color: root.toolchain_type == 0 ? Theme.accent_blue : Theme.text_primary;
-                                    }
-                                    Text {
-                                        text: root.current_language == "ru" ? "Встроенный ассемблер и эмулятор intel-8080-kit. Не требует внешних файлов." : "Built-in intel-8080-kit assembler and emulator. Zero external dependencies.";
-                                        font-size: 11px;
-                                        color: Theme.text_muted;
-                                    }
-                                }
-                            }
-                        }
-
-                        // Choice 2: External Binary Toolchain
-                        Rectangle {
-                            height: 54px;
-                            border-radius: 4px;
-                            background: root.toolchain_type == 1 ? Theme.bg_surface1 : Theme.editor_bg;
-                            border-width: 1px;
-                            border-color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.border_normal;
-
-                            TouchArea {
-                                clicked => { root.toolchain_type = 1; }
-                            }
-
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                spacing: 12px;
-
-                                // Radio circle
-                                VerticalLayout {
-                                    alignment: center;
-                                    Rectangle {
-                                        width: 16px;
-                                        height: 16px;
-                                        border-radius: 8px;
-                                        border-width: 2px;
-                                        border-color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.text_muted;
-                                        background: #00000000;
-
-                                        if root.toolchain_type == 1: Rectangle {
-                                            x: 3px;
-                                            y: 3px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 3px;
-                                            background: Theme.accent_blue;
-                                        }
-                                    }
-                                }
-
-                                VerticalLayout {
-                                    alignment: center;
-                                    spacing: 2px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "2) Путь к бинарнику (Внешние asmx20 + cpmemu)" : "2) Custom Binary Path (External asmx20 + cpmemu)";
-                                        font-size: 13px;
-                                        font-weight: 600;
-                                        color: root.toolchain_type == 1 ? Theme.accent_blue : Theme.text_primary;
-                                    }
-                                    Text {
-                                        text: root.current_language == "ru" ? "Использовать внешние утилиты компилятора и эмулятора по указанным путям." : "Use external compiler and emulator binaries at specified file paths.";
-                                        font-size: 11px;
-                                        color: Theme.text_muted;
-                                    }
-                                }
-                            }
-                        }
-
-                        // When External Binary is selected: show path pickers
-                        if root.toolchain_type == 1: VerticalLayout {
-                            spacing: 10px;
-
-                            // Compiler Path
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 4px;
-                                background: Theme.bg_surface1;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 4px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "Путь к компилятору (asmx20):" : "Compiler Path (asmx20):";
-                                        font-size: 12px;
-                                        color: Theme.text_muted;
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        Rectangle {
-                                            horizontal-stretch: 1;
-                                            height: 28px;
-                                            background: Theme.editor_bg;
-                                            border-radius: 3px;
-                                            border-width: 1px;
-                                            border-color: Theme.border_normal;
-                                            Text {
-                                                x: 8px;
-                                                text: root.compiler_path;
-                                                font-size: 12px;
-                                                color: Theme.text_primary;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                            }
-                                        }
-                                        Rectangle {
-                                            width: 80px;
-                                            height: 28px;
-                                            border-radius: 3px;
-                                            background: Theme.bg_surface2;
-                                            Text {
-                                                text: root.current_language == "ru" ? "Обзор..." : "Browse...";
-                                                font-size: 12px;
-                                                color: Theme.accent_blue;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
-                                            TouchArea { clicked => { root.browse_compiler(); } }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Compiler Arguments
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 4px;
-                                background: Theme.bg_surface1;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 4px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "Аргументы компилятора ({input}, {output}):" : "Compiler Arguments ({input}, {output}):";
-                                        font-size: 12px;
-                                        color: Theme.text_muted;
-                                    }
-                                    Rectangle {
-                                        height: 28px;
-                                        background: Theme.editor_bg;
-                                        border-radius: 3px;
-                                        border-width: 1px;
-                                        border-color: Theme.border_normal;
-                                        HorizontalLayout {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
-                                            TextInput {
-                                                text <=> root.compiler_args;
-                                                font-size: 12px;
-                                                color: Theme.text_primary;
-                                                vertical-alignment: center;
-                                                single-line: true;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Emulator Path
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 4px;
-                                background: Theme.bg_surface1;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 4px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "Путь к эмулятору (cpmemu):" : "Emulator Path (cpmemu):";
-                                        font-size: 12px;
-                                        color: Theme.text_muted;
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 8px;
-                                        Rectangle {
-                                            horizontal-stretch: 1;
-                                            height: 28px;
-                                            background: Theme.editor_bg;
-                                            border-radius: 3px;
-                                            border-width: 1px;
-                                            border-color: Theme.border_normal;
-                                            Text {
-                                                x: 8px;
-                                                text: root.emulator_path;
-                                                font-size: 12px;
-                                                color: Theme.text_primary;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                            }
-                                        }
-                                        Rectangle {
-                                            width: 80px;
-                                            height: 28px;
-                                            border-radius: 3px;
-                                            background: Theme.bg_surface2;
-                                            Text {
-                                                text: root.current_language == "ru" ? "Обзор..." : "Browse...";
-                                                font-size: 12px;
-                                                color: Theme.accent_blue;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                            }
-                                            TouchArea { clicked => { root.browse_emulator(); } }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Emulator Arguments
-                            Rectangle {
-                                height: 58px;
-                                border-radius: 4px;
-                                background: Theme.bg_surface1;
-                                VerticalLayout {
-                                    padding: 6px;
-                                    spacing: 4px;
-                                    Text {
-                                        text: root.current_language == "ru" ? "Аргументы эмулятора ({output}):" : "Emulator Arguments ({output}):";
-                                        font-size: 12px;
-                                        color: Theme.text_muted;
-                                    }
-                                    Rectangle {
-                                        height: 28px;
-                                        background: Theme.editor_bg;
-                                        border-radius: 3px;
-                                        border-width: 1px;
-                                        border-color: Theme.border_normal;
-                                        HorizontalLayout {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
-                                            TextInput {
-                                                text <=> root.emulator_args;
-                                                font-size: 12px;
-                                                color: Theme.text_primary;
-                                                vertical-alignment: center;
-                                                single-line: true;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Fallback Warning Notice
-                            Text {
-                                text: root.current_language == "ru" ? "Если бинарник не найден или путь недействителен, автоматически применяется тулчейн по умолчанию с предупреждением." : "If binary is not found or path is invalid, default toolchain is automatically applied with a warning.";
-                                font-size: 11px;
-                                color: Theme.accent_yellow;
-                                wrap: word-wrap;
-                            }
-                        }
+                    if root.active_tab == 3: ToolchainSettingsTab {
+                        current_language: root.current_language;
+                        toolchain_type <=> root.toolchain_type;
+                        compiler_path <=> root.compiler_path;
+                        compiler_args <=> root.compiler_args;
+                        emulator_path <=> root.emulator_path;
+                        emulator_args <=> root.emulator_args;
+                        browse_compiler => { root.browse_compiler(); }
+                        browse_emulator => { root.browse_emulator(); }
                     }
                 }
             }
@@ -977,7 +285,6 @@ export component SettingsDialog inherits Rectangle {
                 padding-right: 16px;
                 alignment: space-between;
 
-                // Reset Defaults
                 Rectangle {
                     width: 160px;
                     height: 32px;
@@ -1004,7 +311,6 @@ export component SettingsDialog inherits Rectangle {
                 HorizontalLayout {
                     spacing: 10px;
 
-                    // Close Button
                     Rectangle {
                         width: 90px;
                         height: 32px;
@@ -1029,7 +335,6 @@ export component SettingsDialog inherits Rectangle {
                         }
                     }
 
-                    // Save Button
                     Rectangle {
                         width: 150px;
                         height: 32px;
