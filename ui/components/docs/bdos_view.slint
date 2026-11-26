@@ -119,10 +119,11 @@ export component BdosView inherits VerticalLayout {
                 }
                 Text {
                     text: root.current_language == "ru"
-                        ? "Стандартные коды ошибок: 00h = Успешно, FFh = Ошибка (файл не найден, диск переполнен или защищен от записи)."
-                        : "Standard return error codes: 00h = Success, FFh = Error (file not found, disk full, or write-protected).";
+                        ? "Коды возврата: 00h = Успех, FFh = Ошибка. Встроенный intel-8080-kit выполняет 00h, 02h, 09h; ввод (01h, 0Ah) и дисковые функции требуют внешний cpmemu."
+                        : "Return codes: 00h = Success, FFh = Error. Built-in intel-8080-kit supports 00h, 02h, 09h; input (01h, 0Ah) and disk calls require external cpmemu.";
                     font-size: 13px;
                     color: Theme.text_muted;
+                    wrap: word-wrap;
                 }
             }
         }
@@ -374,7 +375,9 @@ export component BdosView inherits VerticalLayout {
                                 }
 
                                 Text {
-                                    text: root.expanded_func_num == func.func_num ? "▲ Свернуть" : "▼ Подробнее";
+                                    text: root.expanded_func_num == func.func_num
+                                        ? (root.current_language == "ru" ? "▲ Свернуть" : "▲ Collapse")
+                                        : (root.current_language == "ru" ? "▼ Подробнее" : "▼ Details");
                                     font-size: 13px;
                                     color: Theme.accent_blue;
                                     vertical-alignment: center;

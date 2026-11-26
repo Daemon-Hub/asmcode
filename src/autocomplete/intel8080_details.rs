@@ -173,16 +173,16 @@ pub fn get_detailed_description(name: &str, lang: &str) -> &'static str {
         }
         "ANA" => {
             if lang == "ru" {
-                "Побитовое логическое И (AND) аккумулятора A с регистром r или памятью: A = A & r. Флаг переноса CY сбрасывается в 0, флаг AC выставляется по старшей тетраде."
+                "Побитовое логическое И (AND) аккумулятора A с регистром r или памятью: A = A & r. Флаг переноса CY сбрасывается в 0, а флаг AC устанавливается в логическое ИЛИ 3-го бита (бит 3 младшей тетрады) операндов."
             } else {
-                "Bitwise AND of accumulator A with register or memory: A = A & r. Clears CY."
+                "Bitwise AND of accumulator A with register or memory: A = A & r. Clears CY and sets AC to logical OR of bit 3 of both operands."
             }
         }
         "ANI" => {
             if lang == "ru" {
-                "Побитовое логическое И (AND) аккумулятора A с 8-битной непосредственной маской: A = A & data8. Сбрасывает Carry CY в 0."
+                "Побитовое логическое И (AND) аккумулятора A с 8-битной непосредственной маской: A = A & data8. Сбрасывает Carry CY в 0 и устанавливает AC как ИЛИ 3-го бита операндов."
             } else {
-                "Bitwise AND of accumulator A with immediate 8-bit mask: A = A & data8. Clears CY."
+                "Bitwise AND of accumulator A with immediate 8-bit mask: A = A & data8. Clears CY and sets AC to OR of bit 3 of operands."
             }
         }
         "XRA" => {
@@ -1163,6 +1163,34 @@ pub fn get_when_to_use(name: &str, lang: &str) -> &'static str {
                 "For early return when signed calculation yields a negative value."
             }
         }
+        "CNZ" => {
+            if lang == "ru" {
+                "Для условного вызова обработчика только когда результат операции не равен нулю (Z = 0)."
+            } else {
+                "To conditionally call a subroutine only when the previous result is non-zero (Z = 0)."
+            }
+        }
+        "CZ" => {
+            if lang == "ru" {
+                "Для условного вызова подпрограммы при точном совпадении значений или обнулении счетчика (Z = 1)."
+            } else {
+                "To conditionally call a subroutine on exact match or zero counter (Z = 1)."
+            }
+        }
+        "RNZ" => {
+            if lang == "ru" {
+                "Для досрочного выхода из подпрограммы при ненулевом статусе или коде ошибки (Z = 0)."
+            } else {
+                "For early return from a subroutine on a non-zero result or status code (Z = 0)."
+            }
+        }
+        "RZ" => {
+            if lang == "ru" {
+                "Для немедленного возврата из подпрограммы при достижении нуля или конца строки/таблицы (Z = 1)."
+            } else {
+                "For immediate return from a subroutine when zero or terminator is reached (Z = 1)."
+            }
+        }
         "RST" => {
             if lang == "ru" {
                 "Для сверхбыстрого вызова критических сервисов ОС или создания точек останова отладчика (RST 7 = 38h)."
@@ -1336,14 +1364,14 @@ pub fn get_notes(name: &str, lang: &str) -> &'static str {
                 "All conditional jumps on Intel 8080 consume exactly 10 cycles regardless of condition outcome."
             }
         }
-        "CNC" | "CC" | "CPO" | "CPE" | "CP" | "CM" => {
+        "CNZ" | "CZ" | "CNC" | "CC" | "CPO" | "CPE" | "CP" | "CM" => {
             if lang == "ru" {
                 "Выполняется за 11 тактов при ложном условии (переход не совершен) и за 17 тактов при истинном условии."
             } else {
                 "Consumes 11 cycles when false (no call) and 17 cycles when condition is true."
             }
         }
-        "RNC" | "RC" | "RPO" | "RPE" | "RP" | "RM" => {
+        "RNZ" | "RZ" | "RNC" | "RC" | "RPO" | "RPE" | "RP" | "RM" => {
             if lang == "ru" {
                 "Выполняется за 5 тактов, если условие ложно, и за 11 тактов при истинном условии возврата."
             } else {
@@ -1352,16 +1380,32 @@ pub fn get_notes(name: &str, lang: &str) -> &'static str {
         }
         "RST" => {
             if lang == "ru" {
-                "Занимает всего 1 байт и выполняется за 11 тактов. Вектор 38h зарезервирован под отладчик DDT."
+                "Занимает всего 1 байт и выполняется за 11 тактов. Вектор 38h зарезервирован под отладчик DDT. Встроенный ассемблер intel-8080-kit не поддерживает RST (используйте внешний asmx20)."
             } else {
-                "Occupies only 1 byte and executes in 11 cycles. Vector 38h (RST 7) is reserved for DDT debugger."
+                "Occupies only 1 byte and executes in 11 cycles. Vector 38h (RST 7) is reserved for DDT debugger. Note: built-in intel-8080-kit assembler does not support RST (use external asmx20)."
             }
         }
         "SET" => {
             if lang == "ru" {
-                "Не генерирует машинного кода. Допускает многократное переопределение одного и того же символа."
+                "Не генерирует машинного кода. Допускает многократное переопределение символа. Встроенный ассемблер intel-8080-kit не поддерживает SET (используйте EQU или внешний asmx20)."
             } else {
-                "Generates no machine code. Permits repeated redefinition of the same symbol in source code."
+                "Generates no machine code. Permits symbol redefinition. Note: built-in intel-8080-kit assembler does not support SET (use EQU or external asmx20)."
+            }
+        }
+        "LDA" | "STA" | "LHLD" | "SHLD" | "LDAX" | "STAX" | "XCHG" | "XTHL" | "SPHL"
+        | "JMP" | "JNZ" | "JZ" | "JNC" | "JC" | "CALL" | "RET" | "IN" | "OUT" | "EI" | "DI"
+        | "NOP" => {
+            if lang == "ru" {
+                "Флаги процессора не изменяются."
+            } else {
+                "Processor flags are unaffected."
+            }
+        }
+        "DB" | "DW" | "DS" | "END" => {
+            if lang == "ru" {
+                "Директива ассемблера; флаги процессора не затрагивает."
+            } else {
+                "Assembler directive; does not affect CPU flags."
             }
         }
         _ => {
@@ -1897,7 +1941,7 @@ MASK16:  dw 0FFFFh"
 ; Резервирование неинициализированной памяти
 BUFFER: ds 128           ; 128 байт под дисковый буфер
 STACK:  ds 64            ; 64 байта под локальный стек
-STACK_TOP: equ $         ; Вершина стека"
+STACK_TOP:               ; Метка вершины стека"
         }
 
         "END" => {
